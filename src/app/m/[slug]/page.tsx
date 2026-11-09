@@ -206,7 +206,10 @@ function DinerMenuContent() {
   const { restaurant, settings } = data;
 
   return (
-    <div style={themeVars} className="min-h-screen bg-[var(--dishora-bg)] text-[var(--dishora-text)] pb-28">
+    <div
+      style={{ fontFamily: 'var(--font-body)', ...themeVars }}
+      className="min-h-screen bg-[var(--dishora-bg)] text-[var(--dishora-text)] pb-28"
+    >
       {/* Brand Header */}
       <header className="relative w-full bg-[var(--dishora-surface)] border-b border-[var(--dishora-border)] shadow-sm">
         {restaurant.coverUrl && (

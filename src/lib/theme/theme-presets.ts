@@ -145,6 +145,12 @@ export function generateThemeVariables(theme: ThemeConfig): React.CSSProperties 
   const buttonRadius =
     theme.buttonStyle === 'pill' ? '9999px' : theme.buttonStyle === 'sharp' ? '4px' : '14px';
 
+  const headingFontClean = theme.headingFont || 'Instrument Serif';
+  const bodyFontClean = theme.bodyFont || 'DM Sans';
+
+  const headingFontCss = `'${headingFontClean}', Georgia, serif`;
+  const bodyFontCss = `'${bodyFontClean}', -apple-system, BlinkMacSystemFont, sans-serif`;
+
   return {
     '--dishora-bg': theme.backgroundColor,
     '--dishora-surface': theme.surfaceColor,
@@ -156,8 +162,10 @@ export function generateThemeVariables(theme: ThemeConfig): React.CSSProperties 
     '--dishora-card-radius': theme.cardRadius || '16px',
     '--dishora-button-radius': buttonRadius,
     '--card-radius': theme.cardRadius || '16px',
-    '--font-heading': theme.headingFont,
-    '--font-body': theme.bodyFont,
+    '--font-heading': headingFontCss,
+    '--font-body': bodyFontCss,
+    '--font-serif': headingFontCss,
+    '--font-sans': bodyFontCss,
   } as React.CSSProperties;
 }
 

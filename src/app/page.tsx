@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Sparkles,
@@ -19,6 +19,27 @@ import { PLAN_CATALOG } from '@/lib/payments/plans';
 
 export default function MarketingLandingPage() {
   const [pricingCountry, setPricingCountry] = useState<'IN' | 'US'>('IN');
+
+  useEffect(() => {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      const lang = navigator.language || '';
+      if (
+        tz.includes('America') ||
+        tz.includes('US/') ||
+        tz.includes('Pacific') ||
+        tz.includes('New_York') ||
+        tz.includes('Chicago') ||
+        tz.includes('Denver') ||
+        tz.includes('Los_Angeles') ||
+        lang === 'en-US'
+      ) {
+        setPricingCountry('US');
+      } else {
+        setPricingCountry('IN');
+      }
+    } catch (e) {}
+  }, []);
 
   const plans = Object.values(PLAN_CATALOG).filter((p) => p.country === pricingCountry);
 

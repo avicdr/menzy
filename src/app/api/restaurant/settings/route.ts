@@ -93,6 +93,17 @@ export async function PATCH(req: Request) {
       data: restaurantUpdates,
     });
 
+    // Update organization billing region if country or currency changed
+    if (updatedRestaurant.organizationId && (country || currency)) {
+      await prisma.organization.update({
+        where: { id: updatedRestaurant.organizationId },
+        data: {
+          ...(country ? { billingCountry: country } : {}),
+          ...(currency ? { billingCurrency: currency } : {}),
+        },
+      });
+    }
+
     // 2. Upsert RestaurantSettings
     const settingsUpdates: any = {};
     if (welcomeMessage !== undefined) settingsUpdates.welcomeMessage = welcomeMessage;
@@ -128,3 +139,4 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
+

@@ -29,7 +29,7 @@ export function DishCard({ item, layoutMode = 'GRID', onSelect }: DishCardProps)
         <div className="flex-1 pr-4">
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             {indianMarker && <FssaiMarker type={indianMarker} size="md" />}
-            <h3 className="font-semibold text-base sm:text-lg text-[var(--dishora-text)] group-hover:text-[var(--dishora-accent)] transition-colors">
+            <h3 className="font-serif font-bold text-base sm:text-lg text-[var(--dishora-text)] group-hover:text-[var(--dishora-accent)] transition-colors">
               {item.customName}
             </h3>
             {item.isPopular && (

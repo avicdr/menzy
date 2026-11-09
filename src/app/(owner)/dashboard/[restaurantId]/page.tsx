@@ -93,6 +93,15 @@ function RestaurantDashboardContent() {
   const [editDishIsAvailable, setEditDishIsAvailable] = useState(true);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
+  // Delete Dish State (On-Screen Confirm Modal)
+  const [dishToDelete, setDishToDelete] = useState<any | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeletingDish, setIsDeletingDish] = useState(false);
+  const [deleteToast, setDeleteToast] = useState<string | null>(null);
+
+  // Billing Region View
+  const [billingCountryFilter, setBillingCountryFilter] = useState<'IN' | 'US' | null>(null);
+
   // Candidate Image Review (Accept / Reject Workflow)
   const [candidateReview, setCandidateReview] = useState<{
     item: any;
@@ -202,6 +211,12 @@ function RestaurantDashboardContent() {
             setBillingUsage(billData);
           }
 
+          // Load real analytics metrics
+          fetch(`/api/restaurant/analytics?restaurantId=${targetRest.id}`)
+            .then((r) => r.json())
+            .then((aData) => setAnalyticsData(aData))
+            .catch(() => {});
+
           // Load theme & settings
           const dinerRes = await fetch(`/api/diner/menu?slug=${targetRest.slug}`);
           if (dinerRes.ok) {
@@ -282,14 +297,37 @@ function RestaurantDashboardContent() {
     });
   };
 
-  // Delete dish
-  const handleDeleteDish = async (itemId: string) => {
-    if (!confirm('Are you sure you want to remove this dish?')) return;
-    setMenuItems((prev) => prev.filter((i) => i.id !== itemId));
+  // Prompt on-screen delete dish confirmation modal
+  const handlePromptDeleteDish = (item: any) => {
+    setDishToDelete(item);
+    setIsDeleteDialogOpen(true);
+  };
 
-    await fetch(`/api/menus/items?itemId=${itemId}&restaurantId=${restaurant.id}`, {
-      method: 'DELETE',
-    });
+  // Confirm delete dish without browser alert popup
+  const handleConfirmDeleteDish = async () => {
+    if (!dishToDelete) return;
+    setIsDeletingDish(true);
+    try {
+      const res = await fetch(
+        `/api/menus/items?itemId=${dishToDelete.id}&restaurantId=${restaurant.id}`,
+        {
+          method: 'DELETE',
+        }
+      );
+      if (res.ok) {
+        setMenuItems((prev) => prev.filter((i) => i.id !== dishToDelete.id));
+        setDeleteToast(`"${dishToDelete.customName}" was removed from your menu.`);
+        setTimeout(() => setDeleteToast(null), 3500);
+        setIsDeleteDialogOpen(false);
+        setDishToDelete(null);
+      } else {
+        alert('Failed to delete dish');
+      }
+    } catch (err) {
+      alert('Error deleting dish');
+    } finally {
+      setIsDeletingDish(false);
+    }
   };
 
   // Derived unique categories
@@ -770,10 +808,18 @@ function RestaurantDashboardContent() {
 
               <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
                 <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">QR Scans Today</span>
-                <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2">42</div>
-                <div className="text-[11px] sm:text-xs text-sage-700 mt-1 flex items-center gap-1">
-                  <TrendingUp className="w-3.5 h-3.5 shrink-0" /> Active engagement
+                <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2">
+                  {analyticsData?.scans?.today ?? 0}
                 </div>
+                {(analyticsData?.scans?.today ?? 0) > 0 ? (
+                  <div className="text-[11px] sm:text-xs text-sage-700 mt-1 flex items-center gap-1">
+                    <TrendingUp className="w-3.5 h-3.5 shrink-0" /> Active engagement
+                  </div>
+                ) : (
+                  <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
+                    No scans yet today
+                  </div>
+                )}
               </div>
 
               <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
@@ -888,6 +934,14 @@ function RestaurantDashboardContent() {
                 </button>
               </div>
             </div>
+
+            {/* Delete Toast Notification */}
+            {deleteToast && (
+              <div className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in shadow-xs">
+                <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
+                <span>{deleteToast}</span>
+              </div>
+            )}
 
             {/* Upload Progress Alert */}
             {isUploadingMenu && (
@@ -1118,7 +1172,7 @@ function RestaurantDashboardContent() {
                                 </button>
                                 {/* Delete Dish */}
                                 <button
-                                  onClick={() => handleDeleteDish(item.id)}
+                                  onClick={() => handlePromptDeleteDish(item)}
                                   className="p-1.5 text-taupe-400 hover:text-red-600 transition-colors rounded-lg hover:bg-cream-100"
                                   title="Delete dish"
                                 >
@@ -1635,6 +1689,56 @@ function RestaurantDashboardContent() {
                 </div>
               </div>
             )}
+
+            {/* =========================================================================
+                MODAL: ON-SCREEN DELETE DISH CONFIRMATION
+            ========================================================================= */}
+            {isDeleteDialogOpen && dishToDelete && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-espresso-900/60 backdrop-blur-sm animate-fade-in">
+                <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-sheet space-y-4 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto border border-red-200">
+                    <Trash2 className="w-7 h-7" />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <h3 className="font-serif text-xl font-bold text-espresso-900">
+                      Remove Dish from Menu?
+                    </h3>
+                    <p className="text-xs sm:text-sm text-taupe-600 leading-relaxed">
+                      Are you sure you want to remove <strong className="text-espresso-900 font-semibold">"{dishToDelete.customName}"</strong>? This will instantly remove it from your live visual menu and diner QR experience.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-center gap-3 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDeleteDialogOpen(false);
+                        setDishToDelete(null);
+                      }}
+                      disabled={isDeletingDish}
+                      className="flex-1 py-2.5 px-4 text-xs sm:text-sm font-semibold text-taupe-700 bg-cream-100 hover:bg-cream-200 rounded-xl transition-colors"
+                    >
+                      Cancel
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleConfirmDeleteDish}
+                      disabled={isDeletingDish}
+                      className="flex-1 py-2.5 px-4 text-xs sm:text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      {isDeletingDish ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                      {isDeletingDish ? 'Removing...' : 'Yes, Remove Dish'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1977,27 +2081,40 @@ function RestaurantDashboardContent() {
                   <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
                     Typography & Corners
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
                       <span className="block text-xs font-medium text-taupe-600 mb-1">Heading Font</span>
                       <select
                         value={themeState.headingFont}
                         onChange={(e) => setThemeState({ ...themeState, headingFont: e.target.value })}
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white"
+                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
                       >
                         <option value="Instrument Serif">Instrument Serif (Warm Editorial)</option>
                         <option value="DM Serif Display">DM Serif Display (Modern Elegance)</option>
                         <option value="Playfair Display">Playfair Display (Botanical Classic)</option>
-                        <option value="DM Sans">DM Sans (Contemporary Clean)</option>
+                        <option value="DM Sans">DM Sans (Clean Contemporary)</option>
                       </select>
                     </div>
 
                     <div>
-                      <span className="block text-xs font-medium text-taupe-600 mb-1">Button Style</span>
+                      <span className="block text-xs font-medium text-taupe-600 mb-1">Body Text Font</span>
+                      <select
+                        value={themeState.bodyFont}
+                        onChange={(e) => setThemeState({ ...themeState, bodyFont: e.target.value })}
+                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
+                      >
+                        <option value="DM Sans">DM Sans (Balanced Modern)</option>
+                        <option value="Manrope">Manrope (Clean Geometric)</option>
+                        <option value="Plus Jakarta Sans">Plus Jakarta Sans (Contemporary)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <span className="block text-xs font-medium text-taupe-600 mb-1">Button Corners</span>
                       <select
                         value={themeState.buttonStyle}
                         onChange={(e) => setThemeState({ ...themeState, buttonStyle: e.target.value as any })}
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white"
+                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
                       >
                         <option value="rounded">Rounded Corners (14px)</option>
                         <option value="pill">Pill Shape (Full Rounded)</option>
@@ -2014,6 +2131,7 @@ function RestaurantDashboardContent() {
                   className="w-full max-w-[340px] rounded-[44px] border-[10px] border-espresso-900 shadow-lifted overflow-hidden flex flex-col h-[640px] relative mx-auto transition-colors duration-300"
                   style={{
                     backgroundColor: themeState.backgroundColor,
+                    fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
                     ...generateThemeVariables(themeState),
                   }}
                 >
@@ -2031,7 +2149,7 @@ function RestaurantDashboardContent() {
                     <h3
                       className="text-lg font-bold truncate"
                       style={{
-                        fontFamily: themeState.headingFont,
+                        fontFamily: `'${themeState.headingFont}', Georgia, serif`,
                         color: themeState.primaryTextColor,
                       }}
                     >
@@ -2043,15 +2161,19 @@ function RestaurantDashboardContent() {
                         style={{
                           backgroundColor: `${themeState.accentColor}20`,
                           color: themeState.accentColor,
+                          fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
                         }}
                       >
                         {themeState.layoutMode === 'GRID' ? 'Grid Mode' : 'List Mode'}
                       </span>
                       <span
                         className="text-[10px]"
-                        style={{ color: themeState.secondaryTextColor }}
+                        style={{
+                          color: themeState.secondaryTextColor,
+                          fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
+                        }}
                       >
-                        {themeState.presetKey.replace(/_/g, ' ')}
+                        {themeState.headingFont} • {themeState.bodyFont}
                       </span>
                     </div>
                   </div>
@@ -2067,6 +2189,7 @@ function RestaurantDashboardContent() {
                           backgroundColor: idx === 0 ? themeState.accentColor : themeState.surfaceColor,
                           color: idx === 0 ? '#FFFFFF' : themeState.primaryTextColor,
                           border: `1px solid ${idx === 0 ? themeState.accentColor : 'var(--dishora-border)'}`,
+                          fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
                         }}
                       >
                         {cat}
@@ -2096,7 +2219,11 @@ function RestaurantDashboardContent() {
                                 {item.isPopular && (
                                   <span
                                     className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-xs"
-                                    style={{ backgroundColor: themeState.accentColor, color: '#FFFFFF' }}
+                                    style={{
+                                      backgroundColor: themeState.accentColor,
+                                      color: '#FFFFFF',
+                                      fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
+                                    }}
                                   >
                                     Popular
                                   </span>
@@ -2106,7 +2233,7 @@ function RestaurantDashboardContent() {
                                 <div
                                   className="font-semibold text-[11px] truncate"
                                   style={{
-                                    fontFamily: themeState.headingFont,
+                                    fontFamily: `'${themeState.headingFont}', Georgia, serif`,
                                     color: themeState.primaryTextColor,
                                   }}
                                 >
@@ -2114,13 +2241,19 @@ function RestaurantDashboardContent() {
                                 </div>
                                 <div
                                   className="text-[9px] line-clamp-1"
-                                  style={{ color: themeState.secondaryTextColor }}
+                                  style={{
+                                    fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
+                                    color: themeState.secondaryTextColor,
+                                  }}
                                 >
                                   {item.restaurantDescription || 'Chef recipe'}
                                 </div>
                                 <div
                                   className="font-bold text-xs pt-0.5"
-                                  style={{ color: themeState.accentColor }}
+                                  style={{
+                                    color: themeState.accentColor,
+                                    fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
+                                  }}
                                 >
                                   {formatCurrencyMinor(item.priceMinor || 0, item.currency)}
                                 </div>
@@ -2154,7 +2287,7 @@ function RestaurantDashboardContent() {
                                   <span
                                     className="font-semibold text-xs truncate"
                                     style={{
-                                      fontFamily: themeState.headingFont,
+                                      fontFamily: `'${themeState.headingFont}', Georgia, serif`,
                                       color: themeState.primaryTextColor,
                                     }}
                                   >
@@ -2162,14 +2295,20 @@ function RestaurantDashboardContent() {
                                   </span>
                                   <span
                                     className="font-bold text-xs shrink-0"
-                                    style={{ color: themeState.accentColor }}
+                                    style={{
+                                      color: themeState.accentColor,
+                                      fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
+                                    }}
                                   >
                                     {formatCurrencyMinor(item.priceMinor || 0, item.currency)}
                                   </span>
                                 </div>
                                 <p
                                   className="text-[10px] line-clamp-1 mt-0.5"
-                                  style={{ color: themeState.secondaryTextColor }}
+                                  style={{
+                                    color: themeState.secondaryTextColor,
+                                    fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
+                                  }}
                                 >
                                   {item.restaurantDescription || 'Culinary recipe'}
                                 </p>
@@ -2716,7 +2855,17 @@ function RestaurantDashboardContent() {
                     <label className="block text-xs font-semibold text-taupe-600 mb-1">Country</label>
                     <select
                       value={settingsForm.country}
-                      onChange={(e) => setSettingsForm({ ...settingsForm, country: e.target.value })}
+                      onChange={(e) => {
+                        const newCountry = e.target.value;
+                        const newCurrency = newCountry === 'US' ? 'USD' : 'INR';
+                        const newTz = newCountry === 'US' ? 'America/New_York' : 'Asia/Kolkata';
+                        setSettingsForm({
+                          ...settingsForm,
+                          country: newCountry,
+                          currency: newCurrency,
+                          timezone: newTz,
+                        });
+                      }}
                       className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white"
                     >
                       <option value="IN">India (IN)</option>
@@ -2841,62 +2990,110 @@ function RestaurantDashboardContent() {
             </div>
 
             {/* Available Plans Catalog */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
-              {Object.values(PLAN_CATALOG)
-                .filter((p) => p.country === restaurant.country)
-                .map((plan) => {
-                  const isCurrent = billingUsage?.plan?.key === plan.key;
-                  return (
-                    <div
-                      key={plan.key}
-                      className={`p-6 bg-white rounded-3xl border flex flex-col justify-between shadow-soft ${
-                        isCurrent ? 'border-terracotta ring-2 ring-terracotta/20' : 'border-cream-200'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-serif text-lg font-bold text-espresso-900">{plan.name}</h4>
-                          {isCurrent && (
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-terracotta bg-terracotta-50 px-2 py-0.5 rounded-full">
-                              Current
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-2xl font-bold text-espresso-900 mb-4">{plan.monthlyPriceFormatted}</div>
+            {(() => {
+              const activeBillingCountry: 'IN' | 'US' =
+                billingCountryFilter ||
+                (restaurant?.country === 'US' || restaurant?.currency === 'USD' ? 'US' : 'IN');
 
-                        <ul className="space-y-2 text-xs text-taupe-600 mb-6">
-                          <li>• Up to {plan.itemLimit > 1000 ? 'Unlimited' : plan.itemLimit} menu dishes</li>
-                          <li>• {plan.imageCreditsMonthly} custom 3D image credits / mo</li>
-                          <li>• {plan.aiQuestionsMonthly.toLocaleString()} AI diner queries / mo</li>
-                          <li>• Grounded Gemini conversational waiter</li>
-                        </ul>
-                      </div>
+              return (
+                <div className="space-y-4 pt-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-white rounded-2xl border border-cream-200">
+                    <div>
+                      <h3 className="font-serif text-lg font-bold text-espresso-900">
+                        Available Subscription Tiers
+                      </h3>
+                      <p className="text-xs text-taupe-500">
+                        {activeBillingCountry === 'US'
+                          ? 'United States Dollar (USD $) billing plans'
+                          : 'India Rupee (INR ₹) billing plans'}
+                      </p>
+                    </div>
 
+                    <div className="flex items-center gap-1.5 p-1 bg-cream-100 rounded-xl border border-cream-200">
                       <button
-                        onClick={async () => {
-                          const res = await fetch('/api/billing/create-subscription', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              restaurantId: restaurant.id,
-                              planKey: plan.key,
-                            }),
-                          });
-                          const data = await res.json();
-                          alert(`Razorpay checkout initialized for ${plan.name} (Sub ID: ${data.subscriptionId})`);
-                        }}
-                        className={`w-full py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
-                          isCurrent
-                            ? 'bg-cream-200 text-espresso-700 cursor-default'
-                            : 'bg-espresso-900 text-white hover:bg-espresso-800'
+                        type="button"
+                        onClick={() => setBillingCountryFilter('US')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                          activeBillingCountry === 'US'
+                            ? 'bg-espresso-900 text-white shadow-xs'
+                            : 'text-taupe-700 hover:text-espresso-900'
                         }`}
                       >
-                        {isCurrent ? 'Current Plan' : 'Select Plan'}
+                        🇺🇸 US ($ USD Plans)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBillingCountryFilter('IN')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                          activeBillingCountry === 'IN'
+                            ? 'bg-espresso-900 text-white shadow-xs'
+                            : 'text-taupe-700 hover:text-espresso-900'
+                        }`}
+                      >
+                        🇮🇳 India (₹ INR Plans)
                       </button>
                     </div>
-                  );
-                })}
-            </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {Object.values(PLAN_CATALOG)
+                      .filter((p) => p.country === activeBillingCountry)
+                      .map((plan) => {
+                        const isCurrent = billingUsage?.plan?.key === plan.key;
+                        return (
+                          <div
+                            key={plan.key}
+                            className={`p-6 bg-white rounded-3xl border flex flex-col justify-between shadow-soft ${
+                              isCurrent ? 'border-terracotta ring-2 ring-terracotta/20' : 'border-cream-200'
+                            }`}
+                          >
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <h4 className="font-serif text-lg font-bold text-espresso-900">{plan.name}</h4>
+                                {isCurrent && (
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-terracotta bg-terracotta-50 px-2 py-0.5 rounded-full">
+                                    Current
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-2xl font-bold text-espresso-900 mb-4">{plan.monthlyPriceFormatted}</div>
+
+                              <ul className="space-y-2 text-xs text-taupe-600 mb-6">
+                                <li>• Up to {plan.itemLimit > 1000 ? 'Unlimited' : plan.itemLimit} menu dishes</li>
+                                <li>• {plan.imageCreditsMonthly} custom 3D image credits / mo</li>
+                                <li>• {plan.aiQuestionsMonthly.toLocaleString()} AI diner queries / mo</li>
+                                <li>• Grounded Gemini conversational waiter</li>
+                              </ul>
+                            </div>
+
+                            <button
+                              onClick={async () => {
+                                const res = await fetch('/api/billing/create-subscription', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    restaurantId: restaurant.id,
+                                    planKey: plan.key,
+                                  }),
+                                });
+                                const data = await res.json();
+                                alert(`Razorpay checkout initialized for ${plan.name} (Sub ID: ${data.subscriptionId})`);
+                              }}
+                              className={`w-full py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+                                isCurrent
+                                  ? 'bg-cream-200 text-espresso-700 cursor-default'
+                                  : 'bg-espresso-900 text-white hover:bg-espresso-800'
+                              }`}
+                            >
+                              {isCurrent ? 'Current Plan' : 'Select Plan'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </main>

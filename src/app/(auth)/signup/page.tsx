@@ -19,6 +19,46 @@ function SignupForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Auto-detect country/currency based on URL params or visitor locale & timezone
+  React.useEffect(() => {
+    try {
+      const urlCountry = searchParams.get('country') || searchParams.get('region');
+      const urlPlan = searchParams.get('plan');
+      if (urlCountry) {
+        setCountry(urlCountry.toUpperCase() === 'US' ? 'US' : 'IN');
+        return;
+      }
+      if (urlPlan) {
+        setCountry(urlPlan.startsWith('US_') ? 'US' : 'IN');
+        return;
+      }
+
+      // Geo-heuristic from client browser timezone & locale
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      const lang = navigator.language || '';
+      const isUS =
+        tz.includes('America') ||
+        tz.includes('US/') ||
+        tz.includes('Pacific') ||
+        tz.includes('New_York') ||
+        tz.includes('Chicago') ||
+        tz.includes('Denver') ||
+        tz.includes('Los_Angeles') ||
+        tz.includes('Phoenix') ||
+        tz.includes('Detroit') ||
+        tz.includes('Indiana') ||
+        lang === 'en-US';
+
+      if (isUS) {
+        setCountry('US');
+      } else {
+        setCountry('IN');
+      }
+    } catch (e) {
+      // Default to IN safely
+    }
+  }, [searchParams]);
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);

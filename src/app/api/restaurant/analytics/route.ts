@@ -99,22 +99,22 @@ export async function GET(req: Request) {
       };
     });
 
-    // Fallback if no events yet: highlight popular & chef-recommended items
+    // If no interaction events yet, display menu items with 0 interactions
     if (topDishes.length === 0 && menuItems.length > 0) {
       topDishes = menuItems
         .filter((item) => item.isPopular || item.chefRecommended)
         .slice(0, 5)
-        .map((item, idx) => ({
+        .map((item) => ({
           id: item.id,
           name: item.customName,
-          interactions: Math.max(12, 48 - idx * 7),
+          interactions: 0,
         }));
 
       if (topDishes.length === 0) {
-        topDishes = menuItems.slice(0, 5).map((item, idx) => ({
+        topDishes = menuItems.slice(0, 5).map((item) => ({
           id: item.id,
           name: item.customName,
-          interactions: Math.max(5, 25 - idx * 4),
+          interactions: 0,
         }));
       }
     }
@@ -122,9 +122,9 @@ export async function GET(req: Request) {
     return NextResponse.json({
       success: true,
       scans: {
-        total: Math.max(totalScans, 142),
-        today: Math.max(scansToday, 18),
-        last30Days: Math.max(scans30Days, 142),
+        total: totalScans,
+        today: scansToday,
+        last30Days: scans30Days,
       },
       aiUsage: {
         chatQueries30Days: chatQueriesCount,
