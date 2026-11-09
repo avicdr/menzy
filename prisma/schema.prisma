@@ -1,0 +1,860 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ----------------------------------------------------
+// 1. Identity & Multi-Tenancy
+// ----------------------------------------------------
+
+enum Role {
+  SUPERADMIN
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+model User {
+  id            String               @id @default(uuid())
+  email         String               @unique
+  name          String?
+  phone         String?
+  passwordHash  String?
+  emailVerified DateTime?
+  role          Role                 @default(OWNER)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  memberships   OrganizationMember[]
+  claimRequests ClaimRequest[]
+
+  @@index([email])
+}
+
+model Organization {
+  id              String               @id @default(uuid())
+  name            String
+  ownerUserId     String
+  billingCountry  String               @default("IN") // IN or US
+  billingCurrency String               @default("INR") // INR or USD
+  settings        Json?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  members         OrganizationMember[]
+  restaurants     Restaurant[]
+  subscriptions   Subscription[]
+  entitlements    EntitlementGrant[]
+  creditLedgers   CreditLedger[]
+  aiUsageEvents   AIUsageEvent[]
+  assets          Asset[]
+  notifications   Notification[]
+}
+
+model OrganizationMember {
+  id             String       @id @default(uuid())
+  userId         String
+  organizationId String
+  role           Role         @default(OWNER)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+// ----------------------------------------------------
+// 2. Restaurants, Settings, Themes & Tables
+// ----------------------------------------------------
+
+enum PublicationState {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Restaurant {
+  id               String               @id @default(uuid())
+  organizationId   String?              // Nullable for founder demo menus before claim
+  slug             String               @unique
+  displayName      String
+  description      String?
+  country          String               @default("IN")
+  city             String?
+  timezone         String               @default("Asia/Kolkata")
+  currency         String               @default("INR")
+  address          String?
+  phone            String?
+  email            String?
+  logoUrl          String?
+  coverUrl         String?
+  googleReviewUrl  String?
+  publicationState PublicationState     @default(DRAFT)
+  isClaimed        Boolean              @default(true)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  organization     Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  settings         RestaurantSettings?
+  theme            RestaurantTheme?
+  tables           Table[]
+  menus            Menu[]
+  menuItems        RestaurantMenuItem[]
+  uploads          MenuUpload[]
+  extractionJobs   ExtractionJob[]
+  generationJobs   GenerationJob[]
+  dinerSessions    DinerSession[]
+  chatMessages     ChatMessage[]
+  scanEvents       ScanEvent[]
+  dishInteractions DishInteractionEvent[]
+  claimRequests    ClaimRequest[]
+  aiUsageEvents    AIUsageEvent[]
+  dailySummaries   DailyUsageSummary[]
+
+  @@index([organizationId])
+  @@index([slug])
+}
+
+model RestaurantSettings {
+  id                     String     @id @default(uuid())
+  restaurantId           String     @unique
+  welcomeMessage         String?    @default("Welcome! Explore our dishes or ask our AI waiter anything.")
+  aiTone                 String?    @default("warm, knowledgeable, concise, hospitality-focused")
+  allowDinerChat         Boolean    @default(true)
+  allowPairings          Boolean    @default(true)
+  maxDinerChatPerSession Int        @default(25)
+  featuredDishIds        Json?      // string[]
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+
+  restaurant             Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+}
+
+enum ThemePreset {
+  WARM_EDITORIAL
+  MIDNIGHT_ESPRESSO
+  BOTANICAL_CAFE
+  PASTEL_PATISSERIE
+  CUSTOM
+}
+
+enum LayoutMode {
+  GRID
+  LIST
+}
+
+model RestaurantTheme {
+  id                   String      @id @default(uuid())
+  restaurantId         String      @unique
+  presetKey            ThemePreset @default(WARM_EDITORIAL)
+  backgroundColor      String      @default("#F7F3EC")
+  surfaceColor         String      @default("#FFFFFF")
+  primaryTextColor     String      @default("#35271F")
+  secondaryTextColor   String      @default("#7C695C")
+  accentColor          String      @default("#B86D52")
+  secondaryAccentColor String      @default("#70816B")
+  headingFont          String      @default("Instrument Serif")
+  bodyFont             String      @default("DM Sans")
+  layoutMode           LayoutMode  @default(GRID)
+  cardRadius           String      @default("16px")
+  buttonStyle          String      @default("rounded") // rounded, pill, sharp
+  imageProportions     String      @default("square") // square, wide, compact
+  texture              String      @default("none") // none, paper, gradient
+  isPublished          Boolean     @default(true)
+  draftSettings        Json?
+  publishedSettings    Json?
+  publishedAt          DateTime?
+  updatedAt            DateTime    @updatedAt
+
+  restaurant           Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+}
+
+model Table {
+  id           String      @id @default(uuid())
+  restaurantId String
+  tableLabel   String
+  qrToken      String      @unique
+  active       Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  scanEvents   ScanEvent[]
+
+  @@unique([restaurantId, tableLabel])
+  @@index([restaurantId])
+}
+
+// ----------------------------------------------------
+// 3. Menus, Categories, Items & Modifiers
+// ----------------------------------------------------
+
+enum MenuType {
+  ALL_DAY
+  LUNCH
+  DINNER
+  BREAKFAST
+  DRINKS
+  DESSERT
+  SEASONAL
+}
+
+enum MenuVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+model Menu {
+  id           String               @id @default(uuid())
+  restaurantId String
+  title        String               @default("Main Menu")
+  type         MenuType             @default(ALL_DAY)
+  visibility   MenuVisibility       @default(PUBLIC)
+  sortOrder    Int                  @default(0)
+  active       Boolean              @default(true)
+  schedule     Json?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  restaurant   Restaurant           @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  categories   MenuCategory[]
+  items        RestaurantMenuItem[]
+
+  @@index([restaurantId])
+}
+
+model MenuCategory {
+  id          String               @id @default(uuid())
+  menuId      String
+  name        String
+  description String?
+  sortOrder   Int                  @default(0)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  menu        Menu                 @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  items       RestaurantMenuItem[]
+
+  @@index([menuId])
+}
+
+enum NutritionSource {
+  NOT_PROVIDED
+  AI_ESTIMATED
+  RESTAURANT_PROVIDED
+  RESTAURANT_VERIFIED
+}
+
+model RestaurantMenuItem {
+  id                    String            @id @default(uuid())
+  restaurantId          String
+  menuId                String
+  categoryId            String
+  canonicalId           String?
+  customName            String
+  restaurantDescription String?
+  priceMinor            Int?              // in minor currency units (cents/paise)
+  currency              String            @default("INR")
+  preparationDetails    String?
+  portionSize           String?
+  ingredients           Json?             // string[]
+  dietaryStatus         Json?             // string[] (e.g., ["VEGETARIAN", "GLUTEN_FREE"])
+  allergenVerification  Json?             // explicit owner statements { contains: [], freeOf: [], unverified: [] }
+  nutritionFields       Json?             // { calories, protein, carbs, fat, servingGrams }
+  nutritionSource       NutritionSource   @default(NOT_PROVIDED)
+  imageOverrideAssetId  String?
+  isAvailable           Boolean           @default(true)
+  isPublished           Boolean           @default(true)
+  chefRecommended       Boolean           @default(false)
+  sortOrder             Int               @default(0)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  restaurant            Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menu                  Menu              @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  category              MenuCategory      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  canonical             CanonicalDish?    @relation(fields: [canonicalId], references: [id], onDelete: SetNull)
+  imageOverride         Asset?            @relation("MenuItemImageOverride", fields: [imageOverrideAssetId], references: [id], onDelete: SetNull)
+  variants              DishVariant[]
+  generationJobs        GenerationJob[]
+  dishInteractions      DishInteractionEvent[]
+
+  @@index([restaurantId])
+  @@index([menuId])
+  @@index([categoryId])
+  @@index([canonicalId])
+}
+
+model DishVariant {
+  id                    String             @id @default(uuid())
+  menuItemId            String
+  name                  String
+  choiceGroup           String             @default("Size") // Size, Crust, Protein, Spice Level
+  supplementalPriceMinor Int               @default(0)
+  isRequired            Boolean            @default(false)
+  sortOrder             Int                @default(0)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  menuItem              RestaurantMenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@index([menuItemId])
+}
+
+// ----------------------------------------------------
+// 4. Shared Canonical Knowledge Engine
+// ----------------------------------------------------
+
+enum ReviewState {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model CanonicalDish {
+  id                    String               @id @default(uuid())
+  normalizedName        String               @unique
+  aliases               Json?                // string[]
+  cuisine               String?
+  generalizedDescription String?
+  estimatedNutrition    Json?                // standard archetypal estimate
+  imageAssetId          String?
+  confidence            Float                @default(1.0)
+  reviewState           ReviewState          @default(APPROVED)
+  provenance            String?              @default("SYSTEM_CURATED")
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  imageAsset            Asset?               @relation("CanonicalImageAsset", fields: [imageAssetId], references: [id], onDelete: SetNull)
+  restaurantMenuItems   RestaurantMenuItem[]
+  canonicalAliases      CanonicalAlias[]
+  canonicalAssets       CanonicalAsset[]
+  generationJobs        GenerationJob[]
+
+  @@index([normalizedName])
+}
+
+model CanonicalAlias {
+  id              String        @id @default(uuid())
+  canonicalId     String
+  normalizedAlias String
+  locale          String        @default("en")
+  cuisineContext  String?
+  createdAt       DateTime      @default(now())
+
+  canonical       CanonicalDish @relation(fields: [canonicalId], references: [id], onDelete: Cascade)
+
+  @@unique([canonicalId, normalizedAlias])
+  @@index([normalizedAlias])
+}
+
+model CanonicalAsset {
+  id          String        @id @default(uuid())
+  canonicalId String
+  assetId     String
+  isApproved  Boolean       @default(true)
+  reuseCount  Int           @default(0)
+  createdAt   DateTime      @default(now())
+
+  canonical   CanonicalDish @relation(fields: [canonicalId], references: [id], onDelete: Cascade)
+  asset       Asset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([canonicalId, assetId])
+  @@index([canonicalId])
+}
+
+// ----------------------------------------------------
+// 5. Assets, Uploads, Extraction & Generation Jobs
+// ----------------------------------------------------
+
+enum AssetType {
+  ORIGINAL_MENU
+  OWNER_PHOTO
+  AI_ILLUSTRATION
+  QR_CODE
+  OTHER
+}
+
+enum ModerationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Asset {
+  id                  String             @id @default(uuid())
+  type                AssetType          @default(AI_ILLUSTRATION)
+  storageKey          String
+  publicUrl           String
+  mime                String             @default("image/webp")
+  width               Int?
+  height              Int?
+  ownerOrganizationId String?
+  canonicalId         String?
+  source              String             @default("GEMINI_GEN")
+  prompt              String?
+  generationModel     String?
+  version             Int                @default(1)
+  moderationStatus    ModerationStatus   @default(APPROVED)
+  createdAt           DateTime           @default(now())
+
+  ownerOrganization   Organization?      @relation(fields: [ownerOrganizationId], references: [id], onDelete: SetNull)
+  versions            AssetVersion[]
+  canonicalDishes     CanonicalDish[]    @relation("CanonicalImageAsset")
+  canonicalAssets     CanonicalAsset[]
+  menuItems           RestaurantMenuItem[] @relation("MenuItemImageOverride")
+  generationJobs      GenerationJob[]    @relation("JobOutputAsset")
+
+  @@index([ownerOrganizationId])
+  @@index([type])
+}
+
+model AssetVersion {
+  id           String   @id @default(uuid())
+  assetId      String
+  versionNumber Int
+  storageKey   String
+  publicUrl    String
+  prompt       String?
+  createdAt    DateTime @default(now())
+
+  asset        Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+}
+
+enum UploadStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ReviewStatus {
+  UNREVIEWED
+  REVIEWED
+  PUBLISHED
+}
+
+model MenuUpload {
+  id           String          @id @default(uuid())
+  restaurantId String
+  fileKeys     Json            // string[]
+  status       UploadStatus    @default(PENDING)
+  errorDetails String?
+  reviewStatus ReviewStatus    @default(UNREVIEWED)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  restaurant   Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  jobs         ExtractionJob[]
+
+  @@index([restaurantId])
+}
+
+enum JobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model ExtractionJob {
+  id                   String     @id @default(uuid())
+  uploadId             String
+  restaurantId         String
+  status               JobStatus  @default(QUEUED)
+  model                String?
+  attempts             Int        @default(0)
+  extractedJson        Json?      // structured extracted categories & dishes
+  extractionConfidence Float      @default(0.0)
+  error                String?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  upload               MenuUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  restaurant           Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([uploadId])
+  @@index([restaurantId])
+}
+
+model GenerationJob {
+  id             String              @id @default(uuid())
+  restaurantId   String
+  menuItemId     String?
+  canonicalId    String?
+  status         JobStatus           @default(QUEUED)
+  prompt         String
+  outputAssetId  String?
+  isBillable     Boolean             @default(true)
+  attempts       Int                 @default(0)
+  error          String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  restaurant     Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menuItem       RestaurantMenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  canonical      CanonicalDish?      @relation(fields: [canonicalId], references: [id], onDelete: SetNull)
+  outputAsset    Asset?              @relation("JobOutputAsset", fields: [outputAssetId], references: [id], onDelete: SetNull)
+
+  @@index([restaurantId])
+  @@index([menuItemId])
+}
+
+// ----------------------------------------------------
+// 6. Billing, Subscriptions, Entitlements & Ledgers
+// ----------------------------------------------------
+
+enum PlanTier {
+  STARTER
+  GROWTH
+  PRO
+}
+
+model Plan {
+  id                   String   @id @default(uuid())
+  key                  String   @unique // IN_STARTER, IN_GROWTH, IN_PRO, US_STARTER, US_GROWTH, US_PRO
+  tier                 PlanTier
+  name                 String
+  country              String   // IN or US
+  currency             String   // INR or USD
+  priceMinor           Int      // in paise or cents
+  itemLimit            Int
+  imageCreditsMonthly  Int
+  aiQuestionsMonthly   Int
+  features             Json?
+  createdAt            DateTime @default(now())
+}
+
+enum SubscriptionStatus {
+  INACTIVE
+  PENDING
+  ACTIVE
+  PAST_DUE
+  CANCEL_AT_PERIOD_END
+  CANCELLED
+  EXPIRED
+}
+
+model Subscription {
+  id                     String             @id @default(uuid())
+  organizationId         String             @unique
+  provider               String             @default("RAZORPAY")
+  planKey                String
+  providerSubscriptionId String?            @unique
+  providerCustomerId     String?
+  status                 SubscriptionStatus @default(INACTIVE)
+  currency               String             @default("INR")
+  billingPeriod          String             @default("MONTHLY")
+  paidThrough            DateTime?
+  cancelAtPeriodEnd      Boolean            @default(false)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  organization           Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([providerSubscriptionId])
+}
+
+model BillingEvent {
+  id               String   @id @default(uuid())
+  providerEventId  String   @unique
+  provider         String   @default("RAZORPAY")
+  eventType        String
+  payload          Json
+  processingStatus String   @default("PROCESSED") // PROCESSED, FAILED, IGNORED
+  createdAt        DateTime @default(now())
+
+  @@index([providerEventId])
+}
+
+enum GrantType {
+  COMPLIMENTARY_PLAN
+  BONUS_IMAGE_CREDITS
+  BONUS_AI_QUESTIONS
+  EXTENSION
+}
+
+model EntitlementGrant {
+  id             String       @id @default(uuid())
+  organizationId String
+  grantType      GrantType
+  tierOrValue    String       // e.g. "PRO" or "50"
+  quantity       Int          @default(0)
+  startDate      DateTime     @default(now())
+  expirationDate DateTime
+  founderReason  String
+  createdBy      String
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model CreditLedger {
+  id              String       @id @default(uuid())
+  organizationId  String
+  subscriptionId  String?
+  creditType      String       @default("IMAGE_GENERATION") // IMAGE_GENERATION, AI_QUESTION
+  delta           Int
+  balanceAfter    Int
+  reason          String
+  generationJobId String?
+  idempotencyKey  String       @unique
+  timestamp       DateTime     @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([idempotencyKey])
+}
+
+// ----------------------------------------------------
+// 7. AI Metering, Operating Costs & Rate Limits
+// ----------------------------------------------------
+
+enum AIOperationType {
+  MENU_EXTRACTION
+  CANONICAL_MATCH
+  IMAGE_GENERATION
+  IMAGE_REGENERATION
+  DINER_CHAT
+  OTHER_AI_OPERATION
+}
+
+model AIUsageEvent {
+  id              String          @id @default(uuid())
+  organizationId  String?
+  restaurantId    String?
+  operationType   AIOperationType
+  modelId         String
+  requestId       String?
+  inputTokens     Int             @default(0)
+  outputTokens    Int             @default(0)
+  imageCount      Int             @default(0)
+  estimatedCostUsd Float          @default(0.0)
+  status          String          @default("SUCCESS") // SUCCESS, FAILED
+  latencyMs       Int             @default(0)
+  billingPeriod   String?
+  createdAt       DateTime        @default(now())
+
+  organization    Organization?   @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  restaurant      Restaurant?     @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([restaurantId])
+  @@index([createdAt])
+}
+
+model DailyUsageSummary {
+  id               String     @id @default(uuid())
+  restaurantId     String
+  date             DateTime
+  totalRequests    Int        @default(0)
+  totalInputTokens Int        @default(0)
+  totalOutputTokens Int       @default(0)
+  totalImages      Int        @default(0)
+  totalCostUsd     Float      @default(0.0)
+  createdAt        DateTime   @default(now())
+
+  restaurant       Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@unique([restaurantId, date])
+  @@index([restaurantId])
+}
+
+model CostRateVersion {
+  id                         String   @id @default(uuid())
+  modelId                    String   @unique
+  inputTokenRatePerMillion   Float    @default(0.15) // $0.15 per 1M input tokens
+  outputTokenRatePerMillion  Float    @default(0.60) // $0.60 per 1M output tokens
+  imageRatePerUnit           Float    @default(0.03) // $0.03 per image
+  effectiveDate              DateTime @default(now())
+  createdAt                  DateTime @default(now())
+}
+
+model RateLimitPolicy {
+  id            String   @id @default(uuid())
+  scope         String   @unique // DINER_SESSION, DINER_IP, GLOBAL
+  maxRequests   Int      @default(25)
+  windowSeconds Int      @default(300) // 5 minutes
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+}
+
+// ----------------------------------------------------
+// 8. Public Diner Sessions & Chat
+// ----------------------------------------------------
+
+model DinerSession {
+  id           String        @id @default(uuid())
+  sessionToken String        @unique
+  restaurantId String
+  tableId      String?
+  ipHash       String?
+  userAgent    String?
+  lastActiveAt DateTime      @default(now())
+  createdAt    DateTime      @default(now())
+
+  restaurant   Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  messages     ChatMessage[]
+
+  @@index([restaurantId])
+  @@index([sessionToken])
+}
+
+model ChatMessage {
+  id                 String       @id @default(uuid())
+  sessionId          String
+  restaurantId       String
+  sender             String       // USER, ASSISTANT
+  content            String
+  recommendedDishIds Json?        // string[]
+  metadata           Json?
+  createdAt          DateTime     @default(now())
+
+  session            DinerSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  restaurant         Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([restaurantId])
+}
+
+model ScanEvent {
+  id           String      @id @default(uuid())
+  restaurantId String
+  tableId      String?
+  sessionToken String?
+  referrer     String?
+  userAgent    String?
+  ipHash       String?
+  timestamp    DateTime    @default(now())
+
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table        Table?      @relation(fields: [tableId], references: [id], onDelete: SetNull)
+
+  @@index([restaurantId])
+  @@index([timestamp])
+}
+
+model DishInteractionEvent {
+  id           String             @id @default(uuid())
+  restaurantId String
+  menuItemId   String
+  eventType    String             // VIEW, EXPAND, CHAT_QUERY, PAIRING_CLICK
+  sessionId    String?
+  timestamp    DateTime           @default(now())
+
+  restaurant   Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menuItem     RestaurantMenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId])
+  @@index([menuItemId])
+}
+
+// ----------------------------------------------------
+// 9. Founder Administration, Claims & Audit Logs
+// ----------------------------------------------------
+
+model AdminAuditLog {
+  id          String   @id @default(uuid())
+  adminEmail  String
+  action      String
+  entityType  String
+  entityId    String
+  beforeState Json?
+  afterState  Json?
+  reason      String?
+  ipAddress   String?
+  timestamp   DateTime @default(now())
+
+  @@index([adminEmail])
+  @@index([action])
+  @@index([entityType, entityId])
+}
+
+enum ClaimStatus {
+  UNCLAIMED
+  RESERVED
+  PENDING_VERIFICATION
+  APPROVED
+  REJECTED
+}
+
+model ClaimRequest {
+  id                String      @id @default(uuid())
+  restaurantId      String
+  claimTokenHash    String      @unique
+  status            ClaimStatus @default(UNCLAIMED)
+  claimantUserId    String?
+  claimantEmail     String?
+  verificationNotes String?
+  expiresAt         DateTime
+  verifiedAt        DateTime?
+  claimedAt         DateTime?
+  createdAt         DateTime    @default(now())
+
+  restaurant        Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  claimantUser      User?       @relation(fields: [claimantUserId], references: [id], onDelete: SetNull)
+
+  @@index([restaurantId])
+  @@index([claimTokenHash])
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model SystemAlert {
+  id         String        @id @default(uuid())
+  severity   AlertSeverity @default(INFO)
+  title      String
+  message    String
+  source     String
+  metadata   Json?
+  isResolved Boolean       @default(false)
+  resolvedAt DateTime?
+  createdAt  DateTime      @default(now())
+
+  @@index([severity])
+  @@index([isResolved])
+}
+
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String?
+  isEnabled   Boolean  @default(true)
+  rules       Json?
+  updatedAt   DateTime @updatedAt
+}
+
+model Notification {
+  id             String        @id @default(uuid())
+  organizationId String?
+  userId         String?
+  title          String
+  message        String
+  type           String        @default("INFO") // INFO, WARNING, BILLING, SUCCESS
+  isRead         Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
