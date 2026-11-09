@@ -42,7 +42,7 @@ export default function AdminLoginPage() {
       {/* Background radial glow */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-terracotta/10 rounded-full blur-3xl pointer-events-none" />
 
-      <div className="w-full max-w-md p-6 sm:p-8 bg-espresso-900 border border-espresso-800 rounded-3xl shadow-lifted space-y-6 relative z-10 backdrop-blur-sm">
+      <div className="w-full max-w-md p-6 sm:p-8 bg-espresso-900 border border-espresso-800 rounded-3xl shadow-lifted space-y-6 relative z-10 backdrop-blur-sm admin-login-box">
         {/* Top Back Link */}
         <div className="flex items-center justify-between">
           <Link
@@ -90,7 +90,8 @@ export default function AdminLoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="founder@dishora.app"
-              className="w-full px-4 py-2.5 rounded-xl bg-[#140E0A] border border-espresso-700 text-sm text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all shadow-inner"
+              style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
+              className="w-full px-4 py-2.5 rounded-xl bg-[#140E0A] border border-espresso-700 text-sm text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all shadow-inner dark-input"
             />
           </div>
 
@@ -105,7 +106,8 @@ export default function AdminLoginPage() {
               placeholder="••••••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl bg-[#140E0A] border border-espresso-700 text-sm text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all shadow-inner"
+              style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
+              className="w-full px-4 py-2.5 rounded-xl bg-[#140E0A] border border-espresso-700 text-sm text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all shadow-inner dark-input"
             />
           </div>
 

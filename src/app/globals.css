@@ -64,15 +64,48 @@ body {
 }
 
 /* Prevent browser autofill from turning dark inputs white */
-input:-webkit-autofill,
-input:-webkit-autofill:hover, 
-input:-webkit-autofill:focus,
-input:-webkit-autofill:active {
+.admin-portal input:-webkit-autofill,
+.admin-portal input:-webkit-autofill:hover, 
+.admin-portal input:-webkit-autofill:focus,
+.admin-portal input:-webkit-autofill:active,
+.admin-login-box input:-webkit-autofill,
+.admin-login-box input:-webkit-autofill:hover,
+.admin-login-box input:-webkit-autofill:focus,
+.admin-login-box input:-webkit-autofill:active,
+input:-webkit-autofill.dark-input {
   -webkit-text-fill-color: #FAF7F2 !important;
   -webkit-box-shadow: 0 0 0px 1000px #140E0A inset !important;
   box-shadow: 0 0 0px 1000px #140E0A inset !important;
   transition: background-color 5000s ease-in-out 0s;
   caret-color: #FAF7F2 !important;
+}
+
+/* Ensure all select options and dark inputs render with dark backgrounds and cream text in admin */
+.admin-portal select,
+.admin-portal input,
+.admin-portal textarea,
+.admin-scope select,
+.admin-scope input,
+.admin-scope textarea,
+.admin-login-box input,
+.dark-form-control {
+  color-scheme: dark !important;
+  background-color: #140E0A !important;
+  color: #FAF7F2 !important;
+}
+
+.admin-portal select option,
+.admin-scope select option,
+select.dark-select option,
+option.dark-option {
+  background-color: #1A120D !important;
+  color: #FAF7F2 !important;
+}
+
+/* Ensure light select options stay light outside admin */
+select:not(.dark-select):not(.admin-scope select):not(.admin-portal select) option {
+  background-color: #FFFFFF;
+  color: #1A120D;
 }
 
 /* Paper texture simulation */

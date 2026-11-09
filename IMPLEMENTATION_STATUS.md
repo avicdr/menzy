@@ -33,6 +33,7 @@ Dishora is an operational, multi-tenant SaaS that converts printed/PDF restauran
 | **Phase 13: Regional Plan Isolation, Zero Metric Fabrication & UX Polish** | Dynamic US/IN regional detection across landing page, signup and billing switcher. Replaced fabricated scan numbers with real zero-state database counts (`analyticsData?.scans?.today`). Replaced browser alerts with on-screen modal dialogs. Bound dynamic typography CSS variables (`--font-serif`, `--font-sans`) across theme studio and diner views. Optimized navbar scaling on narrow 320px viewports and high-contrast admin login inputs. | ✅ COMPLETE | Verified 41/41 routes built with zero errors, 12/12 Vitest tests passing |
 | **Phase 14: Strict Menu Extraction Error Handling & Zero Dummy Data** | Eliminated silent fallback to simulated dummy dishes (Cappuccino, Paneer Tikka, Avocado Tartine) when Gemini vision extraction fails or API key is unconfigured. Propagated genuine failure states to `MenuUpload` and `ExtractionJob`. Replaced browser alerts with an on-screen Menu Studio error banner guiding users to upload clear, focused images and try again. | ✅ COMPLETE | Tested with `tests/menu-extraction.test.ts` (14/14 tests passing), verified zero dummy data created |
 | **Phase 15: Admin Portal Styling Refinement & Credential Button Removal** | Added `espresso-950` (`#140E0A`) to Tailwind config to fix unstyled white input background boxes. Styled inputs with deep dark background (`bg-[#140E0A]`), crisp cream text (`text-cream-50`), and webkit autofill styling override. Completely removed the "Fill configured founder credentials" button and helper method. | ✅ COMPLETE | Tested and production-build verified across all 41 routes with zero errors |
+| **Phase 16: Super-Admin Visual Redesign & Dark Dropdown Contrast** | Overhauled `/admin` console with live system telemetry, elevated gradient KPI cards, modern pill navigation tabs with count badges, and dedicated search/filter inputs for restaurants, subscriptions, and canonical dishes. Solved white-on-white text in select dropdowns and browser autofill by applying `color-scheme: dark`, explicit dark option backgrounds (`#1A120D`), and scoped CSS overrides (`.admin-portal`). Replaced browser `prompt()` with a custom on-screen claim verification modal. | ✅ COMPLETE | 16/16 Vitest tests passing, 41/41 routes built with zero errors |
 
 ---
 
@@ -44,11 +45,11 @@ Running `npm run test`:
  ✓ tests/tenant-isolation.test.ts (3 tests)
  ✓ tests/canonical-matching.test.ts (4 tests)
  ✓ tests/razorpay-webhooks.test.ts (3 tests)
- ✓ tests/menu-extraction.test.ts (2 tests)
+ ✓ tests/menu-extraction.test.ts (4 tests)
 
 Test Files  5 passed (5)
-     Tests  14 passed (14)
-  Duration  940ms
+     Tests  16 passed (16)
+  Duration  994ms
 ```
 
 ---
@@ -59,9 +60,9 @@ Running `npm run build`:
 ```
    ▲ Next.js 15.5.29
    - Environments: .env
- ✓ Compiled successfully in 5.0s
+ ✓ Compiled successfully in 6.3s
    Linting and checking validity of types ...
-   Generating static pages (39/39)
+   Generating static pages (41/41)
    Finalizing page optimization ...
    Collecting build traces ...
  ✓ Build completed with 0 errors
