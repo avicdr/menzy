@@ -3,11 +3,11 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Lock, ShieldCheck, AlertCircle, Sparkles, ArrowLeft, KeyRound } from 'lucide-react';
+import { Lock, ShieldCheck, AlertCircle, ArrowLeft, KeyRound } from 'lucide-react';
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('founder@dishora.app');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -37,14 +37,8 @@ export default function AdminLoginPage() {
     }
   };
 
-  const handleFillCredentials = () => {
-    setEmail('founder@dishora.app');
-    setPassword('dishora2026!');
-    setError(null);
-  };
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-espresso-950 p-4 text-cream-100 relative selection:bg-terracotta selection:text-white">
+    <div className="min-h-screen flex items-center justify-center bg-[#F7F3EC] p-4 text-cream-100 relative selection:bg-terracotta selection:text-white">
       {/* Background radial glow */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-terracotta/10 rounded-full blur-3xl pointer-events-none" />
 
@@ -96,7 +90,7 @@ export default function AdminLoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="founder@dishora.app"
-              className="w-full px-4 py-2.5 rounded-xl bg-espresso-950 border border-espresso-600 text-sm text-white placeholder:text-taupe-400 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all"
+              className="w-full px-4 py-2.5 rounded-xl bg-[#140E0A] border border-espresso-700 text-sm text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all shadow-inner"
             />
           </div>
 
@@ -111,7 +105,7 @@ export default function AdminLoginPage() {
               placeholder="••••••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl bg-espresso-950 border border-espresso-600 text-sm text-white placeholder:text-taupe-400 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all"
+              className="w-full px-4 py-2.5 rounded-xl bg-[#140E0A] border border-espresso-700 text-sm text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all shadow-inner"
             />
           </div>
 
@@ -134,18 +128,9 @@ export default function AdminLoginPage() {
           </button>
         </form>
 
-        {/* Quick Fill Helper */}
-        <div className="pt-2 border-t border-espresso-800 flex flex-col items-center gap-2 text-center">
-          <button
-            type="button"
-            onClick={handleFillCredentials}
-            className="text-xs text-taupe-400 hover:text-cream-100 flex items-center gap-1.5 transition-colors underline underline-offset-2"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-terracotta" />
-            <span>Fill configured founder credentials</span>
-          </button>
-
-          <div className="text-[11px] text-taupe-500 flex items-center justify-center gap-1.5 pt-1">
+        {/* Security Notice */}
+        <div className="pt-2 border-t border-espresso-800 text-center">
+          <div className="text-[11px] text-taupe-500 flex items-center justify-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-sage-500 shrink-0" />
             <span>Protected by HMAC & secure HTTP-only session cookies</span>
           </div>

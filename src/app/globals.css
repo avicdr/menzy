@@ -63,6 +63,18 @@ body {
   scrollbar-width: none;  /* Firefox */
 }
 
+/* Prevent browser autofill from turning dark inputs white */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: #FAF7F2 !important;
+  -webkit-box-shadow: 0 0 0px 1000px #140E0A inset !important;
+  box-shadow: 0 0 0px 1000px #140E0A inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+  caret-color: #FAF7F2 !important;
+}
+
 /* Paper texture simulation */
 .bg-texture-paper {
   background-image: radial-gradient(#35271F 0.5px, transparent 0.5px);
