@@ -228,3 +228,4 @@ function createPlaceholderIllustrationBuffer(dishName: string): Buffer {
 
   return Buffer.from(svg, 'utf-8');
 }
+

@@ -151,3 +151,4 @@ export async function requireRestaurantAccess(restaurantIdOrSlug: string): Promi
 
   return { authorized: true, user, restaurant };
 }
+

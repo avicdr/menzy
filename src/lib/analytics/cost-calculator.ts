@@ -93,3 +93,4 @@ export async function calculateRestaurantCosts(
     estimatedMarginUsd: Number(estimatedMarginUsd.toFixed(2)),
   };
 }
+

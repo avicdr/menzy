@@ -35,3 +35,4 @@ describe('Diner AI Sliding-Window Rate Limiter', () => {
     expect(blockedRes.retryAfterSeconds).toBeGreaterThan(0);
   });
 });
+

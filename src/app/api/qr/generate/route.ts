@@ -64,3 +64,4 @@ export async function GET(req: Request) {
     tableLabel: tableToken || null,
   });
 }
+

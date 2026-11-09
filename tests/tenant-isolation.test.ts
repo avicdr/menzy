@@ -27,3 +27,4 @@ describe('Tenant Authentication & Password Hashing', () => {
     expect(verifyPassword('WrongPassword', hash)).toBe(false);
   });
 });
+

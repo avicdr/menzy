@@ -96,3 +96,4 @@ runWorkerLoop().catch((e) => {
   console.error('Fatal worker crash:', e);
   process.exit(1);
 });
+

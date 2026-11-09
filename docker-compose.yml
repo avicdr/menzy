@@ -24,3 +24,4 @@ services:
 volumes:
   dishora_pgdata:
   dishora_redisdata:
+

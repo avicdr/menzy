@@ -142,3 +142,4 @@ export function formatCurrencyMinor(minor: number, currency: string = 'INR'): st
     maximumFractionDigits: 2,
   }).format(amount);
 }
+

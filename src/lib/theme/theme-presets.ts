@@ -152,3 +152,4 @@ export function generateThemeVariables(theme: ThemeConfig): React.CSSProperties 
     '--font-body': theme.bodyFont,
   } as React.CSSProperties;
 }
+

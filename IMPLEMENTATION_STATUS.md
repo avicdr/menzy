@@ -29,6 +29,7 @@ Dishora is an operational, multi-tenant SaaS that converts printed/PDF restauran
 | **Phase 9: Advanced Founder Operations** | Renewal watchlists (7d, 3d, 24h, past due, cancelled), complimentary entitlement overrides with audit logging, operational cost breakdown per model/venue | ✅ COMPLETE | Integrated in `/admin` console and `/api/admin/entitlements/grant` |
 | **Phase 10: QR Studio, Demos & Marketing** | Printable 4x6" table tents, high-res SVG and PNG QR generation, founder-created demo builder, private claim links (`/claim/[token]`), conversion marketing page | ✅ COMPLETE | Tested at `/api/qr/generate`, `/claim/[token]`, `/`, `/demo`, `/pricing` |
 | **Phase 11: Production Hardening, Tests & CI** | Automated Vitest test suite (12/12 passing), clean Next.js 15 production build (`next build` 39/39 pages) | ✅ COMPLETE | `npm run test` (0 errors), `npm run build` (0 errors) |
+| **Phase 12: Mobile & Multi-Device Responsiveness Overhaul** | Resolved mobile navigation squishing, added off-canvas slide-over drawer for owner dashboard, mobile top app bar, horizontal scroll wrappers on all data tables (Menu Studio, Subscriptions, Margins, Claims, Canonical), responsive phone preview in Theme Studio, and high-contrast dual-dish + AI sommelier preview on marketing site | ✅ COMPLETE | Verified 100% responsive on 320px, 375px, 768px, and 1280px viewports |
 
 ---
 

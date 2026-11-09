@@ -108,3 +108,4 @@ export async function matchCanonicalDish(params: {
     explanation: 'Distinct dish or house special — no canonical match',
   };
 }
+

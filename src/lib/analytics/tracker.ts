@@ -43,3 +43,4 @@ export async function trackDishInteraction(params: {
     console.error('Failed to log dish interaction:', err);
   }
 }
+

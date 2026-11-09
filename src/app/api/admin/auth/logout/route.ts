@@ -14,3 +14,4 @@ export async function POST() {
   await clearAdminSessionCookie();
   return NextResponse.json({ success: true });
 }
+

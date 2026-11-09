@@ -858,3 +858,4 @@ model Notification {
 
   @@index([organizationId])
 }
+

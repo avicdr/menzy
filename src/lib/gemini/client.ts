@@ -22,3 +22,4 @@ export function getTextModelName(): string {
 export function getImageModelName(): string {
   return process.env.GEMINI_IMAGE_MODEL || 'imagen-3.0-generate-002';
 }
+

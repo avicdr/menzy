@@ -195,27 +195,28 @@ export default function SuperAdminPortalPage() {
   return (
     <div className="min-h-screen bg-espresso-950 text-cream-100 flex flex-col">
       {/* Top Founder Bar */}
-      <header className="px-6 py-4 bg-espresso-900 border-b border-espresso-800 flex items-center justify-between shrink-0">
+      <header className="px-4 sm:px-6 py-3 sm:py-4 bg-espresso-900 border-b border-espresso-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-terracotta text-white flex items-center justify-center font-bold text-sm shadow">
+          <div className="w-8 h-8 rounded-xl bg-terracotta text-white flex items-center justify-center font-bold text-sm shadow shrink-0">
             D
           </div>
           <div>
-            <h1 className="font-serif text-lg font-bold text-cream-50">Dishora Founder Portal</h1>
+            <h1 className="font-serif text-base sm:text-lg font-bold text-cream-50 leading-tight">Dishora Founder Portal</h1>
             <p className="text-[10px] text-taupe-400">Production SaaS Operations & Multi-Tenant Console</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <button
             onClick={() => setIsDemoModalOpen(true)}
-            className="px-3 py-1.5 rounded-xl bg-terracotta text-white text-xs font-semibold hover:bg-terracotta-600 transition-colors shadow-sm flex items-center gap-1.5"
+            className="px-3 py-1.5 rounded-xl bg-terracotta text-white text-xs font-semibold hover:bg-terracotta-600 transition-colors shadow-sm flex items-center gap-1.5 whitespace-nowrap"
           >
-            <Sparkles className="w-3.5 h-3.5" /> Create Demo Menu
+            <Sparkles className="w-3.5 h-3.5 shrink-0" />
+            <span>Create Demo Menu</span>
           </button>
           <button
             onClick={handleLogout}
-            className="p-2 rounded-xl text-taupe-400 hover:text-white hover:bg-espresso-800 transition-colors"
+            className="p-2 rounded-xl text-taupe-400 hover:text-white hover:bg-espresso-800 transition-colors shrink-0"
             title="Log Out"
           >
             <LogOut className="w-4 h-4" />
@@ -224,7 +225,7 @@ export default function SuperAdminPortalPage() {
       </header>
 
       {/* Navigation Sub-Tabs */}
-      <div className="px-6 bg-espresso-900/60 border-b border-espresso-800 overflow-x-auto flex items-center gap-1 shrink-0">
+      <div className="px-4 sm:px-6 bg-espresso-900/60 border-b border-espresso-800 overflow-x-auto flex items-center gap-1 shrink-0 no-scrollbar">
         {[
           { key: 'overview', label: 'Operations Overview' },
           { key: 'restaurants', label: `Restaurants (${restaurants.length})` },
@@ -236,7 +237,7 @@ export default function SuperAdminPortalPage() {
           <button
             key={tab.key}
             onClick={() => setActiveSection(tab.key as any)}
-            className={`px-4 py-3 text-xs font-semibold whitespace-nowrap transition-colors border-b-2 ${
+            className={`px-3 sm:px-4 py-2.5 sm:py-3 text-xs font-semibold whitespace-nowrap transition-colors border-b-2 shrink-0 ${
               activeSection === tab.key
                 ? 'border-terracotta text-cream-50 bg-espresso-800/40'
                 : 'border-transparent text-taupe-400 hover:text-cream-100'
@@ -248,54 +249,54 @@ export default function SuperAdminPortalPage() {
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 p-6 sm:p-10 max-w-7xl w-full mx-auto space-y-8">
+      <main className="flex-1 p-4 sm:p-6 lg:p-10 max-w-7xl w-full mx-auto space-y-6 sm:space-y-8 min-w-0 overflow-x-hidden">
         {/* =========================================================================
             SECTION 1: OVERVIEW & WATCHLISTS
         ========================================================================= */}
         {activeSection === 'overview' && (
-          <div className="space-y-8 animate-fade-in">
+          <div className="space-y-6 sm:space-y-8 animate-fade-in">
             {/* Top SaaS KPIs */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="p-5 bg-espresso-900 rounded-2xl border border-espresso-800 shadow">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div className="p-4 sm:p-5 bg-espresso-900 rounded-2xl border border-espresso-800 shadow">
                 <span className="text-[10px] font-semibold text-taupe-400 uppercase tracking-wider">Total Active Subscribers</span>
-                <div className="text-3xl font-bold text-cream-50 mt-1">{subscriptionData?.metrics?.totalActive || 0}</div>
+                <div className="text-2xl sm:text-3xl font-bold text-cream-50 mt-1">{subscriptionData?.metrics?.totalActive || 0}</div>
                 <div className="text-xs text-sage-400 mt-1 flex items-center gap-1">
-                  <TrendingUp className="w-3.5 h-3.5" /> Multi-tenant retention active
+                  <TrendingUp className="w-3.5 h-3.5 shrink-0" /> Multi-tenant retention active
                 </div>
               </div>
 
-              <div className="p-5 bg-espresso-900 rounded-2xl border border-espresso-800 shadow">
+              <div className="p-4 sm:p-5 bg-espresso-900 rounded-2xl border border-espresso-800 shadow">
                 <span className="text-[10px] font-semibold text-taupe-400 uppercase tracking-wider">Monthly Recurring Revenue</span>
-                <div className="text-2xl font-bold text-terracotta mt-1">
+                <div className="text-xl sm:text-2xl font-bold text-terracotta mt-1">
                   ₹{subscriptionData?.metrics?.inrMrr || 0} / ${subscriptionData?.metrics?.usdMrr || 0}
                 </div>
                 <div className="text-xs text-taupe-400 mt-1">Dual-market INR & USD</div>
               </div>
 
-              <div className="p-5 bg-espresso-900 rounded-2xl border border-espresso-800 shadow">
+              <div className="p-4 sm:p-5 bg-espresso-900 rounded-2xl border border-espresso-800 shadow">
                 <span className="text-[10px] font-semibold text-taupe-400 uppercase tracking-wider">Monthly AI Operating Cost</span>
-                <div className="text-2xl font-bold text-cream-50 mt-1">
+                <div className="text-xl sm:text-2xl font-bold text-cream-50 mt-1">
                   ${globalMetrics.totalAiCostUsd}
                 </div>
                 <div className="text-xs text-taupe-400 mt-1">{globalMetrics.totalAiRequests} total requests</div>
               </div>
 
-              <div className="p-5 bg-espresso-900 rounded-2xl border border-espresso-800 shadow">
+              <div className="p-4 sm:p-5 bg-espresso-900 rounded-2xl border border-espresso-800 shadow">
                 <span className="text-[10px] font-semibold text-taupe-400 uppercase tracking-wider">Renewals Within 7 Days</span>
-                <div className="text-3xl font-bold text-amber-400 mt-1">{subscriptionData?.metrics?.renewingIn7DaysCount || 0}</div>
+                <div className="text-2xl sm:text-3xl font-bold text-amber-400 mt-1">{subscriptionData?.metrics?.renewingIn7DaysCount || 0}</div>
                 <div className="text-xs text-taupe-400 mt-1">Renewal watchlist</div>
               </div>
             </div>
 
             {/* Renewal Watchlist Table */}
-            <div className="bg-espresso-900 rounded-3xl border border-espresso-800 p-6 shadow">
+            <div className="bg-espresso-900 rounded-3xl border border-espresso-800 p-4 sm:p-6 shadow">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-serif text-lg font-bold text-cream-50">Subscription Watchlist</h3>
                 <span className="text-xs text-taupe-400">Sorted by paid-through date</span>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+              <div className="overflow-x-auto w-full">
+                <table className="w-full min-w-[620px] text-left text-xs">
                   <thead className="bg-espresso-950 text-taupe-400 uppercase text-[10px] tracking-wider border-b border-espresso-800">
                     <tr>
                       <th className="py-3 px-4">Organization / Restaurant</th>
@@ -329,7 +330,7 @@ export default function SuperAdminPortalPage() {
                               setSelectedOrgId(sub.organizationId);
                               setIsGrantModalOpen(true);
                             }}
-                            className="px-2.5 py-1 rounded bg-espresso-800 hover:bg-espresso-700 text-cream-200 text-xs font-semibold"
+                            className="px-2.5 py-1 rounded bg-espresso-800 hover:bg-espresso-700 text-cream-200 text-xs font-semibold whitespace-nowrap"
                           >
                             Grant Entitlement
                           </button>
@@ -348,7 +349,7 @@ export default function SuperAdminPortalPage() {
         ========================================================================= */}
         {activeSection === 'restaurants' && (
           <div className="space-y-6 animate-fade-in">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <h3 className="font-serif text-xl font-bold text-cream-50">Tenant Restaurants</h3>
               <button
                 onClick={() => setIsDemoModalOpen(true)}
@@ -358,7 +359,7 @@ export default function SuperAdminPortalPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {restaurants.map((r) => (
                 <div key={r.id} className="p-5 bg-espresso-900 rounded-2xl border border-espresso-800 space-y-3">
                   <div className="flex items-center justify-between">
@@ -389,14 +390,74 @@ export default function SuperAdminPortalPage() {
         )}
 
         {/* =========================================================================
-            SECTION 3: AI OPERATING COST BREAKDOWN
+            SECTION 3: SUBSCRIPTIONS DIRECTORY
+        ========================================================================= */}
+        {activeSection === 'subscriptions' && (
+          <div className="space-y-6 animate-fade-in">
+            <div className="bg-espresso-900 rounded-3xl border border-espresso-800 p-4 sm:p-6 shadow space-y-4">
+              <h3 className="font-serif text-lg font-bold text-cream-50">Active Customer Subscriptions</h3>
+              <div className="overflow-x-auto w-full">
+                <table className="w-full min-w-[620px] text-left text-xs">
+                  <thead className="bg-espresso-950 text-taupe-400 uppercase text-[10px] tracking-wider border-b border-espresso-800">
+                    <tr>
+                      <th className="py-3 px-4">Organization / Restaurant</th>
+                      <th className="py-3 px-4">Plan Key</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Current Period Start</th>
+                      <th className="py-3 px-4">Paid Through</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-espresso-800">
+                    {subscriptionData?.subscriptions?.map((sub: any) => (
+                      <tr key={sub.id} className="hover:bg-espresso-800/40">
+                        <td className="py-3 px-4">
+                          <div className="font-semibold text-cream-50">{sub.organization.name}</div>
+                          <div className="text-taupe-400 text-[11px]">{sub.organization.restaurants[0]?.displayName}</div>
+                        </td>
+                        <td className="py-3 px-4 font-mono font-medium text-cream-200">{sub.planKey}</td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            sub.status === 'ACTIVE' ? 'bg-sage-950 text-sage-300' : 'bg-red-950 text-red-300'
+                          }`}>
+                            {sub.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-taupe-300">
+                          {sub.currentPeriodStart ? new Date(sub.currentPeriodStart).toLocaleDateString() : '—'}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-taupe-300">
+                          {sub.paidThrough ? new Date(sub.paidThrough).toLocaleDateString() : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={() => {
+                              setSelectedOrgId(sub.organizationId);
+                              setIsGrantModalOpen(true);
+                            }}
+                            className="px-2.5 py-1 rounded bg-espresso-800 hover:bg-espresso-700 text-cream-200 text-xs font-semibold whitespace-nowrap"
+                          >
+                            Grant Entitlement
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================================
+            SECTION 4: AI OPERATING COST BREAKDOWN
         ========================================================================= */}
         {activeSection === 'costs' && (
           <div className="space-y-6 animate-fade-in">
-            <div className="bg-espresso-900 rounded-3xl border border-espresso-800 p-6 shadow space-y-4">
+            <div className="bg-espresso-900 rounded-3xl border border-espresso-800 p-4 sm:p-6 shadow space-y-4">
               <h3 className="font-serif text-lg font-bold text-cream-50">Per-Restaurant Operational Margins</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+              <div className="overflow-x-auto w-full">
+                <table className="w-full min-w-[620px] text-left text-xs">
                   <thead className="bg-espresso-950 text-taupe-400 uppercase text-[10px] tracking-wider border-b border-espresso-800">
                     <tr>
                       <th className="py-3 px-4">Restaurant</th>
@@ -426,14 +487,78 @@ export default function SuperAdminPortalPage() {
         )}
 
         {/* =========================================================================
-            SECTION 4: CLAIMS REVIEW QUEUE
+            SECTION 5: CANONICAL CULINARY LIBRARY
+        ========================================================================= */}
+        {activeSection === 'canonical' && (
+          <div className="space-y-6 animate-fade-in">
+            <div className="bg-espresso-900 rounded-3xl border border-espresso-800 p-4 sm:p-6 shadow space-y-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-serif text-lg font-bold text-cream-50">Curated Canonical Dish Library</h3>
+                  <p className="text-xs text-taupe-400">Shared culinary assets reused across restaurants without cross-tenant contamination</p>
+                </div>
+                <span className="px-2.5 py-1 rounded-full bg-espresso-800 text-xs font-mono text-cream-200">
+                  {canonicalDishes.length} Verified Entries
+                </span>
+              </div>
+
+              <div className="overflow-x-auto w-full">
+                <table className="w-full min-w-[620px] text-left text-xs">
+                  <thead className="bg-espresso-950 text-taupe-400 uppercase text-[10px] tracking-wider border-b border-espresso-800">
+                    <tr>
+                      <th className="py-3 px-4">Canonical Dish</th>
+                      <th className="py-3 px-4">Category</th>
+                      <th className="py-3 px-4">Cuisine / Region</th>
+                      <th className="py-3 px-4">Aliases</th>
+                      <th className="py-3 px-4 text-right">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-espresso-800">
+                    {canonicalDishes.map((dish: any) => (
+                      <tr key={dish.id} className="hover:bg-espresso-800/40">
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-3">
+                            {dish.imageAsset?.publicUrl ? (
+                              <img src={dish.imageAsset.publicUrl} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0 bg-espresso-800" />
+                            ) : (
+                              <div className="w-8 h-8 rounded-lg bg-espresso-800 flex items-center justify-center text-[10px] text-taupe-400 shrink-0">
+                                3D
+                              </div>
+                            )}
+                            <div>
+                              <div className="font-semibold text-cream-50">{dish.canonicalName}</div>
+                              <div className="text-taupe-400 text-[11px] line-clamp-1">{dish.culinaryBackground}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-taupe-300">{dish.category}</td>
+                        <td className="py-3 px-4 text-cream-200">{dish.cuisineRegion || 'Global'}</td>
+                        <td className="py-3 px-4 text-taupe-400 font-mono text-[11px]">
+                          {Array.isArray(dish.aliases) ? dish.aliases.join(', ') : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sage-950 text-sage-300">
+                            VERIFIED
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================================
+            SECTION 6: CLAIMS REVIEW QUEUE
         ========================================================================= */}
         {activeSection === 'claims' && (
           <div className="space-y-6 animate-fade-in">
-            <div className="bg-espresso-900 rounded-3xl border border-espresso-800 p-6 shadow">
+            <div className="bg-espresso-900 rounded-3xl border border-espresso-800 p-4 sm:p-6 shadow">
               <h3 className="font-serif text-lg font-bold text-cream-50 mb-4">Ownership Claim Requests</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+              <div className="overflow-x-auto w-full">
+                <table className="w-full min-w-[620px] text-left text-xs">
                   <thead className="bg-espresso-950 text-taupe-400 uppercase text-[10px] tracking-wider border-b border-espresso-800">
                     <tr>
                       <th className="py-3 px-4">Venue</th>
@@ -460,7 +585,7 @@ export default function SuperAdminPortalPage() {
                           {cl.status === 'PENDING_VERIFICATION' && (
                             <button
                               onClick={() => handleApproveClaim(cl.id)}
-                              className="px-3 py-1 rounded bg-sage-700 text-white font-semibold text-xs hover:bg-sage-600"
+                              className="px-3 py-1 rounded bg-sage-700 text-white font-semibold text-xs hover:bg-sage-600 whitespace-nowrap"
                             >
                               Approve Claim
                             </button>
@@ -628,3 +753,4 @@ export default function SuperAdminPortalPage() {
     </div>
   );
 }
+

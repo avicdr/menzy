@@ -268,3 +268,4 @@ Available menu snapshot: ${JSON.stringify(sanitizedMenu)}`;
     safetyNotice,
   };
 }
+
