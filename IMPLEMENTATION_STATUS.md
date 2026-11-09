@@ -31,6 +31,7 @@ Dishora is an operational, multi-tenant SaaS that converts printed/PDF restauran
 | **Phase 11: Production Hardening, Tests & CI** | Automated Vitest test suite (12/12 passing), clean Next.js 15 production build (`next build` 39/39 pages) | ✅ COMPLETE | `npm run test` (0 errors), `npm run build` (0 errors) |
 | **Phase 12: Mobile & Multi-Device Responsiveness Overhaul** | Resolved mobile navigation squishing, added off-canvas slide-over drawer for owner dashboard, mobile top app bar, horizontal scroll wrappers on all data tables (Menu Studio, Subscriptions, Margins, Claims, Canonical), responsive phone preview in Theme Studio, and high-contrast dual-dish + AI sommelier preview on marketing site | ✅ COMPLETE | Verified 100% responsive on 320px, 375px, 768px, and 1280px viewports |
 | **Phase 13: Regional Plan Isolation, Zero Metric Fabrication & UX Polish** | Dynamic US/IN regional detection across landing page, signup and billing switcher. Replaced fabricated scan numbers with real zero-state database counts (`analyticsData?.scans?.today`). Replaced browser alerts with on-screen modal dialogs. Bound dynamic typography CSS variables (`--font-serif`, `--font-sans`) across theme studio and diner views. Optimized navbar scaling on narrow 320px viewports and high-contrast admin login inputs. | ✅ COMPLETE | Verified 41/41 routes built with zero errors, 12/12 Vitest tests passing |
+| **Phase 14: Strict Menu Extraction Error Handling & Zero Dummy Data** | Eliminated silent fallback to simulated dummy dishes (Cappuccino, Paneer Tikka, Avocado Tartine) when Gemini vision extraction fails or API key is unconfigured. Propagated genuine failure states to `MenuUpload` and `ExtractionJob`. Replaced browser alerts with an on-screen Menu Studio error banner guiding users to upload clear, focused images and try again. | ✅ COMPLETE | Tested with `tests/menu-extraction.test.ts` (14/14 tests passing), verified zero dummy data created |
 
 ---
 
@@ -42,10 +43,11 @@ Running `npm run test`:
  ✓ tests/tenant-isolation.test.ts (3 tests)
  ✓ tests/canonical-matching.test.ts (4 tests)
  ✓ tests/razorpay-webhooks.test.ts (3 tests)
+ ✓ tests/menu-extraction.test.ts (2 tests)
 
-Test Files  4 passed (4)
-     Tests  12 passed (12)
-  Duration  885ms
+Test Files  5 passed (5)
+     Tests  14 passed (14)
+  Duration  940ms
 ```
 
 ---
