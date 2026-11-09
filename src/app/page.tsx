@@ -46,12 +46,12 @@ export default function MarketingLandingPage() {
   return (
     <div className="min-h-screen bg-[#F7F3EC] text-espresso-900 selection:bg-terracotta-200 overflow-x-hidden">
       {/* Navigation Bar */}
-      <nav className="max-w-7xl mx-auto px-4 sm:px-8 py-4 sm:py-6 flex items-center justify-between">
-        <div className="flex items-center gap-2.5 shrink-0">
-          <div className="w-9 h-9 rounded-xl bg-espresso-900 text-cream-100 flex items-center justify-center font-serif text-xl font-bold shadow-sm">
+      <nav className="max-w-7xl mx-auto px-3.5 sm:px-8 py-3.5 sm:py-6 flex items-center justify-between">
+        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-espresso-900 text-cream-100 flex items-center justify-center font-serif text-lg sm:text-xl font-bold shadow-sm">
             D
           </div>
-          <span className="font-serif text-2xl font-bold text-espresso-900 tracking-tight">Dishora</span>
+          <span className="font-serif text-xl sm:text-2xl font-bold text-espresso-900 tracking-tight">Dishora</span>
         </div>
 
         <div className="hidden md:flex items-center gap-8 text-sm font-medium text-taupe-700">
@@ -61,16 +61,16 @@ export default function MarketingLandingPage() {
           <Link href="/m/chai-and-chutney" className="hover:text-espresso-900 transition-colors">Live Menu</Link>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           <Link
             href="/login"
-            className="px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-espresso-800 hover:text-espresso-950 transition-colors whitespace-nowrap"
+            className="px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-espresso-800 hover:text-espresso-950 transition-colors whitespace-nowrap"
           >
             Sign In
           </Link>
           <Link
             href="/signup"
-            className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-espresso-900 text-white text-xs sm:text-sm font-semibold hover:bg-espresso-800 active:scale-95 transition-all shadow-sm whitespace-nowrap"
+            className="px-3.5 sm:px-5 py-1.5 sm:py-2.5 rounded-full bg-espresso-900 text-white text-xs sm:text-sm font-semibold hover:bg-espresso-800 active:scale-95 transition-all shadow-sm whitespace-nowrap"
           >
             Create Menu
           </Link>

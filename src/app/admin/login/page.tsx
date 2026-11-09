@@ -92,10 +92,11 @@ export default function AdminLoginPage() {
             <input
               type="email"
               required
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="founder@dishora.app"
-              className="w-full px-4 py-2.5 rounded-xl bg-espresso-950 border border-espresso-700 text-sm text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all"
+              className="w-full px-4 py-2.5 rounded-xl bg-espresso-950 border border-espresso-600 text-sm text-white placeholder:text-taupe-400 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all"
             />
           </div>
 
@@ -106,10 +107,11 @@ export default function AdminLoginPage() {
             <input
               type="password"
               required
+              autoComplete="current-password"
               placeholder="••••••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl bg-espresso-950 border border-espresso-700 text-sm text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all"
+              className="w-full px-4 py-2.5 rounded-xl bg-espresso-950 border border-espresso-600 text-sm text-white placeholder:text-taupe-400 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all"
             />
           </div>
 

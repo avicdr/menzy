@@ -763,6 +763,7 @@ function RestaurantDashboardContent() {
         allRestaurants={allRestaurants}
         userEmail={currentUser?.email || ''}
         planName={planName}
+        currentTab={currentTab}
       />
 
       {/* Main Content Area */}
@@ -2128,7 +2129,7 @@ function RestaurantDashboardContent() {
               {/* Right Live Phone Preview (Fully Reactive) */}
               <div className="lg:col-span-5 flex justify-center w-full sticky top-6">
                 <div
-                  className="w-full max-w-[340px] rounded-[44px] border-[10px] border-espresso-900 shadow-lifted overflow-hidden flex flex-col h-[640px] relative mx-auto transition-colors duration-300"
+                  className="w-full max-w-[310px] sm:max-w-[340px] rounded-[36px] sm:rounded-[44px] border-[8px] sm:border-[10px] border-espresso-900 shadow-lifted overflow-hidden flex flex-col h-[580px] sm:h-[640px] relative mx-auto transition-colors duration-300"
                   style={{
                     backgroundColor: themeState.backgroundColor,
                     fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,

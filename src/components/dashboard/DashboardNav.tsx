@@ -24,6 +24,7 @@ interface DashboardNavProps {
   allRestaurants: any[];
   userEmail: string;
   planName?: string;
+  currentTab?: string;
 }
 
 export function DashboardNav({
@@ -31,6 +32,7 @@ export function DashboardNav({
   allRestaurants,
   userEmail,
   planName = 'Starter',
+  currentTab = 'overview',
 }: DashboardNavProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -129,9 +131,7 @@ export function DashboardNav({
         {/* Nav Links */}
         <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-260px)]">
           {navItems.map((item) => {
-            const isActive =
-              pathname?.includes(`tab=${item.tab}`) ||
-              (!pathname?.includes('tab=') && item.tab === 'overview');
+            const isActive = currentTab === item.tab;
 
             return (
               <button
