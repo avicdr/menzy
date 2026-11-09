@@ -140,6 +140,11 @@ export function validateThemeAccessibility(theme: Partial<ThemeConfig>): {
  * Generates dynamic inline CSS variables from a ThemeConfig
  */
 export function generateThemeVariables(theme: ThemeConfig): React.CSSProperties {
+  const isDark = getLuminance(theme.backgroundColor || '#F7F3EC') < 0.25;
+  const border = isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
+  const buttonRadius =
+    theme.buttonStyle === 'pill' ? '9999px' : theme.buttonStyle === 'sharp' ? '4px' : '14px';
+
   return {
     '--dishora-bg': theme.backgroundColor,
     '--dishora-surface': theme.surfaceColor,
@@ -147,7 +152,10 @@ export function generateThemeVariables(theme: ThemeConfig): React.CSSProperties 
     '--dishora-muted-text': theme.secondaryTextColor,
     '--dishora-accent': theme.accentColor,
     '--dishora-secondary-accent': theme.secondaryAccentColor,
-    '--card-radius': theme.cardRadius,
+    '--dishora-border': border,
+    '--dishora-card-radius': theme.cardRadius || '16px',
+    '--dishora-button-radius': buttonRadius,
+    '--card-radius': theme.cardRadius || '16px',
     '--font-heading': theme.headingFont,
     '--font-body': theme.bodyFont,
   } as React.CSSProperties;

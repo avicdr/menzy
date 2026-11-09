@@ -6,7 +6,15 @@ import prisma from '@/lib/db/prisma';
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { restaurantId, menuItemId, dishName, visualDescription, customInstructions, forceRegenerate } = body;
+    const {
+      restaurantId,
+      menuItemId,
+      dishName,
+      visualDescription,
+      customInstructions,
+      forceRegenerate,
+      applyImmediately = true,
+    } = body;
 
     if (!restaurantId || !dishName) {
       return NextResponse.json({ error: 'restaurantId and dishName are required' }, { status: 400 });
@@ -32,8 +40,8 @@ export async function POST(req: Request) {
       forceRegenerate: Boolean(forceRegenerate),
     });
 
-    // If menuItemId was provided, link asset override to dish
-    if (item && result.asset) {
+    // If menuItemId was provided and applyImmediately is true, link asset override to dish
+    if (applyImmediately && item && result.asset) {
       await prisma.restaurantMenuItem.update({
         where: { id: item.id },
         data: { imageOverrideAssetId: result.asset.id },

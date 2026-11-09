@@ -152,9 +152,22 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
     }
 
+    if ('description' in updates) {
+      updates.restaurantDescription = updates.description;
+      delete updates.description;
+    }
+
     const updatedItem = await prisma.restaurantMenuItem.update({
       where: { id: itemId, restaurantId },
       data: updates,
+      include: {
+        category: true,
+        canonical: {
+          include: { imageAsset: true },
+        },
+        imageOverride: true,
+        variants: true,
+      },
     });
 
     // Invalidate public menu cache immediately

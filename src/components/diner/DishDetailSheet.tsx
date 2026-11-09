@@ -56,8 +56,8 @@ export function DishDetailSheet({
 
         {/* Scrollable Body */}
         <div className="overflow-y-auto px-6 pt-2 pb-24 space-y-5">
-          {/* Hero Visual Asset */}
-          <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-cream-100 shadow-sm border border-cream-200">
+          {/* Hero Visual Asset (Standardized Square Aspect Ratio) */}
+          <div className="relative aspect-square max-h-72 w-full mx-auto rounded-2xl overflow-hidden bg-cream-100 shadow-sm border border-cream-200">
             <img
               src={imageUrl}
               alt={item.customName}

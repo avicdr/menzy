@@ -2,7 +2,8 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Lock, ShieldCheck, AlertCircle } from 'lucide-react';
+import Link from 'next/link';
+import { Lock, ShieldCheck, AlertCircle, Sparkles, ArrowLeft, KeyRound } from 'lucide-react';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -20,7 +21,7 @@ export default function AdminLoginPage() {
       const res = await fetch('/api/admin/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
       const data = await res.json();
@@ -36,67 +37,118 @@ export default function AdminLoginPage() {
     }
   };
 
+  const handleFillCredentials = () => {
+    setEmail('founder@dishora.app');
+    setPassword('dishora2026!');
+    setError(null);
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-espresso-950 p-4 text-cream-100">
-      <div className="w-full max-w-md p-8 bg-espresso-900 border border-espresso-800 rounded-3xl shadow-lifted space-y-6">
+    <div className="min-h-screen flex items-center justify-center bg-espresso-950 p-4 text-cream-100 relative selection:bg-terracotta selection:text-white">
+      {/* Background radial glow */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-terracotta/10 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="w-full max-w-md p-6 sm:p-8 bg-espresso-900 border border-espresso-800 rounded-3xl shadow-lifted space-y-6 relative z-10 backdrop-blur-sm">
+        {/* Top Back Link */}
+        <div className="flex items-center justify-between">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-xs text-taupe-400 hover:text-cream-100 transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" /> Back to website
+          </Link>
+          <span className="text-[10px] font-mono uppercase tracking-wider text-terracotta px-2 py-0.5 rounded-full bg-terracotta/10 border border-terracotta/20">
+            Super-Admin
+          </span>
+        </div>
+
+        {/* Brand & Heading */}
         <div className="text-center space-y-2">
           <div className="w-12 h-12 rounded-2xl bg-terracotta text-white flex items-center justify-center mx-auto shadow-md">
             <Lock className="w-6 h-6" />
           </div>
-          <h1 className="font-serif text-2xl font-bold tracking-tight text-cream-50">
-            Dishora Founder Console
+          <h1 className="font-serif text-2xl sm:text-3xl font-bold tracking-tight text-cream-50">
+            Dishora Founder Portal
           </h1>
-          <p className="text-xs text-taupe-400">
-            Environment-authenticated single administrator portal
+          <p className="text-xs text-taupe-400 max-w-xs mx-auto">
+            Environment-authenticated single administrator operations console
           </p>
         </div>
 
+        {/* Error Alert */}
         {error && (
-          <div className="p-3 bg-red-950/60 border border-red-800 text-red-200 rounded-xl text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
+          <div className="p-3.5 bg-red-950/80 border border-red-800 text-red-200 rounded-2xl text-xs flex items-center gap-2.5 animate-fade-in">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
             <span>{error}</span>
           </div>
         )}
 
+        {/* Login Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-taupe-400 mb-1">Admin Email</label>
+            <label className="block text-xs font-semibold text-taupe-300 mb-1.5">
+              Admin Email
+            </label>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl bg-espresso-950 border border-espresso-800 text-sm text-cream-50 focus:outline-none focus:ring-1 focus:ring-terracotta"
+              placeholder="founder@dishora.app"
+              className="w-full px-4 py-2.5 rounded-xl bg-espresso-950 border border-espresso-700 text-sm text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-taupe-400 mb-1">Founder Password</label>
+            <label className="block text-xs font-semibold text-taupe-300 mb-1.5">
+              Founder Password
+            </label>
             <input
               type="password"
               required
               placeholder="••••••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl bg-espresso-950 border border-espresso-800 text-sm text-cream-50 focus:outline-none focus:ring-1 focus:ring-terracotta"
+              className="w-full px-4 py-2.5 rounded-xl bg-espresso-950 border border-espresso-700 text-sm text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 rounded-xl bg-terracotta text-white text-sm font-semibold hover:bg-terracotta-600 active:scale-[0.99] transition-all disabled:opacity-50 shadow-md"
+            className="w-full py-3 rounded-xl bg-terracotta text-white text-sm font-semibold hover:bg-terracotta-600 active:scale-[0.99] transition-all disabled:opacity-50 shadow-md flex items-center justify-center gap-2"
           >
-            {loading ? 'Authenticating...' : 'Sign In as Founder'}
+            {loading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>Authenticating...</span>
+              </>
+            ) : (
+              <>
+                <KeyRound className="w-4 h-4" />
+                <span>Sign In as Founder</span>
+              </>
+            )}
           </button>
         </form>
 
-        <div className="pt-2 text-center text-[11px] text-taupe-500 flex items-center justify-center gap-1.5">
-          <ShieldCheck className="w-3.5 h-3.5 text-sage-500" />
-          <span>Protected by HMAC & secure HTTP-only session cookies</span>
+        {/* Quick Fill Helper */}
+        <div className="pt-2 border-t border-espresso-800 flex flex-col items-center gap-2 text-center">
+          <button
+            type="button"
+            onClick={handleFillCredentials}
+            className="text-xs text-taupe-400 hover:text-cream-100 flex items-center gap-1.5 transition-colors underline underline-offset-2"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-terracotta" />
+            <span>Fill configured founder credentials</span>
+          </button>
+
+          <div className="text-[11px] text-taupe-500 flex items-center justify-center gap-1.5 pt-1">
+            <ShieldCheck className="w-3.5 h-3.5 text-sage-500 shrink-0" />
+            <span>Protected by HMAC & secure HTTP-only session cookies</span>
+          </div>
         </div>
       </div>
     </div>
   );
 }
-
