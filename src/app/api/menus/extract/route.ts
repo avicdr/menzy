@@ -42,12 +42,65 @@ export async function POST(req: Request) {
       } catch {}
     }
 
-    // Run extraction
-    const extracted = await extractMenuFromImages({
-      images,
-      restaurantId,
-      currencyDefault: restaurant.currency === 'USD' ? 'USD' : 'INR',
-    });
+    if (images.length === 0) {
+      await prisma.menuUpload.update({
+        where: { id: upload.id },
+        data: { status: 'FAILED' },
+      });
+      if (jobId) {
+        await prisma.extractionJob.update({
+          where: { id: jobId },
+          data: { status: 'FAILED', error: 'No readable images found in uploaded files' },
+        });
+      }
+      return NextResponse.json({
+        success: false,
+        error: 'No readable menu images found. Please upload a clear image (JPG, PNG) or PDF.',
+      }, { status: 400 });
+    }
+
+    // Run extraction with strict error propagation - NEVER populate dummy data on failure!
+    let extracted;
+    try {
+      extracted = await extractMenuFromImages({
+        images,
+        restaurantId,
+        currencyDefault: restaurant.currency === 'USD' ? 'USD' : 'INR',
+      });
+    } catch (extractErr: any) {
+      console.error('Menu extraction failed:', extractErr);
+      await prisma.menuUpload.update({
+        where: { id: upload.id },
+        data: { status: 'FAILED' },
+      });
+      if (jobId) {
+        await prisma.extractionJob.update({
+          where: { id: jobId },
+          data: { status: 'FAILED', error: extractErr?.message || 'Extraction failed' },
+        });
+      }
+      return NextResponse.json({
+        success: false,
+        error: extractErr?.message || 'Menu extraction failed. Please try again later.',
+      }, { status: 422 });
+    }
+
+    if (!extracted || !extracted.items || extracted.items.length === 0) {
+      await prisma.menuUpload.update({
+        where: { id: upload.id },
+        data: { status: 'FAILED' },
+      });
+      if (jobId) {
+        await prisma.extractionJob.update({
+          where: { id: jobId },
+          data: { status: 'FAILED', error: 'No dishes detected in image' },
+        });
+      }
+      return NextResponse.json({
+        success: false,
+        error: 'No dishes or prices could be detected in the uploaded image. Please ensure your menu photo is clear, focused, and well-lit.',
+      }, { status: 422 });
+    }
 
     // Ensure a default Menu exists
     let menu = await prisma.menu.findFirst({

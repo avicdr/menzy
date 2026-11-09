@@ -62,143 +62,103 @@ export async function extractMenuFromImages(params: {
   const modelName = getTextModelName();
   const currency = params.currencyDefault || 'INR';
 
-  if (client) {
-    try {
-      const parts: any[] = params.images.map((img) => ({
-        inlineData: {
-          data: img.buffer.toString('base64'),
-          mimeType: img.mimeType,
-        },
-      }));
-
-      parts.push({
-        text: `Extract all menu categories, dishes, prices (in minor units cents/paise), dietary indicators and visual descriptions according to the JSON schema. Use currency: ${currency}. Return ONLY a JSON object.`,
-      });
-
-      const response = await client.models.generateContent({
-        model: modelName,
-        contents: [
-          { role: 'user', parts },
-        ],
-        config: {
-          systemInstruction: EXTRACTION_SYSTEM_PROMPT,
-          responseMimeType: 'application/json',
-        },
-      });
-
-      const responseText = response.text || '{}';
-      const parsedRaw = JSON.parse(responseText);
-      const validated = ExtractedMenuResultSchema.parse(parsedRaw);
-
-      // Record AI usage event
-      const latencyMs = Date.now() - startTime;
-      await prisma.aIUsageEvent.create({
-        data: {
-          restaurantId: params.restaurantId,
-          operationType: 'MENU_EXTRACTION',
-          modelId: modelName,
-          inputTokens: 1200,
-          outputTokens: 800,
-          estimatedCostUsd: 0.00066,
-          status: 'SUCCESS',
-          latencyMs,
-        },
-      });
-
-      return validated;
-    } catch (err) {
-      console.error('Gemini menu extraction error:', err);
-      // Fallback to sandbox parser below
-    }
+  if (!client) {
+    const errorMsg = 'Gemini AI Vision client is not configured or GEMINI_API_KEY is missing. Extraction cannot proceed without valid AI credentials.';
+    console.error(`[VisionExtractor] ${errorMsg}`);
+    await prisma.aIUsageEvent.create({
+      data: {
+        restaurantId: params.restaurantId,
+        operationType: 'MENU_EXTRACTION',
+        modelId: modelName,
+        inputTokens: 0,
+        outputTokens: 0,
+        estimatedCostUsd: 0,
+        status: 'FAILED',
+        latencyMs: Date.now() - startTime,
+      },
+    }).catch(() => {});
+    throw new Error('Menu extraction service is currently unavailable. Please check system credentials and try again later.');
   }
 
-  // Realistic sandbox adapter when API key is not configured or in offline test mode
-  const latencyMs = Date.now() - startTime;
-  const simulatedResult: ExtractedMenuResult = {
-    restaurantName: 'Artisan Cafe & Grill',
-    detectedCurrency: currency,
-    categories: ['Beverages & Brews', 'Small Plates', 'Specialty Mains', 'Artisanal Bakes'],
-    items: [
-      {
-        sourceName: currency === 'INR' ? 'Filter Coffee Cappuccino' : 'House Vanilla Latte',
-        normalizedName: 'cappuccino',
-        category: 'Beverages & Brews',
-        description: 'Single-origin espresso steamed with textured milk foam.',
-        priceMinor: currency === 'INR' ? 19000 : 550,
-        currency,
-        variants: [
-          { name: 'Regular (8 oz)', priceMinor: currency === 'INR' ? 19000 : 550 },
-          { name: 'Large (12 oz)', priceMinor: currency === 'INR' ? 24000 : 650 },
-        ],
-        explicitIngredients: ['Espresso', 'Whole Milk'],
-        dietaryLabels: ['VEGETARIAN'],
-        allergenStatements: ['Contains Dairy'],
-        sourcePage: 1,
-        sourceText: currency === 'INR' ? 'Cappuccino Rs 190 / 240' : 'House Vanilla Latte $5.50 / $6.50',
-        confidence: 0.95,
-        needsReview: false,
-        suggestedCanonicalKey: 'cappuccino',
-        visualDescription: 'A classic ceramic cup filled with rich golden coffee topped with a creamy white foam leaf pattern.',
-        isPopular: true,
-        chefRecommended: true,
-      },
-      {
-        sourceName: currency === 'INR' ? 'Tandoori Paneer Tikka Skewers' : 'Wild Truffle Tagliatelle',
-        normalizedName: currency === 'INR' ? 'paneer tikka' : 'truffle mushroom pasta',
-        category: currency === 'INR' ? 'Small Plates' : 'Specialty Mains',
-        description: currency === 'INR' ? 'Marinated cottage cheese charred with peppers in clay oven.' : 'Fresh egg tagliatelle with shaved black winter truffles and forest mushrooms.',
-        priceMinor: currency === 'INR' ? 36000 : 2600,
-        currency,
-        variants: [],
-        explicitIngredients: currency === 'INR' ? ['Paneer', 'Bell Peppers', 'Yogurt', 'Chili'] : ['Fresh Pasta', 'Black Truffle', 'Parmesan', 'Wild Mushrooms'],
-        dietaryLabels: currency === 'INR' ? ['VEG', 'GLUTEN_FREE'] : ['VEGETARIAN'],
-        allergenStatements: currency === 'INR' ? ['Contains Dairy'] : ['Contains Gluten, Dairy, Eggs'],
-        sourcePage: 1,
-        sourceText: currency === 'INR' ? 'Paneer Tikka Rs 360' : 'Truffle Tagliatelle $26.00',
-        confidence: 0.92,
-        needsReview: false,
-        suggestedCanonicalKey: currency === 'INR' ? 'paneer tikka' : 'truffle mushroom pasta',
-        visualDescription: currency === 'INR' ? 'Golden charred paneer cubes skewered with red and green bell peppers on a slate platter.' : 'Twirled fresh pasta ribbons with sautéed dark mushrooms and delicate black truffle shavings.',
-        isPopular: true,
-        chefRecommended: true,
-      },
-      {
-        sourceName: 'Daily House Sourdough Tartine',
-        normalizedName: 'avocado sourdough toast',
-        category: currency === 'INR' ? 'Small Plates' : 'Specialty Mains',
-        description: 'Toasted seeded sourdough with smashed avocado, lemon zest and microgreens.',
-        priceMinor: currency === 'INR' ? 28000 : 1600,
-        currency,
-        variants: [],
-        explicitIngredients: ['Sourdough Bread', 'Avocado', 'Lemon', 'Sea Salt', 'Microgreens'],
-        dietaryLabels: ['VEGAN'],
-        allergenStatements: ['Contains Gluten'],
-        sourcePage: 1,
-        sourceText: currency === 'INR' ? 'Sourdough Tartine Rs 280' : 'Avocado Tartine $16.00',
-        confidence: 0.88,
-        needsReview: false,
-        suggestedCanonicalKey: 'avocado sourdough toast',
-        visualDescription: 'Crusty golden artisan sourdough toast topped with rich green smashed avocado and vibrant pink radishes.',
-        isPopular: false,
-        chefRecommended: false,
-      },
-    ],
-  };
+  if (!params.images || params.images.length === 0) {
+    throw new Error('No readable menu image files were provided. Please upload valid image files (JPG, PNG, WebP) or PDF.');
+  }
 
-  // Record simulated usage event for audit
-  await prisma.aIUsageEvent.create({
-    data: {
-      restaurantId: params.restaurantId,
-      operationType: 'MENU_EXTRACTION',
-      modelId: modelName,
-      inputTokens: 1100,
-      outputTokens: 750,
-      estimatedCostUsd: 0.0006,
-      status: 'SUCCESS',
-      latencyMs,
-    },
-  });
+  try {
+    const parts: any[] = params.images.map((img) => ({
+      inlineData: {
+        data: img.buffer.toString('base64'),
+        mimeType: img.mimeType,
+      },
+    }));
 
-  return simulatedResult;
+    parts.push({
+      text: `Extract all menu categories, dishes, prices (in minor units cents/paise), dietary indicators and visual descriptions according to the JSON schema. Use currency: ${currency}. Return ONLY a JSON object.`,
+    });
+
+    const response = await client.models.generateContent({
+      model: modelName,
+      contents: [
+        { role: 'user', parts },
+      ],
+      config: {
+        systemInstruction: EXTRACTION_SYSTEM_PROMPT,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const responseText = response.text || '';
+    if (!responseText.trim()) {
+      throw new Error('Empty response received from vision model.');
+    }
+
+    let parsedRaw: any;
+    try {
+      parsedRaw = JSON.parse(responseText);
+    } catch {
+      throw new Error('Vision model returned malformed output that could not be parsed.');
+    }
+
+    const validated = ExtractedMenuResultSchema.parse(parsedRaw);
+
+    if (!validated.items || validated.items.length === 0) {
+      throw new Error('No dishes or menu entries could be detected in the uploaded image. Please ensure the menu photo is clear, focused, and well-lit.');
+    }
+
+    // Record AI usage event
+    const latencyMs = Date.now() - startTime;
+    await prisma.aIUsageEvent.create({
+      data: {
+        restaurantId: params.restaurantId,
+        operationType: 'MENU_EXTRACTION',
+        modelId: modelName,
+        inputTokens: 1200,
+        outputTokens: 800,
+        estimatedCostUsd: 0.00066,
+        status: 'SUCCESS',
+        latencyMs,
+      },
+    }).catch(() => {});
+
+    return validated;
+  } catch (err: any) {
+    console.error('Gemini menu extraction error:', err);
+    const latencyMs = Date.now() - startTime;
+    await prisma.aIUsageEvent.create({
+      data: {
+        restaurantId: params.restaurantId,
+        operationType: 'MENU_EXTRACTION',
+        modelId: modelName,
+        inputTokens: 0,
+        outputTokens: 0,
+        estimatedCostUsd: 0,
+        status: 'FAILED',
+        latencyMs,
+      },
+    }).catch(() => {});
+
+    // Throw clear failure error - NEVER populate or return dummy data
+    throw new Error(err?.message || 'Menu extraction failed. Please ensure the menu photo is clear and try again later.');
+  }
 }
 

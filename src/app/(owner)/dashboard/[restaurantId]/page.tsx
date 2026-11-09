@@ -78,6 +78,8 @@ function RestaurantDashboardContent() {
   const [menuFilter, setMenuFilter] = useState<string>('ALL');
   const [isUploadingMenu, setIsUploadingMenu] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const [extractionError, setExtractionError] = useState<string | null>(null);
+  const [extractionSuccess, setExtractionSuccess] = useState<string | null>(null);
 
   // Menu Studio State - Edit Dish
   const [editingDish, setEditingDish] = useState<any | null>(null);
@@ -501,6 +503,8 @@ function RestaurantDashboardContent() {
     if (!files || !files.length) return;
 
     setIsUploadingMenu(true);
+    setExtractionError(null);
+    setExtractionSuccess(null);
     setUploadProgress('Uploading menu files to secure storage...');
 
     try {
@@ -515,10 +519,13 @@ function RestaurantDashboardContent() {
         body: formData,
       });
 
-      if (!uploadRes.ok) throw new Error('Upload failed');
+      if (!uploadRes.ok) {
+        const uploadErrData = await uploadRes.json().catch(() => ({}));
+        throw new Error(uploadErrData.error || 'Upload failed. Please try again later.');
+      }
       const uploadData = await uploadRes.json();
 
-      setUploadProgress('Gemini reading menu & matching dishes against canonical library...');
+      setUploadProgress('Gemini analyzing menu dishes & matching with canonical library...');
 
       const extractRes = await fetch('/api/menus/extract', {
         method: 'POST',
@@ -530,10 +537,14 @@ function RestaurantDashboardContent() {
         }),
       });
 
-      if (!extractRes.ok) throw new Error('Extraction failed');
-      const extractData = await extractRes.json();
+      const extractData = await extractRes.json().catch(() => ({}));
 
-      setUploadProgress(`Extracted ${extractData.extractedItemsCount} dishes successfully!`);
+      if (!extractRes.ok || !extractData.success) {
+        throw new Error(extractData.error || 'Menu extraction failed. Please try again later.');
+      }
+
+      setExtractionError(null);
+      setExtractionSuccess(`Extracted ${extractData.extractedItemsCount} dishes successfully from your menu!`);
       // Reload items
       const itemsRes = await fetch(`/api/menus/items?restaurantId=${restaurant.id}`);
       if (itemsRes.ok) {
@@ -541,12 +552,17 @@ function RestaurantDashboardContent() {
         setMenuItems(itemsData.items || []);
       }
     } catch (err: any) {
-      alert(err.message || 'Error uploading menu');
+      console.error('Menu extraction failed:', err);
+      setExtractionSuccess(null);
+      setExtractionError(
+        err.message || 'Menu extraction failed. Please ensure the menu photo is clear and legible, and please try again later.'
+      );
     } finally {
-      setTimeout(() => {
-        setIsUploadingMenu(false);
-        setUploadProgress(null);
-      }, 2000);
+      setIsUploadingMenu(false);
+      setUploadProgress(null);
+      if (e.target) {
+        e.target.value = '';
+      }
     }
   };
 
@@ -941,6 +957,48 @@ function RestaurantDashboardContent() {
               <div className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in shadow-xs">
                 <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
                 <span>{deleteToast}</span>
+              </div>
+            )}
+
+            {/* Menu Extraction Error Notification */}
+            {extractionError && (
+              <div className="p-4 sm:p-5 bg-red-50 border border-red-200 rounded-2xl flex items-start justify-between gap-3 text-xs sm:text-sm text-red-900 animate-fade-in shadow-xs">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-red-100 border border-red-200 text-red-700 flex items-center justify-center shrink-0 mt-0.5">
+                    <AlertCircle className="w-5 h-5 text-red-600" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-red-950 text-sm">Menu Extraction Failed</h4>
+                    <p className="text-red-800 mt-1 leading-relaxed">{extractionError}</p>
+                    <p className="text-red-700/80 text-[11px] mt-1.5 font-medium">
+                      Notice: Your menu was not modified and no dummy dishes were added. Please ensure the menu photo is clear, focused, and well-lit, and please try again later.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setExtractionError(null)}
+                  className="p-1.5 rounded-lg text-red-500 hover:text-red-800 hover:bg-red-100 transition-colors shrink-0"
+                  title="Dismiss error"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Menu Extraction Success Notification */}
+            {extractionSuccess && (
+              <div className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center justify-between gap-3 animate-fade-in shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
+                  <span className="font-medium">{extractionSuccess}</span>
+                </div>
+                <button
+                  onClick={() => setExtractionSuccess(null)}
+                  className="p-1 rounded-lg text-sage-600 hover:bg-sage-100 transition-colors shrink-0"
+                  title="Dismiss"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             )}
 

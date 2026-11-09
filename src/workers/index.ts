@@ -35,21 +35,38 @@ async function runWorkerLoop() {
           } catch {}
         }
 
-        const extracted = await extractMenuFromImages({
-          images,
-          restaurantId: queuedExtraction.restaurantId,
-          currencyDefault: queuedExtraction.restaurant.currency === 'USD' ? 'USD' : 'INR',
-        });
+        try {
+          const extracted = await extractMenuFromImages({
+            images,
+            restaurantId: queuedExtraction.restaurantId,
+            currencyDefault: queuedExtraction.restaurant.currency === 'USD' ? 'USD' : 'INR',
+          });
 
-        await prisma.extractionJob.update({
-          where: { id: queuedExtraction.id },
-          data: {
-            status: 'COMPLETED',
-            extractedJson: extracted as any,
-            extractionConfidence: 0.95,
-          },
-        });
-        console.log(`[Worker] ExtractionJob ${queuedExtraction.id} completed.`);
+          await prisma.extractionJob.update({
+            where: { id: queuedExtraction.id },
+            data: {
+              status: 'COMPLETED',
+              extractedJson: extracted as any,
+              extractionConfidence: 0.95,
+            },
+          });
+          console.log(`[Worker] ExtractionJob ${queuedExtraction.id} completed.`);
+        } catch (workerErr: any) {
+          console.error(`[Worker] ExtractionJob ${queuedExtraction.id} failed:`, workerErr);
+          await prisma.extractionJob.update({
+            where: { id: queuedExtraction.id },
+            data: {
+              status: 'FAILED',
+              error: workerErr?.message || 'Extraction failed',
+            },
+          });
+          if (queuedExtraction.upload) {
+            await prisma.menuUpload.update({
+              where: { id: queuedExtraction.upload.id },
+              data: { status: 'FAILED' },
+            });
+          }
+        }
       }
 
       // 2. Process queued GenerationJobs
