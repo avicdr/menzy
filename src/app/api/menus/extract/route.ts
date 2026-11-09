@@ -37,7 +37,13 @@ export async function POST(req: Request) {
         const localPath = path.join(process.cwd(), 'public', fileUrl.replace(/^\//, ''));
         if (fs.existsSync(localPath)) {
           const buffer = fs.readFileSync(localPath);
-          images.push({ buffer, mimeType: 'image/jpeg' });
+          const ext = path.extname(localPath).toLowerCase();
+          let mimeType = 'image/jpeg';
+          if (ext === '.webp') mimeType = 'image/webp';
+          else if (ext === '.png') mimeType = 'image/png';
+          else if (ext === '.pdf') mimeType = 'application/pdf';
+          else if (ext === '.gif') mimeType = 'image/gif';
+          images.push({ buffer, mimeType });
         }
       } catch {}
     }

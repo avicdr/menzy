@@ -30,7 +30,14 @@ async function runWorkerLoop() {
           try {
             const localPath = path.join(process.cwd(), 'public', fileUrl.replace(/^\//, ''));
             if (fs.existsSync(localPath)) {
-              images.push({ buffer: fs.readFileSync(localPath), mimeType: 'image/jpeg' });
+              const buffer = fs.readFileSync(localPath);
+              const ext = path.extname(localPath).toLowerCase();
+              let mimeType = 'image/jpeg';
+              if (ext === '.webp') mimeType = 'image/webp';
+              else if (ext === '.png') mimeType = 'image/png';
+              else if (ext === '.pdf') mimeType = 'application/pdf';
+              else if (ext === '.gif') mimeType = 'image/gif';
+              images.push({ buffer, mimeType });
             }
           } catch {}
         }
