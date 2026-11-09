@@ -123,6 +123,8 @@ export async function POST(req: Request) {
           preparationDetails: item.visualDescription,
           isAvailable: true,
           isPublished: true,
+          isPopular: Boolean(item.isPopular),
+          chefRecommended: Boolean(item.chefRecommended),
         },
       });
 

@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import { X, MessageSquare, Info, ShieldAlert, Sparkles, CheckCircle2 } from 'lucide-react';
-import { DietaryBadge } from './DietaryBadge';
+import { X, MessageSquare, Info, ShieldAlert, Sparkles, CheckCircle2, Flame } from 'lucide-react';
+import { DietaryBadge, FssaiMarker } from './DietaryBadge';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
 
 interface DishDetailSheetProps {
@@ -29,6 +29,12 @@ export function DishDetailSheet({
 
   const isVerifiedNutrition = item.nutritionSource === 'RESTAURANT_VERIFIED';
   const hasNutrition = nutrition?.calories != null || nutrition?.protein != null;
+
+  // Detect Indian FSSAI marker
+  const isVeg = dietaryLabels.some((l: string) => ['VEG', 'VEGETARIAN', 'PURE_VEG'].includes(l.toUpperCase()));
+  const isNonVeg = dietaryLabels.some((l: string) => ['NON_VEG', 'NON-VEG', 'NONVEG'].includes(l.toUpperCase()));
+  const isEgg = dietaryLabels.some((l: string) => ['EGG', 'CONTAINS_EGG', 'EGGETARIAN'].includes(l.toUpperCase()));
+  const indianMarker: 'VEG' | 'NON_VEG' | 'EGG' | null = isVeg ? 'VEG' : isNonVeg ? 'NON_VEG' : isEgg ? 'EGG' : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-espresso-900/60 backdrop-blur-sm animate-fade-in">
@@ -57,21 +63,29 @@ export function DishDetailSheet({
               alt={item.customName}
               className="w-full h-full object-cover"
             />
-            {item.chefRecommended && (
-              <div className="absolute bottom-3 left-3">
+            <div className="absolute bottom-3 left-3 flex flex-wrap gap-1.5">
+              {item.isPopular && (
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-800 bg-white/95 px-3 py-1 rounded-full shadow-sm">
+                  <Flame className="w-3.5 h-3.5 text-rose-600" /> Bestseller
+                </span>
+              )}
+              {item.chefRecommended && (
                 <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-terracotta-800 bg-white/95 px-3 py-1 rounded-full shadow-sm">
                   <Sparkles className="w-3.5 h-3.5 text-terracotta-500" /> Chef Recommendation
                 </span>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {/* Title & Price */}
           <div>
             <div className="flex items-baseline justify-between gap-4">
-              <h2 className="text-2xl sm:text-3xl font-serif text-[var(--dishora-text)]">
-                {item.customName}
-              </h2>
+              <div className="flex items-center gap-2">
+                {indianMarker && <FssaiMarker type={indianMarker} size="md" />}
+                <h2 className="text-2xl sm:text-3xl font-serif text-[var(--dishora-text)]">
+                  {item.customName}
+                </h2>
+              </div>
               <span className="text-xl sm:text-2xl font-bold text-[var(--dishora-text)] shrink-0">
                 {priceDisplay}
               </span>

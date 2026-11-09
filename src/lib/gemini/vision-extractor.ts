@@ -24,6 +24,8 @@ export const ExtractedMenuItemSchema = z.object({
   needsReview: z.boolean().default(false),
   suggestedCanonicalKey: z.string().nullable().default(null),
   visualDescription: z.string(),
+  isPopular: z.boolean().default(false),
+  chefRecommended: z.boolean().default(false),
 });
 
 export const ExtractedMenuResultSchema = z.object({
@@ -36,7 +38,19 @@ export const ExtractedMenuResultSchema = z.object({
 export type ExtractedMenuItem = z.infer<typeof ExtractedMenuItemSchema>;
 export type ExtractedMenuResult = z.infer<typeof ExtractedMenuResultSchema>;
 
-const EXTRACTION_SYSTEM_PROMPT = `You are a precise restaurant-menu extraction engine. Read the supplied menu exactly. Preserve dish titles, prices, groupings, size variants, dietary labels and descriptive text. Output valid structured data matching the provided schema. Never invent missing prices, ingredients, allergens or claims. For each item, distinguish facts visible in the menu from uncertain inferences. Keep original source references and mark ambiguous fields for owner review. Generate a concise visual description of the dish that may be used to create a stylized illustrative image, but never represent the illustration as evidence of the restaurant's exact recipe.`;
+const EXTRACTION_SYSTEM_PROMPT = `You are a precise restaurant-menu extraction engine. Read the supplied menu exactly. Preserve dish titles, prices, groupings, size variants, dietary labels and descriptive text. Output valid structured data matching the provided schema. Never invent missing prices, ingredients, allergens or claims.
+
+For dietary indicators:
+- For Indian menus, detect standard FSSAI symbols and labels:
+  - VEG (pure vegetarian, green dot symbol)
+  - NON_VEG (non-vegetarian, red/brown triangle symbol)
+  - EGG (contains egg / eggitarian, yellow dot or egg symbol)
+  - JAIN (pure veg prepared strictly without onion, garlic, or root vegetables)
+- For Western/abroad menus, detect:
+  - VEGAN, VEGETARIAN, GLUTEN_FREE, DAIRY_FREE, NUT_FREE, HALAL, KOSHER.
+- If an item is highlighted with a star, flame, chef's hat, or marked as 'Bestseller', 'Popular', 'Chef Special', or 'Must Try', set isPopular or chefRecommended to true.
+
+For each item, distinguish facts visible in the menu from uncertain inferences. Keep original source references and mark ambiguous fields for owner review. Generate a concise visual description of the dish that may be used to create a stylized illustrative image, but never represent the illustration as evidence of the restaurant's exact recipe.`;
 
 export async function extractMenuFromImages(params: {
   images: Array<{ buffer: Buffer; mimeType: string }>;
@@ -125,6 +139,8 @@ export async function extractMenuFromImages(params: {
         needsReview: false,
         suggestedCanonicalKey: 'cappuccino',
         visualDescription: 'A classic ceramic cup filled with rich golden coffee topped with a creamy white foam leaf pattern.',
+        isPopular: true,
+        chefRecommended: true,
       },
       {
         sourceName: currency === 'INR' ? 'Tandoori Paneer Tikka Skewers' : 'Wild Truffle Tagliatelle',
@@ -135,7 +151,7 @@ export async function extractMenuFromImages(params: {
         currency,
         variants: [],
         explicitIngredients: currency === 'INR' ? ['Paneer', 'Bell Peppers', 'Yogurt', 'Chili'] : ['Fresh Pasta', 'Black Truffle', 'Parmesan', 'Wild Mushrooms'],
-        dietaryLabels: ['VEGETARIAN'],
+        dietaryLabels: currency === 'INR' ? ['VEG', 'GLUTEN_FREE'] : ['VEGETARIAN'],
         allergenStatements: currency === 'INR' ? ['Contains Dairy'] : ['Contains Gluten, Dairy, Eggs'],
         sourcePage: 1,
         sourceText: currency === 'INR' ? 'Paneer Tikka Rs 360' : 'Truffle Tagliatelle $26.00',
@@ -143,6 +159,8 @@ export async function extractMenuFromImages(params: {
         needsReview: false,
         suggestedCanonicalKey: currency === 'INR' ? 'paneer tikka' : 'truffle mushroom pasta',
         visualDescription: currency === 'INR' ? 'Golden charred paneer cubes skewered with red and green bell peppers on a slate platter.' : 'Twirled fresh pasta ribbons with sautéed dark mushrooms and delicate black truffle shavings.',
+        isPopular: true,
+        chefRecommended: true,
       },
       {
         sourceName: 'Daily House Sourdough Tartine',
@@ -161,6 +179,8 @@ export async function extractMenuFromImages(params: {
         needsReview: false,
         suggestedCanonicalKey: 'avocado sourdough toast',
         visualDescription: 'Crusty golden artisan sourdough toast topped with rich green smashed avocado and vibrant pink radishes.',
+        isPopular: false,
+        chefRecommended: false,
       },
     ],
   };

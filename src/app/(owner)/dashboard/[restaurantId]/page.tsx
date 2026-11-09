@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { DashboardNav } from '@/components/dashboard/DashboardNav';
 import {
@@ -19,9 +19,11 @@ import {
   Layers,
   ArrowRight,
   TrendingUp,
+  Flame,
 } from 'lucide-react';
 import { formatCurrencyMinor, PLAN_CATALOG, PlanKey } from '@/lib/payments/plans';
 import { THEME_PRESETS, ThemeConfig, validateThemeAccessibility, generateThemeVariables } from '@/lib/theme/theme-presets';
+import { DietaryBadge, FssaiMarker } from '@/components/diner/DietaryBadge';
 
 export default function RestaurantDashboardPage() {
   return (
@@ -57,6 +59,11 @@ function RestaurantDashboardContent() {
   const [newDishPrice, setNewDishPrice] = useState('250');
   const [newDishCategory, setNewDishCategory] = useState('');
   const [newDishDescription, setNewDishDescription] = useState('');
+  const [newDishIsPopular, setNewDishIsPopular] = useState(false);
+  const [newDishChefRecommended, setNewDishChefRecommended] = useState(false);
+  const [newDishFoodType, setNewDishFoodType] = useState<'VEG' | 'NON_VEG' | 'EGG'>('VEG');
+  const [newDishDietaryTags, setNewDishDietaryTags] = useState<string[]>([]);
+  const [menuFilter, setMenuFilter] = useState<string>('ALL');
   const [isUploadingMenu, setIsUploadingMenu] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
 
@@ -193,24 +200,83 @@ function RestaurantDashboardContent() {
     });
   };
 
+  // Derived unique categories
+  const existingCategories = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const it of menuItems) {
+      if (it.category) {
+        map.set(it.category.id, it.category.name);
+      }
+    }
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [menuItems]);
+
+  const isIndianRestaurant = restaurant?.country === 'IN' || restaurant?.currency === 'INR';
+
+  // Toggle Popular / Bestseller
+  const handleTogglePopular = async (item: any) => {
+    const updated = !item.isPopular;
+    setMenuItems((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, isPopular: updated } : i))
+    );
+
+    await fetch('/api/menus/items', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        itemId: item.id,
+        restaurantId: restaurant.id,
+        isPopular: updated,
+      }),
+    });
+  };
+
+  // Toggle Chef Recommendation
+  const handleToggleChefPick = async (item: any) => {
+    const updated = !item.chefRecommended;
+    setMenuItems((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, chefRecommended: updated } : i))
+    );
+
+    await fetch('/api/menus/items', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        itemId: item.id,
+        restaurantId: restaurant.id,
+        chefRecommended: updated,
+      }),
+    });
+  };
+
   // Add custom dish
   const handleAddDish = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDishName.trim()) return;
 
-    const firstCat = menuItems[0]?.categoryId || 'default_cat';
     const priceMinor = Math.round(parseFloat(newDishPrice || '0') * 100);
+
+    let finalDietaryStatus: string[] = [];
+    if (isIndianRestaurant) {
+      finalDietaryStatus = [newDishFoodType, ...newDishDietaryTags];
+    } else {
+      finalDietaryStatus = [...newDishDietaryTags];
+    }
 
     const res = await fetch('/api/menus/items', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         restaurantId: restaurant.id,
-        categoryId: newDishCategory || firstCat,
+        categoryId: newDishCategory || undefined,
+        categoryName: newDishCategory ? undefined : 'Chef Specials',
         customName: newDishName,
         priceMinor,
         description: newDishDescription,
         currency: restaurant.currency,
+        isPopular: newDishIsPopular,
+        chefRecommended: newDishChefRecommended,
+        dietaryStatus: finalDietaryStatus,
       }),
     });
 
@@ -220,6 +286,12 @@ function RestaurantDashboardContent() {
       setIsAddDishOpen(false);
       setNewDishName('');
       setNewDishDescription('');
+      setNewDishPrice(restaurant.currency === 'USD' ? '12.50' : '250');
+      setNewDishCategory('');
+      setNewDishIsPopular(false);
+      setNewDishChefRecommended(false);
+      setNewDishFoodType('VEG');
+      setNewDishDietaryTags([]);
     }
   };
 
@@ -544,63 +616,212 @@ function RestaurantDashboardContent() {
 
             {/* Dishes Data Table */}
             <div className="bg-white rounded-3xl border border-cream-200 shadow-soft overflow-hidden">
+              {/* Quick Filter Bar */}
+              <div className="p-3.5 border-b border-cream-200 bg-cream-50/50 flex items-center gap-2 overflow-x-auto no-scrollbar">
+                <button
+                  onClick={() => setMenuFilter('ALL')}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                    menuFilter === 'ALL'
+                      ? 'bg-espresso-900 text-white shadow-sm'
+                      : 'bg-white border border-cream-200 text-taupe-600 hover:bg-cream-100'
+                  }`}
+                >
+                  All Dishes ({menuItems.length})
+                </button>
+
+                <button
+                  onClick={() => setMenuFilter('POPULAR')}
+                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                    menuFilter === 'POPULAR'
+                      ? 'bg-rose-700 text-white shadow-sm'
+                      : 'bg-white border border-cream-200 text-rose-700 hover:bg-rose-50'
+                  }`}
+                >
+                  <Flame className="w-3.5 h-3.5" /> Popular & Bestsellers ({menuItems.filter((i) => i.isPopular || i.chefRecommended).length})
+                </button>
+
+                {isIndianRestaurant ? (
+                  <>
+                    <button
+                      onClick={() => setMenuFilter('VEG')}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                        menuFilter === 'VEG'
+                          ? 'bg-green-700 text-white shadow-sm'
+                          : 'bg-white border border-cream-200 text-green-800 hover:bg-green-50'
+                      }`}
+                    >
+                      <FssaiMarker type="VEG" /> Pure Veg
+                    </button>
+                    <button
+                      onClick={() => setMenuFilter('NON_VEG')}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                        menuFilter === 'NON_VEG'
+                          ? 'bg-[#7B3F00] text-white shadow-sm'
+                          : 'bg-white border border-cream-200 text-[#7B3F00] hover:bg-amber-50'
+                      }`}
+                    >
+                      <FssaiMarker type="NON_VEG" /> Non-Veg
+                    </button>
+                    <button
+                      onClick={() => setMenuFilter('EGG')}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                        menuFilter === 'EGG'
+                          ? 'bg-amber-600 text-white shadow-sm'
+                          : 'bg-white border border-cream-200 text-amber-800 hover:bg-yellow-50'
+                      }`}
+                    >
+                      <FssaiMarker type="EGG" /> Contains Egg
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setMenuFilter('VEGAN')}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                        menuFilter === 'VEGAN'
+                          ? 'bg-emerald-700 text-white shadow-sm'
+                          : 'bg-white border border-cream-200 text-emerald-800 hover:bg-emerald-50'
+                      }`}
+                    >
+                      Vegan
+                    </button>
+                    <button
+                      onClick={() => setMenuFilter('GLUTEN_FREE')}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                        menuFilter === 'GLUTEN_FREE'
+                          ? 'bg-amber-700 text-white shadow-sm'
+                          : 'bg-white border border-cream-200 text-amber-800 hover:bg-amber-50'
+                      }`}
+                    >
+                      Gluten-Free
+                    </button>
+                  </>
+                )}
+              </div>
+
               <div className="overflow-x-auto w-full">
-                <table className="w-full min-w-[550px] text-left text-xs sm:text-sm">
+                <table className="w-full min-w-[640px] text-left text-xs sm:text-sm">
                   <thead className="bg-cream-50 text-taupe-500 border-b border-cream-200 uppercase font-semibold text-[11px] tracking-wider">
                     <tr>
                       <th className="py-3.5 px-4">Dish</th>
                       <th className="py-3.5 px-4">Category</th>
                       <th className="py-3.5 px-4">Price</th>
+                      <th className="py-3.5 px-4 text-center">Spotlight Tags</th>
                       <th className="py-3.5 px-4 text-center">Availability</th>
                       <th className="py-3.5 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-cream-100">
-                    {menuItems.map((item) => {
-                      const img = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
-                      return (
-                        <tr key={item.id} className="hover:bg-cream-50/50 transition-colors">
-                          <td className="py-3.5 px-4">
-                            <div className="flex items-center gap-3">
-                              <img src={img} alt={item.customName} className="w-12 h-12 rounded-xl object-cover bg-cream-100 shrink-0" />
-                              <div>
-                                <div className="font-semibold text-espresso-900">{item.customName}</div>
-                                {item.restaurantDescription && (
-                                  <p className="text-[11px] text-taupe-500 line-clamp-1 max-w-xs">{item.restaurantDescription}</p>
-                                )}
+                    {menuItems
+                      .filter((item) => {
+                        if (menuFilter === 'POPULAR') return Boolean(item.isPopular || item.chefRecommended);
+                        if (menuFilter === 'VEG') {
+                          const labels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase());
+                          return labels.includes('VEG') || labels.includes('VEGETARIAN') || labels.includes('PURE_VEG');
+                        }
+                        if (menuFilter === 'NON_VEG') {
+                          const labels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase());
+                          return labels.includes('NON_VEG') || labels.includes('NON-VEG') || labels.includes('NONVEG');
+                        }
+                        if (menuFilter === 'EGG') {
+                          const labels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase());
+                          return labels.includes('EGG') || labels.includes('CONTAINS_EGG') || labels.includes('EGGETARIAN');
+                        }
+                        if (menuFilter === 'VEGAN') {
+                          const labels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase());
+                          return labels.includes('VEGAN');
+                        }
+                        if (menuFilter === 'GLUTEN_FREE') {
+                          const labels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase());
+                          return labels.includes('GLUTEN_FREE') || labels.includes('GF');
+                        }
+                        return true;
+                      })
+                      .map((item) => {
+                        const img = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
+                        const dietaryLabels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase());
+                        const isVeg = dietaryLabels.some((l) => ['VEG', 'VEGETARIAN', 'PURE_VEG'].includes(l));
+                        const isNonVeg = dietaryLabels.some((l) => ['NON_VEG', 'NON-VEG', 'NONVEG'].includes(l));
+                        const isEgg = dietaryLabels.some((l) => ['EGG', 'CONTAINS_EGG', 'EGGETARIAN'].includes(l));
+                        const indianMarker = isVeg ? 'VEG' : isNonVeg ? 'NON_VEG' : isEgg ? 'EGG' : null;
+
+                        return (
+                          <tr key={item.id} className="hover:bg-cream-50/50 transition-colors">
+                            <td className="py-3.5 px-4">
+                              <div className="flex items-center gap-3">
+                                <img src={img} alt={item.customName} className="w-12 h-12 rounded-xl object-cover bg-cream-100 shrink-0" />
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    {indianMarker && <FssaiMarker type={indianMarker} size="sm" />}
+                                    <span className="font-semibold text-espresso-900 truncate">{item.customName}</span>
+                                  </div>
+                                  {item.restaurantDescription && (
+                                    <p className="text-[11px] text-taupe-500 line-clamp-1 max-w-xs">{item.restaurantDescription}</p>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                          <td className="py-3.5 px-4 text-taupe-600 font-medium">
-                            {item.category?.name || 'General'}
-                          </td>
-                          <td className="py-3.5 px-4 font-bold text-espresso-900">
-                            {formatCurrencyMinor(item.priceMinor || 0, item.currency)}
-                          </td>
-                          <td className="py-3.5 px-4 text-center">
-                            <button
-                              onClick={() => handleToggleAvailability(item)}
-                              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                                item.isAvailable
-                                  ? 'bg-sage-100 text-sage-800 hover:bg-sage-200'
-                                  : 'bg-red-100 text-red-800 hover:bg-red-200'
-                              }`}
-                            >
-                              {item.isAvailable ? 'Available' : 'Sold Out'}
-                            </button>
-                          </td>
-                          <td className="py-3.5 px-4 text-right">
-                            <button
-                              onClick={() => handleDeleteDish(item.id)}
-                              className="p-1.5 text-taupe-400 hover:text-red-600 transition-colors rounded-lg hover:bg-cream-100"
-                              title="Delete dish"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                            </td>
+                            <td className="py-3.5 px-4 text-taupe-600 font-medium">
+                              {item.category?.name || 'General'}
+                            </td>
+                            <td className="py-3.5 px-4 font-bold text-espresso-900">
+                              {formatCurrencyMinor(item.priceMinor || 0, item.currency)}
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              <div className="inline-flex items-center gap-1.5 justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTogglePopular(item)}
+                                  title={item.isPopular ? "Remove from Bestsellers" : "Mark as Popular / Bestseller"}
+                                  className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                                    item.isPopular
+                                      ? 'bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs'
+                                      : 'bg-cream-100 text-taupe-400 border border-cream-200 hover:text-rose-700 hover:bg-rose-50'
+                                  }`}
+                                >
+                                  <Flame className={`w-3.5 h-3.5 ${item.isPopular ? 'text-rose-600' : 'text-taupe-400'}`} />
+                                  <span className="hidden sm:inline">Popular</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleChefPick(item)}
+                                  title={item.chefRecommended ? "Remove Chef Pick" : "Mark as Chef's Recommendation"}
+                                  className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                                    item.chefRecommended
+                                      ? 'bg-terracotta-100 text-terracotta-800 border border-terracotta-300 shadow-2xs'
+                                      : 'bg-cream-100 text-taupe-400 border border-cream-200 hover:text-terracotta hover:bg-terracotta-50'
+                                  }`}
+                                >
+                                  <Sparkles className={`w-3.5 h-3.5 ${item.chefRecommended ? 'text-terracotta-600' : 'text-taupe-400'}`} />
+                                  <span className="hidden sm:inline">Chef Pick</span>
+                                </button>
+                              </div>
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              <button
+                                onClick={() => handleToggleAvailability(item)}
+                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                                  item.isAvailable
+                                    ? 'bg-sage-100 text-sage-800 hover:bg-sage-200'
+                                    : 'bg-red-100 text-red-800 hover:bg-red-200'
+                                }`}
+                              >
+                                {item.isAvailable ? 'Available' : 'Sold Out'}
+                              </button>
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
+                              <button
+                                onClick={() => handleDeleteDish(item.id)}
+                                className="p-1.5 text-taupe-400 hover:text-red-600 transition-colors rounded-lg hover:bg-cream-100"
+                                title="Delete dish"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
@@ -609,42 +830,236 @@ function RestaurantDashboardContent() {
             {/* Add Dish Modal */}
             {isAddDishOpen && (
               <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-espresso-900/60 backdrop-blur-sm animate-fade-in">
-                <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-sheet space-y-4">
-                  <h3 className="font-serif text-xl font-bold text-espresso-900">Add New Dish</h3>
-                  <form onSubmit={handleAddDish} className="space-y-3">
+                <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-sheet space-y-4 max-h-[90vh] overflow-y-auto">
+                  <div className="flex items-center justify-between border-b border-cream-200 pb-3">
                     <div>
-                      <label className="block text-xs font-semibold text-taupe-600 mb-1">Dish Name</label>
-                      <input
-                        type="text"
-                        required
-                        value={newDishName}
-                        onChange={(e) => setNewDishName(e.target.value)}
-                        placeholder="e.g. Saffron Rose Lassi"
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                      />
+                      <h3 className="font-serif text-xl font-bold text-espresso-900">Add New Dish</h3>
+                      <p className="text-xs text-taupe-500">
+                        {isIndianRestaurant ? 'Indian Restaurant Menu Item' : 'Hospitality Menu Item'}
+                      </p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddDishOpen(false)}
+                      className="p-1 rounded-lg text-taupe-400 hover:bg-cream-100"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleAddDish} className="space-y-4">
+                    {/* Dish Name & Category */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-taupe-600 mb-1">Dish Name *</label>
+                        <input
+                          type="text"
+                          required
+                          value={newDishName}
+                          onChange={(e) => setNewDishName(e.target.value)}
+                          placeholder={isIndianRestaurant ? "e.g. Paneer Butter Masala" : "e.g. Truffle Pappardelle"}
+                          className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-taupe-600 mb-1">Category</label>
+                        <select
+                          value={newDishCategory}
+                          onChange={(e) => setNewDishCategory(e.target.value)}
+                          className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
+                        >
+                          <option value="">Default / Chef Specials</option>
+                          {existingCategories.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Price */}
                     <div>
-                      <label className="block text-xs font-semibold text-taupe-600 mb-1">Price ({restaurant.currency})</label>
+                      <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                        Price ({restaurant.currency}) *
+                      </label>
                       <input
                         type="number"
                         required
                         step="0.01"
                         value={newDishPrice}
                         onChange={(e) => setNewDishPrice(e.target.value)}
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
                       />
                     </div>
+
+                    {/* Description */}
                     <div>
-                      <label className="block text-xs font-semibold text-taupe-600 mb-1">Description</label>
+                      <label className="block text-xs font-semibold text-taupe-600 mb-1">Description / Recipe</label>
                       <textarea
                         rows={2}
                         value={newDishDescription}
                         onChange={(e) => setNewDishDescription(e.target.value)}
-                        placeholder="Crafted with slow-strained organic yogurt..."
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+                        placeholder="Key spices, preparation technique, portion size..."
+                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
                       />
                     </div>
-                    <div className="flex items-center justify-end gap-2 pt-2">
+
+                    {/* Spotlight: Popular & Chef Recommendation */}
+                    <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
+                      <span className="block text-xs font-semibold text-espresso-900">
+                        Menu Spotlight Options
+                      </span>
+                      <div className="flex flex-wrap gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
+                          <input
+                            type="checkbox"
+                            checked={newDishIsPopular}
+                            onChange={(e) => setNewDishIsPopular(e.target.checked)}
+                            className="rounded border-cream-300 text-rose-600 focus:ring-rose-500 w-4 h-4"
+                          />
+                          <span className="flex items-center gap-1">
+                            <Flame className="w-3.5 h-3.5 text-rose-600" />
+                            <strong>Popular / Bestseller</strong> (Highlights dish with flame badge)
+                          </span>
+                        </label>
+
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
+                          <input
+                            type="checkbox"
+                            checked={newDishChefRecommended}
+                            onChange={(e) => setNewDishChefRecommended(e.target.checked)}
+                            className="rounded border-cream-300 text-terracotta focus:ring-terracotta w-4 h-4"
+                          />
+                          <span className="flex items-center gap-1">
+                            <Sparkles className="w-3.5 h-3.5 text-terracotta-500" />
+                            <strong>Chef's Recommendation</strong>
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Dietary Classification: Indian FSSAI vs Western */}
+                    {isIndianRestaurant ? (
+                      <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-espresso-900 mb-2">
+                            Indian Food Classification (FSSAI) *
+                          </label>
+                          <div className="grid grid-cols-3 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setNewDishFoodType('VEG')}
+                              className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                                newDishFoodType === 'VEG'
+                                  ? 'bg-green-100 border-green-600 text-green-900 ring-2 ring-green-500/20'
+                                  : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
+                              }`}
+                            >
+                              <FssaiMarker type="VEG" /> Pure Veg
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setNewDishFoodType('NON_VEG')}
+                              className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                                newDishFoodType === 'NON_VEG'
+                                  ? 'bg-amber-100 border-[#7B3F00] text-[#7B3F00] ring-2 ring-amber-500/20'
+                                  : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
+                              }`}
+                            >
+                              <FssaiMarker type="NON_VEG" /> Non-Veg
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setNewDishFoodType('EGG')}
+                              className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                                newDishFoodType === 'EGG'
+                                  ? 'bg-yellow-100 border-amber-500 text-amber-900 ring-2 ring-yellow-500/20'
+                                  : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
+                              }`}
+                            >
+                              <FssaiMarker type="EGG" /> Contains Egg
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                            Additional Indian Options
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            {[
+                              { key: 'JAIN', label: 'Jain Safe (No Onion/Garlic)' },
+                              { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
+                              { key: 'VEGAN', label: 'Vegan' },
+                            ].map((tag) => {
+                              const checked = newDishDietaryTags.includes(tag.key);
+                              return (
+                                <button
+                                  type="button"
+                                  key={tag.key}
+                                  onClick={() => {
+                                    setNewDishDietaryTags((prev) =>
+                                      checked ? prev.filter((t) => t !== tag.key) : [...prev, tag.key]
+                                    );
+                                  }}
+                                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                                    checked
+                                      ? 'bg-espresso-900 text-white border-espresso-900'
+                                      : 'bg-white border-cream-300 text-taupe-600 hover:bg-cream-100'
+                                  }`}
+                                >
+                                  {checked ? '✓ ' : '+ '} {tag.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Western / Abroad Dietary Classification */
+                      <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
+                        <label className="block text-xs font-semibold text-espresso-900 mb-1">
+                          Dietary Suitability & Allergens (Abroad)
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { key: 'VEGETARIAN', label: 'Vegetarian' },
+                            { key: 'VEGAN', label: 'Vegan' },
+                            { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
+                            { key: 'DAIRY_FREE', label: 'Dairy-Free' },
+                            { key: 'NUT_FREE', label: 'Nut-Free' },
+                            { key: 'HALAL', label: 'Halal' },
+                            { key: 'KOSHER', label: 'Kosher' },
+                          ].map((tag) => {
+                            const checked = newDishDietaryTags.includes(tag.key);
+                            return (
+                              <button
+                                type="button"
+                                key={tag.key}
+                                onClick={() => {
+                                  setNewDishDietaryTags((prev) =>
+                                    checked ? prev.filter((t) => t !== tag.key) : [...prev, tag.key]
+                                  );
+                                }}
+                                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                                  checked
+                                    ? 'bg-espresso-900 text-white border-espresso-900'
+                                    : 'bg-white border-cream-300 text-taupe-600 hover:bg-cream-100'
+                                }`}
+                              >
+                                {checked ? '✓ ' : '+ '} {tag.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-cream-200">
                       <button
                         type="button"
                         onClick={() => setIsAddDishOpen(false)}
@@ -654,9 +1069,9 @@ function RestaurantDashboardContent() {
                       </button>
                       <button
                         type="submit"
-                        className="px-4 py-2 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800"
+                        className="px-5 py-2 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 shadow-sm"
                       >
-                        Save Dish
+                        Save Dish to Menu
                       </button>
                     </div>
                   </form>

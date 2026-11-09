@@ -35,10 +35,22 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { restaurantId, categoryId, customName, priceMinor, currency, description, dietaryStatus, ingredients } = body;
+    const {
+      restaurantId,
+      categoryId,
+      categoryName,
+      customName,
+      priceMinor,
+      currency,
+      description,
+      dietaryStatus,
+      ingredients,
+      isPopular,
+      chefRecommended,
+    } = body;
 
-    if (!restaurantId || !categoryId || !customName) {
-      return NextResponse.json({ error: 'restaurantId, categoryId, and customName are required' }, { status: 400 });
+    if (!restaurantId || !customName) {
+      return NextResponse.json({ error: 'restaurantId and customName are required' }, { status: 400 });
     }
 
     const auth = await requireRestaurantAccess(restaurantId);
@@ -46,19 +58,55 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
     }
 
-    const menu = await prisma.menu.findFirst({
+    let menu = await prisma.menu.findFirst({
       where: { restaurantId, active: true },
     });
 
     if (!menu) {
-      return NextResponse.json({ error: 'No active menu found' }, { status: 400 });
+      menu = await prisma.menu.create({
+        data: {
+          restaurantId,
+          title: 'Main Menu',
+        },
+      });
+    }
+
+    let targetCategoryId = categoryId;
+    if (categoryName && categoryName.trim()) {
+      let existingCat = await prisma.menuCategory.findFirst({
+        where: { menuId: menu.id, name: categoryName.trim() },
+      });
+      if (!existingCat) {
+        existingCat = await prisma.menuCategory.create({
+          data: {
+            menuId: menu.id,
+            name: categoryName.trim(),
+            sortOrder: 99,
+          },
+        });
+      }
+      targetCategoryId = existingCat.id;
+    }
+
+    if (!targetCategoryId) {
+      const firstCat = await prisma.menuCategory.findFirst({
+        where: { menuId: menu.id },
+      });
+      if (firstCat) {
+        targetCategoryId = firstCat.id;
+      } else {
+        const newCat = await prisma.menuCategory.create({
+          data: { menuId: menu.id, name: 'Main Dishes', sortOrder: 1 },
+        });
+        targetCategoryId = newCat.id;
+      }
     }
 
     const item = await prisma.restaurantMenuItem.create({
       data: {
         restaurantId,
         menuId: menu.id,
-        categoryId,
+        categoryId: targetCategoryId,
         customName,
         priceMinor: priceMinor || 0,
         currency: currency || auth.restaurant.currency,
@@ -67,6 +115,15 @@ export async function POST(req: Request) {
         ingredients: ingredients || [],
         isAvailable: true,
         isPublished: true,
+        isPopular: Boolean(isPopular),
+        chefRecommended: Boolean(chefRecommended),
+      },
+      include: {
+        category: true,
+        canonical: {
+          include: { imageAsset: true },
+        },
+        imageOverride: true,
       },
     });
 

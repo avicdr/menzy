@@ -13,7 +13,10 @@
 # production
 /build
 
-# misc
+# local uploads
+/public/uploads/*
+!/public/uploads/.gitkeep
+
 .DS_Store
 *.pem
 

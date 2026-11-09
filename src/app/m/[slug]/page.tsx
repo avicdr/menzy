@@ -96,6 +96,32 @@ function DinerMenuContent() {
     return { categories: catList, allItems: itemsList };
   }, [data]);
 
+  const isIndianRestaurant = data?.restaurant?.country === 'IN' || data?.restaurant?.currency === 'INR';
+
+  // Dietary filter options by region
+  const dietaryFilterOptions = useMemo(() => {
+    if (isIndianRestaurant) {
+      return [
+        { key: 'ALL', label: 'All Dishes' },
+        { key: 'POPULAR', label: '🔥 Bestsellers' },
+        { key: 'VEG', label: '🟢 Pure Veg' },
+        { key: 'NON_VEG', label: '🔺 Non-Veg' },
+        { key: 'EGG', label: '🟡 Contains Egg' },
+        { key: 'JAIN', label: 'Jain Safe' },
+        { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
+      ];
+    }
+    return [
+      { key: 'ALL', label: 'All Dishes' },
+      { key: 'POPULAR', label: '🔥 Bestsellers' },
+      { key: 'VEGETARIAN', label: 'Vegetarian' },
+      { key: 'VEGAN', label: 'Vegan' },
+      { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
+      { key: 'DAIRY_FREE', label: 'Dairy-Free' },
+      { key: 'HALAL', label: 'Halal' },
+    ];
+  }, [isIndianRestaurant]);
+
   // Filtered dishes
   const filteredDishes = useMemo(() => {
     return allItems.filter((item) => {
@@ -111,9 +137,23 @@ function DinerMenuContent() {
         if (!matchesName && !matchesDesc) return false;
       }
       // Dietary filter
-      if (selectedDietaryFilter !== 'ALL') {
-        const labels = (item.dietaryStatus as string[]) || [];
-        if (!labels.includes(selectedDietaryFilter)) return false;
+      if (selectedDietaryFilter === 'POPULAR') {
+        if (!item.isPopular && !item.chefRecommended) return false;
+      } else if (selectedDietaryFilter !== 'ALL') {
+        const labels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase().trim().replace(/\s+/g, '_'));
+        if (selectedDietaryFilter === 'VEG') {
+          if (!labels.includes('VEG') && !labels.includes('VEGETARIAN') && !labels.includes('PURE_VEG')) return false;
+        } else if (selectedDietaryFilter === 'NON_VEG') {
+          if (!labels.includes('NON_VEG') && !labels.includes('NON-VEG') && !labels.includes('NONVEG')) return false;
+        } else if (selectedDietaryFilter === 'EGG') {
+          if (!labels.includes('EGG') && !labels.includes('CONTAINS_EGG') && !labels.includes('EGGETARIAN')) return false;
+        } else if (selectedDietaryFilter === 'JAIN') {
+          if (!labels.includes('JAIN') && !labels.includes('JAIN_FRIENDLY')) return false;
+        } else if (selectedDietaryFilter === 'VEGETARIAN') {
+          if (!labels.includes('VEGETARIAN') && !labels.includes('VEG') && !labels.includes('PURE_VEG')) return false;
+        } else {
+          if (!labels.includes(selectedDietaryFilter)) return false;
+        }
       }
       return true;
     });
@@ -235,17 +275,17 @@ function DinerMenuContent() {
 
           {/* Dietary Filter Pills */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-            {['ALL', 'VEGETARIAN', 'VEGAN', 'GLUTEN_FREE'].map((filter) => (
+            {dietaryFilterOptions.map((opt) => (
               <button
-                key={filter}
-                onClick={() => setSelectedDietaryFilter(filter)}
-                className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-all shrink-0 ${
-                  selectedDietaryFilter === filter
+                key={opt.key}
+                onClick={() => setSelectedDietaryFilter(opt.key)}
+                className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold transition-all shrink-0 ${
+                  selectedDietaryFilter === opt.key
                     ? 'bg-[var(--dishora-text)] text-[var(--dishora-surface)] shadow-sm'
                     : 'bg-[var(--dishora-surface)] text-[var(--dishora-muted-text)] border border-[var(--dishora-border)] hover:bg-cream-100'
                 }`}
               >
-                {filter === 'ALL' ? 'All Dishes' : filter.replace(/_/g, ' ')}
+                {opt.label}
               </button>
             ))}
           </div>
