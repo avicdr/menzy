@@ -32,21 +32,32 @@ import {
   Users,
 } from 'lucide-react';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
-import { Portal } from '@/components/ui/Portal';
+import { Modal } from '@/components/ui/Modal';
 import { GooglePlacesModal } from './GooglePlacesModal';
 
 interface OrdersManagementViewProps {
   restaurant: any;
+  initialSubTab?: 'live' | 'history' | 'analytics' | 'settings';
 }
 
-export function OrdersManagementView({ restaurant }: OrdersManagementViewProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'live' | 'history' | 'analytics' | 'settings'>('live');
+export function OrdersManagementView({
+  restaurant,
+  initialSubTab = 'live',
+}: OrdersManagementViewProps) {
+  const [activeSubTab, setActiveSubTab] = useState<'live' | 'history' | 'analytics' | 'settings'>(
+    initialSubTab
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  useEffect(() => {
+    setActiveSubTab(initialSubTab);
+  }, [initialSubTab]);
+
   // Live Orders & Live Floor State
   const [liveOrders, setLiveOrders] = useState<any[]>([]);
+  const [liveOrdersLoaded, setLiveOrdersLoaded] = useState(false);
   const [tables, setTables] = useState<any[]>([]);
   const [serviceCalls, setServiceCalls] = useState<any[]>([]);
   const [selectedTableFilter, setSelectedTableFilter] = useState<string | null>(null);
@@ -62,6 +73,7 @@ export function OrdersManagementView({ restaurant }: OrdersManagementViewProps) 
   // Analytics
   const [analyticsData, setAnalyticsData] = useState<any | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
   // Ordering Settings Form (includes Free Wi-Fi & Google Review URL)
   const [orderingSettings, setOrderingSettings] = useState({
@@ -99,6 +111,7 @@ export function OrdersManagementView({ restaurant }: OrdersManagementViewProps) 
       if (!ordersRes.ok) throw new Error('Failed to load live orders');
       const ordersData = await ordersRes.json();
       setLiveOrders(ordersData.orders || []);
+      setLiveOrdersLoaded(true);
 
       if (tablesRes.ok) {
         const tablesData = await tablesRes.json();
@@ -143,12 +156,14 @@ export function OrdersManagementView({ restaurant }: OrdersManagementViewProps) 
   const loadAnalytics = async () => {
     try {
       setAnalyticsLoading(true);
+      setAnalyticsError(null);
       const res = await fetch(`/api/restaurants/${restaurant.id}/orders/analytics`);
-      if (!res.ok) throw new Error('Failed to load order analytics');
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to load order analytics');
       setAnalyticsData(data);
     } catch (err: any) {
       console.error(err);
+      setAnalyticsError(err.message || 'Unable to load order analytics right now.');
     } finally {
       setAnalyticsLoading(false);
     }
@@ -414,7 +429,11 @@ export function OrdersManagementView({ restaurant }: OrdersManagementViewProps) 
               : 'text-taupe-600 hover:bg-cream-200'
           }`}
         >
-          Active Orders ({liveOrders.filter((o) => ['PENDING', 'CONFIRMED', 'PREPARING', 'READY'].includes(o.status)).length})
+          Active Orders ({
+            liveOrdersLoaded
+              ? liveOrders.filter((o) => ['PLACED', 'ACCEPTED', 'PREPARING', 'READY'].includes(o.status)).length
+              : (analyticsData?.summary?.activeOrdersCount ?? 0)
+          })
         </button>
 
         <button
@@ -980,24 +999,51 @@ export function OrdersManagementView({ restaurant }: OrdersManagementViewProps) 
       {/* SUB-TAB 3: ORDERING ANALYTICS */}
       {activeSubTab === 'analytics' && (
         <div className="space-y-6">
-          {analyticsLoading || !analyticsData ? (
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="font-serif text-lg font-bold text-espresso-900">Ordering Analytics</h3>
+              <p className="text-xs text-taupe-500">Live order totals, average ticket value, top dishes, and table demand</p>
+            </div>
+            <button
+              type="button"
+              onClick={loadAnalytics}
+              disabled={analyticsLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-cream-300 text-xs font-semibold text-espresso-800 hover:bg-cream-50 disabled:opacity-60 transition-colors"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${analyticsLoading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
+
+          {analyticsError ? (
+            <div role="alert" className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center space-y-3">
+              <p className="text-sm font-medium text-red-800">{analyticsError}</p>
+              <button
+                type="button"
+                onClick={loadAnalytics}
+                className="px-4 py-2 rounded-xl bg-espresso-900 text-white text-xs font-semibold hover:bg-espresso-800"
+              >
+                Try Again
+              </button>
+            </div>
+          ) : analyticsLoading && !analyticsData ? (
             <div className="bg-white rounded-2xl p-12 text-center text-taupe-500 border border-cream-200 shadow-sm">
               <div className="w-8 h-8 border-3 border-terracotta border-t-transparent rounded-full animate-spin mx-auto mb-3" />
               Calculating order analytics...
             </div>
-          ) : (
+          ) : analyticsData ? (
             <>
               {/* Summary KPI Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="bg-white rounded-xl p-4 border border-cream-200 shadow-sm">
                   <div className="text-xs font-semibold text-taupe-500 uppercase tracking-wider mb-1">
-                    Total Order Value
+                    Completed Order Value
                   </div>
-                  <div className="text-2xl font-serif font-bold text-espresso-900">
-                    {formatPrice(analyticsData.summary?.completedOrderValueMinor || 0)}
+                  <div className="text-2xl font-serif font-bold text-espresso-900 tabular-nums">
+                    {formatPrice(analyticsData.summary?.completedOrderValueMinor ?? 0)}
                   </div>
                   <div className="text-xs text-taupe-500 mt-1">
-                    From {analyticsData.summary?.completedOrders || 0} completed orders
+                    From {analyticsData.summary?.completedOrdersCount ?? 0} completed orders ({analyticsData.summary?.totalOrdersCount ?? 0} total)
                   </div>
                 </div>
 
@@ -1005,21 +1051,21 @@ export function OrdersManagementView({ restaurant }: OrdersManagementViewProps) 
                   <div className="text-xs font-semibold text-taupe-500 uppercase tracking-wider mb-1">
                     Average Order Value (AOV)
                   </div>
-                  <div className="text-2xl font-serif font-bold text-terracotta">
-                    {formatPrice(analyticsData.summary?.aovMinor || 0)}
+                  <div className="text-2xl font-serif font-bold text-terracotta tabular-nums">
+                    {formatPrice(analyticsData.summary?.averageOrderValueMinor ?? 0)}
                   </div>
-                  <div className="text-xs text-taupe-500 mt-1">Per dining table ticket</div>
+                  <div className="text-xs text-taupe-500 mt-1">Per active dining ticket</div>
                 </div>
 
                 <div className="bg-white rounded-xl p-4 border border-cream-200 shadow-sm">
                   <div className="text-xs font-semibold text-taupe-500 uppercase tracking-wider mb-1">
                     Today's Orders
                   </div>
-                  <div className="text-2xl font-serif font-bold text-emerald-700">
-                    {analyticsData.summary?.todayCount || 0}
+                  <div className="text-2xl font-serif font-bold text-emerald-700 tabular-nums">
+                    {analyticsData.summary?.ordersToday ?? 0}
                   </div>
                   <div className="text-xs text-taupe-500 mt-1">
-                    {analyticsData.summary?.weekCount || 0} past 7 days
+                    {analyticsData.summary?.ordersThisWeek ?? 0} past 7 days • {analyticsData.summary?.ordersThisMonth ?? 0} this month
                   </div>
                 </div>
 
@@ -1027,16 +1073,16 @@ export function OrdersManagementView({ restaurant }: OrdersManagementViewProps) 
                   <div className="text-xs font-semibold text-taupe-500 uppercase tracking-wider mb-1">
                     Cancellation Rate
                   </div>
-                  <div className="text-2xl font-serif font-bold text-espresso-800">
-                    {analyticsData.summary?.cancellationRatePercent || 0}%
+                  <div className="text-2xl font-serif font-bold text-espresso-800 tabular-nums">
+                    {analyticsData.summary?.cancellationRatePercent ?? 0}%
                   </div>
                   <div className="text-xs text-taupe-500 mt-1">
-                    {analyticsData.summary?.cancelledOrders || 0} cancelled
+                    {analyticsData.summary?.cancelledOrdersCount ?? 0} cancelled or rejected
                   </div>
                 </div>
               </div>
 
-              {/* Top Dishes & Peak Hours Grid */}
+              {/* Top Dishes & Most Active Tables Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Top 5 Ordered Dishes */}
                 <div className="bg-white rounded-2xl p-6 border border-cream-200 shadow-sm">
@@ -1051,19 +1097,19 @@ export function OrdersManagementView({ restaurant }: OrdersManagementViewProps) 
                   ) : (
                     <div className="space-y-3">
                       {analyticsData.topDishes.map((dish: any, idx: number) => {
-                        const maxCount = analyticsData.topDishes[0]?.count || 1;
-                        const pct = Math.round((dish.count / maxCount) * 100);
+                        const maxCount = Math.max(1, analyticsData.topDishes[0]?.count || 1);
+                        const pct = Math.min(100, Math.round((dish.count / maxCount) * 100));
                         return (
-                          <div key={idx} className="space-y-1">
+                          <div key={dish.name || idx} className="space-y-1">
                             <div className="flex justify-between text-xs font-medium text-espresso-900">
                               <span>
                                 #{idx + 1} {dish.name}
                               </span>
-                              <span className="font-bold text-terracotta">
+                              <span className="font-bold text-terracotta tabular-nums">
                                 {dish.count} ordered
                               </span>
                             </div>
-                            <div className="w-full bg-cream-100 rounded-full h-2">
+                            <div className="w-full bg-cream-100 rounded-full h-2 overflow-hidden">
                               <div
                                 className="bg-terracotta h-2 rounded-full transition-all"
                                 style={{ width: `${pct}%` }}
@@ -1082,24 +1128,24 @@ export function OrdersManagementView({ restaurant }: OrdersManagementViewProps) 
                     <Layers className="w-5 h-5 text-terracotta" />
                     Most Active Dining Tables
                   </div>
-                  {(!analyticsData.busiestTables || analyticsData.busiestTables.length === 0) ? (
+                  {(!analyticsData.ordersPerTable || analyticsData.ordersPerTable.length === 0) ? (
                     <div className="text-sm text-taupe-500 py-6 text-center">
                       No table order data recorded yet.
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {analyticsData.busiestTables.map((tbl: any, idx: number) => {
-                        const maxCount = analyticsData.busiestTables[0]?.count || 1;
-                        const pct = Math.round((tbl.count / maxCount) * 100);
+                      {analyticsData.ordersPerTable.slice(0, 6).map((tbl: any, idx: number) => {
+                        const maxCount = Math.max(1, analyticsData.ordersPerTable[0]?.count || 1);
+                        const pct = Math.min(100, Math.round((tbl.count / maxCount) * 100));
                         return (
-                          <div key={idx} className="space-y-1">
+                          <div key={tbl.name || idx} className="space-y-1">
                             <div className="flex justify-between text-xs font-medium text-espresso-900">
                               <span>{tbl.name}</span>
-                              <span className="font-bold text-espresso-800">
-                                {tbl.count} orders
+                              <span className="font-bold text-espresso-800 tabular-nums">
+                                {tbl.count} {tbl.count === 1 ? 'order' : 'orders'}
                               </span>
                             </div>
-                            <div className="w-full bg-cream-100 rounded-full h-2">
+                            <div className="w-full bg-cream-100 rounded-full h-2 overflow-hidden">
                               <div
                                 className="bg-espresso-800 h-2 rounded-full transition-all"
                                 style={{ width: `${pct}%` }}
@@ -1112,8 +1158,54 @@ export function OrdersManagementView({ restaurant }: OrdersManagementViewProps) 
                   )}
                 </div>
               </div>
+
+              {/* Peak Ordering Hours */}
+              <div className="bg-white rounded-2xl p-6 border border-cream-200 shadow-sm">
+                <div className="font-serif text-lg font-bold text-espresso-900 mb-1 flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-terracotta" />
+                  Peak Ordering Hours
+                </div>
+                <p className="text-xs text-taupe-500 mb-4">
+                  Order volume distribution by local dining hour
+                </p>
+                {(() => {
+                  const activeHours = (analyticsData.busiestHours || []).filter((h: any) => h.count > 0);
+                  if (activeHours.length === 0) {
+                    return (
+                      <div className="text-sm text-taupe-500 py-4 text-center">
+                        No hourly ordering volume recorded yet.
+                      </div>
+                    );
+                  }
+                  const maxHourCount = Math.max(1, ...activeHours.map((h: any) => h.count));
+                  return (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                      {activeHours.map((h: any) => {
+                        const pct = Math.max(12, Math.round((h.count / maxHourCount) * 100));
+                        return (
+                          <div
+                            key={h.hour}
+                            className="p-3 rounded-xl bg-cream-50 border border-cream-200 space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-mono font-semibold text-espresso-900">{h.hour}</span>
+                              <span className="font-bold text-terracotta tabular-nums">{h.count}</span>
+                            </div>
+                            <div className="w-full h-1.5 rounded-full bg-cream-200 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-terracotta"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
             </>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -1443,123 +1535,107 @@ export function OrdersManagementView({ restaurant }: OrdersManagementViewProps) 
       />
 
       {/* Order Detail Modal */}
-      {selectedOrderForDetail && (
-        <Portal>
-          <div
-            className="fixed inset-0 z-[100] w-screen h-screen min-h-screen bg-espresso-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-modal-backdrop"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setSelectedOrderForDetail(null);
-            }}
+      <Modal
+        isOpen={Boolean(selectedOrderForDetail)}
+        onClose={() => setSelectedOrderForDetail(null)}
+        title={selectedOrderForDetail ? `Order ${selectedOrderForDetail.orderNumber}` : undefined}
+        subtitle={
+          selectedOrderForDetail
+            ? `Placed ${new Date(selectedOrderForDetail.placedAt).toLocaleString()}`
+            : undefined
+        }
+        maxWidth="lg"
+        footer={
+          <button
+            type="button"
+            onClick={() => setSelectedOrderForDetail(null)}
+            className="px-4 py-2 rounded-xl bg-cream-200 hover:bg-cream-300 text-espresso-900 text-xs font-semibold transition-colors"
           >
-            <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-lifted border border-cream-300 animate-modal-content max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-cream-200">
+            Close
+          </button>
+        }
+      >
+        {selectedOrderForDetail && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs bg-cream-50 p-3 rounded-xl border border-cream-200">
               <div>
-                <span className="font-serif text-xl font-bold text-espresso-900">
-                  Order {selectedOrderForDetail.orderNumber}
+                <span className="text-taupe-500 block">Assigned Table</span>
+                <span className="font-bold text-espresso-900">
+                  {selectedOrderForDetail.table?.name || 'Table'}
                 </span>
-                <div className="text-xs text-taupe-500 mt-0.5">
-                  Placed {new Date(selectedOrderForDetail.placedAt).toLocaleString()}
-                </div>
               </div>
-              <button
-                onClick={() => setSelectedOrderForDetail(null)}
-                className="p-1 rounded-lg text-taupe-400 hover:bg-cream-200 hover:text-espresso-900"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div>
+                <span className="text-taupe-500 block">Guest Name</span>
+                <span className="font-bold text-espresso-900">
+                  {selectedOrderForDetail.customerName || 'Walk-in Diner'}
+                </span>
+              </div>
+              <div>
+                <span className="text-taupe-500 block">Status</span>
+                {getStatusBadge(selectedOrderForDetail.status)}
+              </div>
             </div>
 
-            <div className="space-y-4">
-              <div className="flex items-center justify-between text-xs bg-cream-50 p-3 rounded-xl border border-cream-200">
-                <div>
-                  <span className="text-taupe-500 block">Assigned Table</span>
-                  <span className="font-bold text-espresso-900">
-                    {selectedOrderForDetail.table?.name || 'Table'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-taupe-500 block">Guest Name</span>
-                  <span className="font-bold text-espresso-900">
-                    {selectedOrderForDetail.customerName || 'Walk-in Diner'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-taupe-500 block">Status</span>
-                  {getStatusBadge(selectedOrderForDetail.status)}
-                </div>
+            <div>
+              <div className="font-semibold text-xs text-espresso-900 uppercase tracking-wider mb-2">
+                Line Items ({selectedOrderForDetail.items?.length || 0})
               </div>
-
-              <div>
-                <div className="font-semibold text-xs text-espresso-900 uppercase tracking-wider mb-2">
-                  Line Items ({selectedOrderForDetail.items?.length || 0})
-                </div>
-                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                  {selectedOrderForDetail.items?.map((it: any) => (
-                    <div
-                      key={it.id}
-                      className="flex items-start justify-between text-xs py-1.5 border-b border-cream-100"
-                    >
-                      <div>
-                        <div className="font-semibold text-espresso-900">
-                          {it.quantity}x {it.dishNameSnapshot}
+              <div className="space-y-2 max-h-56 overflow-y-auto overscroll-contain pr-1">
+                {selectedOrderForDetail.items?.map((it: any) => (
+                  <div
+                    key={it.id}
+                    className="flex items-start justify-between text-xs py-1.5 border-b border-cream-100"
+                  >
+                    <div>
+                      <div className="font-semibold text-espresso-900">
+                        {it.quantity}x {it.dishNameSnapshot}
+                      </div>
+                      {it.variantName && (
+                        <div className="text-taupe-500 text-[11px]">Variant: {it.variantName}</div>
+                      )}
+                      {it.selectedModifiers && it.selectedModifiers.length > 0 && (
+                        <div className="text-taupe-400 text-[10px]">
+                          {it.selectedModifiers.map((m: any) => m.name).join(', ')}
                         </div>
-                        {it.variantName && (
-                          <div className="text-taupe-500 text-[11px]">Variant: {it.variantName}</div>
-                        )}
-                        {it.selectedModifiers && it.selectedModifiers.length > 0 && (
-                          <div className="text-taupe-400 text-[10px]">
-                            {it.selectedModifiers.map((m: any) => m.name).join(', ')}
-                          </div>
-                        )}
-                      </div>
-                      <div className="font-mono text-espresso-800 font-semibold">
-                        {formatPrice(it.totalMinor)}
-                      </div>
+                      )}
                     </div>
-                  ))}
-                </div>
+                    <div className="font-mono text-espresso-800 font-semibold">
+                      {formatPrice(it.totalMinor)}
+                    </div>
+                  </div>
+                ))}
               </div>
+            </div>
 
-              {selectedOrderForDetail.specialInstructions && (
-                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 italic">
-                  Special Notes: "{selectedOrderForDetail.specialInstructions}"
+            {selectedOrderForDetail.specialInstructions && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 italic">
+                Special Notes: "{selectedOrderForDetail.specialInstructions}"
+              </div>
+            )}
+
+            <div className="pt-3 border-t border-cream-200 space-y-1.5 text-xs">
+              <div className="flex justify-between text-taupe-600">
+                <span>Subtotal:</span>
+                <span className="font-mono">{formatPrice(selectedOrderForDetail.subtotalMinor || 0)}</span>
+              </div>
+              <div className="flex justify-between text-taupe-600">
+                <span>Tax ({selectedOrderForDetail.taxPercentageSnapshot || 0}%):</span>
+                <span className="font-mono">{formatPrice(selectedOrderForDetail.taxMinor || 0)}</span>
+              </div>
+              {selectedOrderForDetail.serviceChargeMinor > 0 && (
+                <div className="flex justify-between text-taupe-600">
+                  <span>Service Charge:</span>
+                  <span className="font-mono">{formatPrice(selectedOrderForDetail.serviceChargeMinor)}</span>
                 </div>
               )}
-
-              <div className="pt-3 border-t border-cream-200 space-y-1.5 text-xs">
-                <div className="flex justify-between text-taupe-600">
-                  <span>Subtotal:</span>
-                  <span className="font-mono">{formatPrice(selectedOrderForDetail.subtotalMinor || 0)}</span>
-                </div>
-                <div className="flex justify-between text-taupe-600">
-                  <span>Tax ({selectedOrderForDetail.taxPercentageSnapshot || 0}%):</span>
-                  <span className="font-mono">{formatPrice(selectedOrderForDetail.taxMinor || 0)}</span>
-                </div>
-                {selectedOrderForDetail.serviceChargeMinor > 0 && (
-                  <div className="flex justify-between text-taupe-600">
-                    <span>Service Charge:</span>
-                    <span className="font-mono">{formatPrice(selectedOrderForDetail.serviceChargeMinor)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm font-bold text-espresso-900 pt-2 border-t border-cream-100">
-                  <span>Total Bill:</span>
-                  <span className="font-mono">{formatPrice(selectedOrderForDetail.totalMinor)}</span>
-                </div>
+              <div className="flex justify-between text-sm font-bold text-espresso-900 pt-2 border-t border-cream-100">
+                <span>Total Bill:</span>
+                <span className="font-mono">{formatPrice(selectedOrderForDetail.totalMinor)}</span>
               </div>
             </div>
-
-            <div className="mt-6 flex justify-end">
-              <button
-                onClick={() => setSelectedOrderForDetail(null)}
-                className="px-4 py-2 rounded-xl bg-cream-200 hover:bg-cream-300 text-espresso-900 text-xs font-semibold transition-colors"
-              >
-                Close
-              </button>
-            </div>
           </div>
-        </div>
-      </Portal>
-    )}
+        )}
+      </Modal>
     </div>
   );
 }

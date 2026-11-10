@@ -50,39 +50,74 @@ export async function POST(req: Request) {
       history,
     });
 
-    // 3. Persist chat message if session exists
-    if (sessionToken) {
-      try {
-        const dinerSession = await prisma.dinerSession.findUnique({
-          where: { sessionToken },
-        });
+    // 3. Persist chat message & dish inquiry telemetry for real diner sessions
+    if (sessionToken !== 'owner-test-session') {
+      let resolvedSessionId: string | null = null;
 
-        if (dinerSession) {
-          await prisma.chatMessage.createMany({
-            data: [
-              {
-                sessionId: dinerSession.id,
-                restaurantId,
-                sender: 'USER',
-                content: message,
-              },
-              {
-                sessionId: dinerSession.id,
-                restaurantId,
-                sender: 'ASSISTANT',
-                content: response.message,
-                recommendedDishIds: response.dishIds,
-                metadata: {
-                  selectedDishId: response.selectedDishId,
-                  pairingDishId: response.pairingDishId,
-                  safetyNotice: response.safetyNotice,
-                },
-              },
-            ],
+      if (sessionToken) {
+        try {
+          const dinerSession = await prisma.dinerSession.findUnique({
+            where: { sessionToken },
+            select: { id: true, restaurantId: true },
           });
+
+          if (dinerSession && dinerSession.restaurantId === restaurantId) {
+            resolvedSessionId = dinerSession.id;
+            await prisma.chatMessage.createMany({
+              data: [
+                {
+                  sessionId: dinerSession.id,
+                  restaurantId,
+                  sender: 'USER',
+                  content: message,
+                },
+                {
+                  sessionId: dinerSession.id,
+                  restaurantId,
+                  sender: 'ASSISTANT',
+                  content: response.message,
+                  recommendedDishIds: response.dishIds,
+                  metadata: {
+                    selectedDishId: response.selectedDishId,
+                    pairingDishId: response.pairingDishId,
+                    safetyNotice: response.safetyNotice,
+                  },
+                },
+              ],
+            });
+          }
+        } catch (persistErr) {
+          console.warn('Failed to persist diner chat transcript:', persistErr);
         }
-      } catch (persistErr) {
-        console.warn('Failed to persist diner chat transcript:', persistErr);
+      }
+
+      // Log real CHAT_QUERY interactions for grounded menu items discussed or recommended
+      const engagedDishIds = Array.from(
+        new Set(
+          [
+            response.selectedDishId,
+            ...(Array.isArray(response.dishIds) ? response.dishIds : []),
+            response.pairingDishId,
+          ].filter((id): id is string => typeof id === 'string' && id.length > 0)
+        )
+      ).slice(0, 5);
+
+      if (engagedDishIds.length > 0) {
+        try {
+          await prisma.dishInteractionEvent.createMany({
+            data: engagedDishIds.map((dishId) => ({
+              restaurantId,
+              menuItemId: dishId,
+              eventType:
+                response.pairingDishId && dishId === response.pairingDishId && dishId !== response.selectedDishId
+                  ? 'PAIRING_CLICK'
+                  : 'CHAT_QUERY',
+              sessionId: resolvedSessionId,
+            })),
+          });
+        } catch (telemetryErr) {
+          console.warn('Failed to record chat dish interaction events:', telemetryErr);
+        }
       }
     }
 

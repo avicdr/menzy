@@ -143,4 +143,231 @@ dialog::backdrop {
   overscroll-behavior: contain;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  dialog[open]::backdrop {
+    animation: modalBackdropFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  dialog[open] {
+    animation: modalContentPopIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+}
+
+/* =====================================================
+   Modern Editorial Card System (modern-web-guidance)
+   ===================================================== */
+
+.menzy-heading-balance {
+  text-wrap: balance;
+}
+
+.menzy-copy-pretty {
+  text-wrap: pretty;
+  max-inline-size: 60ch;
+}
+
+.menzy-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subgrid-backed 3-column card grid so headers, bodies, and footers align cleanly */
+.menzy-card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .menzy-card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: 1.25rem;
+    column-gap: 1.75rem;
+  }
+}
+
+.menzy-card {
+  position: relative;
+  container: menzy-card / inline-size;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 1.5rem;
+  border-radius: 1.5rem;
+  border: 1px solid #DFD2C2;
+  background: linear-gradient(to bottom, #FFFFFF 0%, #FCF9F4 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(30, 21, 16, 0.05),
+    0 8px 20px -6px rgba(53, 39, 31, 0.06),
+    0 22px 44px -18px rgba(53, 39, 31, 0.07);
+  transition:
+    border-color 180ms ease-out,
+    box-shadow 220ms ease-out,
+    translate 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    scale 140ms ease-out;
+}
+
+@supports (background: linear-gradient(in oklab, white, black)) {
+  .menzy-card {
+    background: linear-gradient(to bottom in oklab, #FFFFFF 0%, #FCF9F4 100%);
+  }
+}
+
+@media (min-width: 768px) {
+  .menzy-card-grid > .menzy-card {
+    grid-row: span 3;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    row-gap: 1.25rem;
+    column-gap: 0;
+  }
+}
+
+@supports (grid-template-rows: subgrid) {
+  @media (min-width: 768px) {
+    .menzy-card-grid > .menzy-card {
+      grid-template-rows: subgrid;
+      row-gap: 1.25rem;
+      column-gap: 0;
+    }
+  }
+}
+
+@container menzy-card (inline-size >= 20rem) {
+  .menzy-card {
+    padding: 1.875rem;
+  }
+}
+
+/* Highlighted dark espresso pricing centerpiece */
+.menzy-card--featured {
+  border-color: rgba(201, 120, 90, 0.65);
+  color: #FAF7F2;
+  background: linear-gradient(165deg, #261A14 0%, #1A120D 60%, #140E0A 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 232, 0.14),
+    0 2px 6px rgba(20, 14, 10, 0.16),
+    0 18px 36px -12px rgba(30, 21, 16, 0.28),
+    0 28px 54px -18px rgba(184, 109, 82, 0.16);
+}
+
+@supports (background: linear-gradient(in oklab, white, black)) {
+  .menzy-card--featured {
+    background: linear-gradient(165deg in oklab, #261A14 0%, #1A120D 60%, #140E0A 100%);
+  }
+}
+
+/* Hover / focus / press feedback */
+.menzy-card:hover,
+.menzy-card:has(a.menzy-card-link:hover) {
+  border-color: #C79983;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 2px 6px rgba(30, 21, 16, 0.06),
+    0 14px 28px -8px rgba(53, 39, 31, 0.1),
+    0 28px 56px -18px rgba(184, 109, 82, 0.12);
+}
+
+.menzy-card--featured:hover {
+  border-color: #D99378;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 232, 0.22),
+    0 4px 10px rgba(20, 14, 10, 0.22),
+    0 22px 44px -12px rgba(30, 21, 16, 0.36),
+    0 32px 64px -18px rgba(184, 109, 82, 0.24);
+}
+
+/* Full-card hit area using single stretched primary link */
+.menzy-card a.menzy-card-link {
+  touch-action: manipulation;
+}
+
+.menzy-card a.menzy-card-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.menzy-card:has(a.menzy-card-link) a:not(.menzy-card-link),
+.menzy-card:has(a.menzy-card-link) button {
+  position: relative;
+  z-index: 1;
+}
+
+@supports selector(:has(*)) {
+  .menzy-card a.menzy-card-link:focus-visible {
+    outline: none;
+  }
+
+  .menzy-card:has(a.menzy-card-link:focus-visible) {
+    border-color: #B86D52;
+    outline: 2px solid #1E1510;
+    outline-offset: 3px;
+  }
+}
+
+.menzy-cta {
+  touch-action: manipulation;
+  transition:
+    background-color 160ms ease-out,
+    color 160ms ease-out,
+    border-color 160ms ease-out,
+    box-shadow 180ms ease-out,
+    scale 130ms ease-out;
+}
+
+.menzy-cta:focus-visible {
+  outline: 2px solid #1E1510;
+  outline-offset: 3px;
+}
+
+.menzy-card--featured .menzy-cta:focus-visible {
+  outline-color: #FAF7F2;
+}
+
+.menzy-card-arrow {
+  transition: translate 180ms ease-out;
+}
+
+/* Spatial movement only when reduced motion is not requested */
+@media (prefers-reduced-motion: no-preference) {
+  .menzy-card:hover,
+  .menzy-card:has(a.menzy-card-link:hover) {
+    translate: 0 -4px;
+  }
+
+  .menzy-card:has(a.menzy-card-link:active) {
+    translate: 0 -1px;
+    scale: 0.992;
+  }
+
+  .menzy-cta:active {
+    scale: 0.975;
+  }
+
+  .menzy-card:has(a.menzy-card-link:hover) .menzy-card-arrow,
+  .menzy-card:has(a.menzy-card-link:focus-visible) .menzy-card-arrow,
+  .menzy-cta:hover .menzy-card-arrow {
+    translate: 4px 0;
+  }
+}
+
+/* High-contrast / Windows Forced Colors support */
+@media (forced-colors: active) {
+  .menzy-card,
+  .menzy-card--featured {
+    background: Canvas;
+    color: CanvasText;
+    border: 2px solid CanvasText;
+    box-shadow: none;
+  }
+
+  .menzy-card:has(a.menzy-card-link:focus-visible),
+  .menzy-cta:focus-visible {
+    outline: 3px solid Highlight;
+  }
+}
+
 

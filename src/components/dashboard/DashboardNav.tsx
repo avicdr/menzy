@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
   Utensils,
@@ -30,48 +30,50 @@ interface DashboardNavProps {
   currentTab?: string;
 }
 
-export function DashboardNav({
+const NAV_ITEMS = [
+  { label: 'Overview', icon: LayoutDashboard, tab: 'overview' },
+  { label: 'Menu Studio', icon: Utensils, tab: 'menu' },
+  { label: 'Illustration Lab', icon: Sparkles, tab: 'illustrations' },
+  { label: 'Theme Studio', icon: Palette, tab: 'theme' },
+  { label: 'AI Waiter', icon: Bot, tab: 'ai' },
+  { label: 'Tables & QR Codes', icon: QrCode, tab: 'tables' },
+  { label: 'Live Orders & POS', icon: ChefHat, tab: 'orders' },
+  { label: 'Staff & Access', icon: Users, tab: 'staff' },
+  { label: 'Analytics', icon: BarChart3, tab: 'analytics' },
+  { label: 'Settings', icon: Settings, tab: 'settings' },
+  { label: 'Billing & Usage', icon: CreditCard, tab: 'billing' },
+] as const;
+
+interface SidebarContentProps {
+  currentRestaurant: any;
+  allRestaurants: any[];
+  userEmail: string;
+  planName: string;
+  currentTab: string;
+  onSelectTab: (tab: string) => void;
+  onSelectRestaurant: (restaurantId: string) => void;
+  onCloseMobileMenu: () => void;
+  onLogout: () => void;
+}
+
+function SidebarContent({
   currentRestaurant,
   allRestaurants,
   userEmail,
-  planName = 'Starter',
-  currentTab = 'overview',
-}: DashboardNavProps) {
-  const pathname = usePathname();
-  const router = useRouter();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const navItems = [
-    { label: 'Overview', icon: LayoutDashboard, tab: 'overview' },
-    { label: 'Menu Studio', icon: Utensils, tab: 'menu' },
-    { label: 'Illustration Lab', icon: Sparkles, tab: 'illustrations' },
-    { label: 'Theme Studio', icon: Palette, tab: 'theme' },
-    { label: 'AI Waiter', icon: Bot, tab: 'ai' },
-    { label: 'Tables & QR Codes', icon: QrCode, tab: 'tables' },
-    { label: 'Live Orders & POS', icon: ChefHat, tab: 'orders' },
-    { label: 'Staff & Access', icon: Users, tab: 'staff' },
-    { label: 'Analytics', icon: BarChart3, tab: 'analytics' },
-    { label: 'Settings', icon: Settings, tab: 'settings' },
-    { label: 'Billing & Usage', icon: CreditCard, tab: 'billing' },
-  ];
-
-  const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/login');
-  };
-
-  const handleTabClick = (tab: string) => {
-    setMobileMenuOpen(false);
-    router.push(`/dashboard/${currentRestaurant.id}?tab=${tab}`);
-  };
-
-  const SidebarContent = () => (
-    <div className="flex flex-col h-full bg-cream-50">
+  planName,
+  currentTab,
+  onSelectTab,
+  onSelectRestaurant,
+  onCloseMobileMenu,
+  onLogout,
+}: SidebarContentProps) {
+  return (
+    <div className="flex flex-col flex-1 min-h-0 h-full bg-cream-50">
       <div className="shrink-0">
         {/* Brand Logo & Tagline */}
-        <div className="p-5 sm:p-6 border-b border-cream-200 flex items-center justify-between">
+        <div className="px-4 py-3.5 sm:px-5 sm:py-4 border-b border-cream-200 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <MenzyLogo size={36} />
+            <MenzyLogo size={34} />
             <div>
               <span className="font-serif text-xl font-bold tracking-tight text-espresso-900">
                 Menzy
@@ -84,7 +86,8 @@ export function DashboardNav({
 
           {/* Close button for mobile drawer */}
           <button
-            onClick={() => setMobileMenuOpen(false)}
+            type="button"
+            onClick={onCloseMobileMenu}
             className="lg:hidden p-1.5 rounded-lg text-taupe-500 hover:bg-cream-200 transition-colors"
             aria-label="Close menu"
           >
@@ -93,18 +96,15 @@ export function DashboardNav({
         </div>
 
         {/* Restaurant Switcher */}
-        <div className="px-4 py-3 border-b border-cream-200">
+        <div className="px-4 py-2.5 border-b border-cream-200">
           <label className="block text-[10px] font-semibold text-taupe-500 uppercase tracking-wider mb-1">
             Active Restaurant
           </label>
           <div className="relative">
             <select
               value={currentRestaurant.id}
-              onChange={(e) => {
-                setMobileMenuOpen(false);
-                router.push(`/dashboard/${e.target.value}`);
-              }}
-              className="w-full appearance-none bg-white border border-cream-300 rounded-xl px-3 py-2 text-xs font-semibold text-espresso-900 focus:outline-none focus:ring-1 focus:ring-terracotta pr-8"
+              onChange={(e) => onSelectRestaurant(e.target.value)}
+              className="w-full appearance-none bg-white border border-cream-300 rounded-xl px-3 py-1.5 text-xs font-semibold text-espresso-900 focus:outline-none focus:ring-1 focus:ring-terracotta pr-8"
             >
               {allRestaurants.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -116,7 +116,7 @@ export function DashboardNav({
           </div>
 
           {/* Plan badge & live link */}
-          <div className="mt-2.5 flex items-center justify-between text-xs">
+          <div className="mt-2 flex items-center justify-between text-xs">
             <span className="px-2 py-0.5 rounded-full bg-cream-200 text-espresso-800 font-medium text-[11px]">
               {planName} Plan
             </span>
@@ -132,16 +132,20 @@ export function DashboardNav({
         </div>
       </div>
 
-      {/* Nav Links */}
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
+      {/* Nav Links (internally scrollable on ultra-short viewports without moving page) */}
+      <nav
+        aria-label="Console sections"
+        className="flex-1 min-h-0 px-3 py-2.5 space-y-0.5 overflow-y-auto overscroll-contain"
+      >
+        {NAV_ITEMS.map((item) => {
           const isActive = currentTab === item.tab;
 
           return (
             <button
               key={item.tab}
-              onClick={() => handleTabClick(item.tab)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left ${
+              type="button"
+              onClick={() => onSelectTab(item.tab)}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left ${
                 isActive
                   ? 'bg-espresso-900 text-cream-50 shadow-sm'
                   : 'text-espresso-700 hover:bg-cream-200/70 hover:text-espresso-900'
@@ -155,15 +159,17 @@ export function DashboardNav({
       </nav>
 
       {/* Footer user & logout */}
-      <div className="shrink-0 p-4 border-t border-cream-200 bg-cream-100/50">
+      <div className="shrink-0 px-4 py-3 border-t border-cream-200 bg-cream-100/50">
         <div className="flex items-center justify-between">
           <div className="min-w-0 pr-2">
             <p className="text-xs font-semibold text-espresso-900 truncate">{userEmail}</p>
             <p className="text-[10px] text-taupe-500">Verified Owner</p>
           </div>
           <button
-            onClick={handleLogout}
+            type="button"
+            onClick={onLogout}
             title="Log Out"
+            aria-label="Log Out"
             className="p-2 rounded-xl text-taupe-500 hover:text-terracotta hover:bg-cream-200 transition-colors shrink-0"
           >
             <LogOut className="w-4 h-4" />
@@ -172,6 +178,55 @@ export function DashboardNav({
       </div>
     </div>
   );
+}
+
+export function DashboardNav({
+  currentRestaurant,
+  allRestaurants,
+  userEmail,
+  planName = 'Starter',
+  currentTab = 'overview',
+}: DashboardNavProps) {
+  const router = useRouter();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mobileMenuOpen]);
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    router.push('/login');
+  };
+
+  const handleTabClick = (tab: string) => {
+    setMobileMenuOpen(false);
+    router.push(`/dashboard/${currentRestaurant.id}?tab=${tab}`);
+  };
+
+  const handleRestaurantChange = (restaurantId: string) => {
+    setMobileMenuOpen(false);
+    router.push(`/dashboard/${restaurantId}`);
+  };
+
+  const sharedSidebarProps = {
+    currentRestaurant,
+    allRestaurants,
+    userEmail,
+    planName,
+    currentTab,
+    onSelectTab: handleTabClick,
+    onSelectRestaurant: handleRestaurantChange,
+    onCloseMobileMenu: () => setMobileMenuOpen(false),
+    onLogout: handleLogout,
+  };
 
   return (
     <>
@@ -179,9 +234,11 @@ export function DashboardNav({
       <div className="lg:hidden w-full bg-cream-50 border-b border-cream-200 px-4 py-3 flex items-center justify-between sticky top-0 z-30 shadow-sm">
         <div className="flex items-center gap-2.5">
           <button
+            type="button"
             onClick={() => setMobileMenuOpen(true)}
             className="p-2 rounded-xl bg-white border border-cream-300 text-espresso-900 hover:bg-cream-100 active:scale-95 transition-all"
             aria-label="Open navigation menu"
+            aria-expanded={mobileMenuOpen}
           >
             <Menu className="w-5 h-5" />
           </button>
@@ -209,23 +266,29 @@ export function DashboardNav({
       {/* Mobile Slide-Over Drawer Backdrop */}
       {mobileMenuOpen && (
         <div
-          className="lg:hidden fixed inset-0 bg-espresso-950/60 backdrop-blur-sm z-40 transition-opacity"
+          className="lg:hidden fixed inset-0 bg-espresso-950/60 backdrop-blur-sm z-40 transition-opacity overscroll-contain touch-none"
           onClick={() => setMobileMenuOpen(false)}
+          aria-hidden="true"
         />
       )}
 
       {/* Mobile Slide-Over Drawer Panel */}
       <div
-        className={`lg:hidden fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-cream-50 shadow-lifted border-r border-cream-300 transform transition-transform duration-300 ease-out ${
+        aria-hidden={!mobileMenuOpen}
+        inert={!mobileMenuOpen ? true : undefined}
+        className={`lg:hidden fixed inset-y-0 left-0 z-50 h-dvh w-72 max-w-[85vw] bg-cream-50 shadow-lifted border-r border-cream-300 flex flex-col overflow-hidden transform transition-transform duration-300 ease-out overscroll-contain ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <SidebarContent />
+        <SidebarContent {...sharedSidebarProps} />
       </div>
 
-      {/* Desktop Persistent Sidebar (>= lg) */}
-      <aside className="hidden lg:flex w-64 bg-cream-50 border-r border-cream-300 flex-col justify-between shrink-0 h-screen sticky top-0 self-start z-20">
-        <SidebarContent />
+      {/* Desktop Persistent Sticky Sidebar (>= lg) */}
+      <aside
+        aria-label="Owner console sidebar"
+        className="hidden lg:flex lg:flex-col w-64 shrink-0 bg-cream-50 border-r border-cream-300 lg:sticky lg:top-0 lg:self-start lg:h-dvh overflow-hidden z-20"
+      >
+        <SidebarContent {...sharedSidebarProps} />
       </aside>
     </>
   );

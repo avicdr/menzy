@@ -58,8 +58,8 @@ export async function GET() {
     }
 
     const activeOrdersCount =
-      (statusMap['PENDING'] || 0) +
-      (statusMap['CONFIRMED'] || 0) +
+      (statusMap['PLACED'] || 0) +
+      (statusMap['ACCEPTED'] || 0) +
       (statusMap['PREPARING'] || 0) +
       (statusMap['READY'] || 0);
 

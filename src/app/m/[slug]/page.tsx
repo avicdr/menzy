@@ -361,6 +361,21 @@ function DinerMenuContent() {
   const handleOpenDetail = (dish: any) => {
     setSelectedDish(dish);
     setIsDetailOpen(true);
+
+    const restId = data?.restaurant?.id;
+    if (restId && dish?.id) {
+      fetch('/api/diner/interactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        keepalive: true,
+        body: JSON.stringify({
+          restaurantId: restId,
+          menuItemId: dish.id,
+          eventType: 'EXPAND',
+          sessionToken: sessionToken || undefined,
+        }),
+      }).catch(() => {});
+    }
   };
 
   const handleAskAboutDish = (dish: any) => {

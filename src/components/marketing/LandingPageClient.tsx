@@ -8,6 +8,11 @@ import {
   Bot,
   ExternalLink,
   ShieldCheck,
+  ScanText,
+  QrCode,
+  UtensilsCrossed,
+  Coffee,
+  Zap,
 } from 'lucide-react';
 import type { PlanDefinition } from '@/lib/payments/plans';
 import { HOMEPAGE_FAQS } from '@/content/seo-pages';
@@ -199,54 +204,114 @@ export function LandingPageClient({ authoritativeGeo, initialPlans }: LandingPag
 
         {/* 3-Step Hospitality Workflow */}
         <section id="how-it-works" className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20 border-t border-cream-300">
-          <div className="text-center max-w-xl mx-auto mb-12 sm:mb-16 space-y-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-terracotta-700">
+          <div className="text-center max-w-2xl mx-auto mb-12 sm:mb-14 space-y-2.5">
+            <span className="inline-flex items-center px-3 py-1 rounded-full bg-cream-200/80 border border-cream-300/80 text-[11px] font-semibold uppercase tracking-[0.14em] text-terracotta-700">
               Simple Hospitality Workflow
             </span>
-            <h2 className="font-serif text-3xl sm:text-4xl font-bold text-espresso-900">
+            <h2 className="font-serif text-3xl sm:text-4xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
               From physical paper to intelligent visual dining in minutes.
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
-            <div className="p-6 sm:p-8 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-cream-100 border border-cream-200 text-espresso-900 flex items-center justify-center font-bold text-lg">
-                1
-              </div>
-              <h3 className="font-serif text-xl font-bold text-espresso-900">Upload &amp; Gemini Vision OCR</h3>
-              <p className="text-xs sm:text-sm text-taupe-600 leading-relaxed">
+          <div className="menzy-card-grid">
+            <article className="menzy-card group">
+              <header className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-cream-100 border border-cream-300/80 text-[11px] font-semibold uppercase tracking-[0.1em] text-espresso-700 menzy-tabular">
+                    Step 01
+                  </span>
+                  <span
+                    className="w-11 h-11 rounded-2xl bg-espresso-900/5 border border-espresso-900/10 text-espresso-800 flex items-center justify-center shrink-0"
+                    aria-hidden="true"
+                  >
+                    <ScanText className="w-5 h-5" />
+                  </span>
+                </div>
+                <h3 className="font-serif text-xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
+                  Upload &amp; Gemini Vision OCR
+                </h3>
+              </header>
+
+              <p className="text-sm text-taupe-600 leading-relaxed menzy-copy-pretty">
                 Upload smartphone photos or PDF menus. Gemini extracts item titles, prices, descriptions, variants, and dietary tags accurately.
               </p>
-              <Link href="/ai-digital-menu" className="inline-block text-xs font-semibold text-terracotta-700 hover:underline">
-                Learn about AI Menu OCR &rarr;
-              </Link>
-            </div>
 
-            <div className="p-6 sm:p-8 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-cream-100 border border-cream-200 text-terracotta-700 flex items-center justify-center font-bold text-lg">
-                2
-              </div>
-              <h3 className="font-serif text-xl font-bold text-espresso-900">3D-Clay Food Illustrations</h3>
-              <p className="text-xs sm:text-sm text-taupe-600 leading-relaxed">
+              <footer className="pt-4 border-t border-cream-200/90">
+                <Link
+                  href="/ai-digital-menu"
+                  className="menzy-card-link inline-flex items-center justify-between w-full text-sm font-semibold text-terracotta-700 hover:text-espresso-900 transition-colors"
+                >
+                  <span>Learn about AI Menu OCR</span>
+                  <ArrowRight className="w-4 h-4 shrink-0 menzy-card-arrow" aria-hidden="true" />
+                </Link>
+              </footer>
+            </article>
+
+            <article className="menzy-card group">
+              <header className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-terracotta-50 border border-terracotta-200/80 text-[11px] font-semibold uppercase tracking-[0.1em] text-terracotta-700 menzy-tabular">
+                    Step 02
+                  </span>
+                  <span
+                    className="w-11 h-11 rounded-2xl bg-terracotta-50 border border-terracotta-200/80 text-terracotta-700 flex items-center justify-center shrink-0"
+                    aria-hidden="true"
+                  >
+                    <Sparkles className="w-5 h-5" />
+                  </span>
+                </div>
+                <h3 className="font-serif text-xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
+                  3D-Clay Food Illustrations
+                </h3>
+              </header>
+
+              <p className="text-sm text-taupe-600 leading-relaxed menzy-copy-pretty">
                 Dishes match against our shared canonical culinary library to reuse approved assets or generate custom 3D-styled editorial illustrations.
               </p>
-              <Link href="/features" className="inline-block text-xs font-semibold text-terracotta-700 hover:underline">
-                Explore Theme &amp; Illustration Studio &rarr;
-              </Link>
-            </div>
 
-            <div className="p-6 sm:p-8 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-cream-100 border border-cream-200 text-sage-700 flex items-center justify-center font-bold text-lg">
-                3
-              </div>
-              <h3 className="font-serif text-xl font-bold text-espresso-900">Table QR Ordering &amp; Live KDS</h3>
-              <p className="text-xs sm:text-sm text-taupe-600 leading-relaxed">
+              <footer className="pt-4 border-t border-cream-200/90">
+                <Link
+                  href="/features"
+                  className="menzy-card-link inline-flex items-center justify-between w-full text-sm font-semibold text-terracotta-700 hover:text-espresso-900 transition-colors"
+                >
+                  <span>Explore Theme &amp; Illustration Studio</span>
+                  <ArrowRight className="w-4 h-4 shrink-0 menzy-card-arrow" aria-hidden="true" />
+                </Link>
+              </footer>
+            </article>
+
+            <article className="menzy-card group">
+              <header className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-sage-50 border border-sage-200/80 text-[11px] font-semibold uppercase tracking-[0.1em] text-sage-600 menzy-tabular">
+                    Step 03
+                  </span>
+                  <span
+                    className="w-11 h-11 rounded-2xl bg-sage-50 border border-sage-200/80 text-sage-600 flex items-center justify-center shrink-0"
+                    aria-hidden="true"
+                  >
+                    <QrCode className="w-5 h-5" />
+                  </span>
+                </div>
+                <h3 className="font-serif text-xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
+                  Table QR Ordering &amp; Live KDS
+                </h3>
+              </header>
+
+              <p className="text-sm text-taupe-600 leading-relaxed menzy-copy-pretty">
                 Print signed 4×6&quot; table tents with optional guest Wi-Fi QRs. Diners order directly to your kitchen terminal without downloading any app.
               </p>
-              <Link href="/table-ordering" className="inline-block text-xs font-semibold text-terracotta-700 hover:underline">
-                See how Table Ordering works &rarr;
-              </Link>
-            </div>
+
+              <footer className="pt-4 border-t border-cream-200/90">
+                <Link
+                  href="/table-ordering"
+                  className="menzy-card-link inline-flex items-center justify-between w-full text-sm font-semibold text-terracotta-700 hover:text-espresso-900 transition-colors"
+                >
+                  <span>See how Table Ordering works</span>
+                  <ArrowRight className="w-4 h-4 shrink-0 menzy-card-arrow" aria-hidden="true" />
+                </Link>
+              </footer>
+            </article>
           </div>
         </section>
 
@@ -260,52 +325,115 @@ export function LandingPageClient({ authoritativeGeo, initialPlans }: LandingPag
         </div>
 
         {/* Built for every hospitality format */}
-        <section className="max-w-6xl mx-auto px-4 sm:px-6 py-14 border-t border-cream-300 space-y-8">
-          <div className="text-center max-w-2xl mx-auto space-y-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-terracotta-700">
+        <section className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-16 border-t border-cream-300 space-y-10">
+          <div className="text-center max-w-2xl mx-auto space-y-2.5">
+            <span className="inline-flex items-center px-3 py-1 rounded-full bg-cream-200/80 border border-cream-300/80 text-[11px] font-semibold uppercase tracking-[0.14em] text-terracotta-700">
               Hospitality Solutions
             </span>
-            <h2 className="font-serif text-2xl sm:text-4xl font-bold text-espresso-900">
+            <h2 className="font-serif text-2xl sm:text-4xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
               Tailored workflows for dining rooms, cafés &amp; counters
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Link
-              href="/digital-menu-for-restaurants"
-              className="p-6 bg-white rounded-3xl border border-cream-200 hover:border-terracotta transition-colors shadow-soft space-y-2 group"
-            >
-              <h3 className="font-serif text-xl font-bold text-espresso-900 group-hover:text-terracotta-700 transition-colors">
-                Full-Service Restaurants
-              </h3>
-              <p className="text-xs sm:text-sm text-taupe-600 leading-relaxed">
+          <div className="menzy-card-grid">
+            <article className="menzy-card group">
+              <header className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-cream-100 border border-cream-300/80 text-[11px] font-semibold uppercase tracking-[0.08em] text-espresso-700">
+                    Dining Rooms
+                  </span>
+                  <span
+                    className="w-10 h-10 rounded-2xl bg-espresso-900/5 border border-espresso-900/10 text-espresso-800 flex items-center justify-center shrink-0"
+                    aria-hidden="true"
+                  >
+                    <UtensilsCrossed className="w-5 h-5" />
+                  </span>
+                </div>
+                <h3 className="font-serif text-xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
+                  Full-Service Restaurants
+                </h3>
+              </header>
+
+              <p className="text-sm text-taupe-600 leading-relaxed menzy-copy-pretty">
                 FSSAI Veg/Egg/Non-Veg badges, beverage pairings, waiter calls, and section-scoped table tents.
               </p>
-            </Link>
 
-            <Link
-              href="/digital-menu-for-cafes"
-              className="p-6 bg-white rounded-3xl border border-cream-200 hover:border-terracotta transition-colors shadow-soft space-y-2 group"
-            >
-              <h3 className="font-serif text-xl font-bold text-espresso-900 group-hover:text-terracotta-700 transition-colors">
-                Cafés &amp; Patisseries
-              </h3>
-              <p className="text-xs sm:text-sm text-taupe-600 leading-relaxed">
+              <footer className="pt-4 border-t border-cream-200/90">
+                <Link
+                  href="/digital-menu-for-restaurants"
+                  className="menzy-card-link inline-flex items-center justify-between w-full text-sm font-semibold text-terracotta-700 hover:text-espresso-900 transition-colors"
+                >
+                  <span>Explore restaurant workflow</span>
+                  <ArrowRight className="w-4 h-4 shrink-0 menzy-card-arrow" aria-hidden="true" />
+                </Link>
+              </footer>
+            </article>
+
+            <article className="menzy-card group">
+              <header className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-terracotta-50 border border-terracotta-200/80 text-[11px] font-semibold uppercase tracking-[0.08em] text-terracotta-700">
+                    Cafés &amp; Bakeries
+                  </span>
+                  <span
+                    className="w-10 h-10 rounded-2xl bg-terracotta-50 border border-terracotta-200/80 text-terracotta-700 flex items-center justify-center shrink-0"
+                    aria-hidden="true"
+                  >
+                    <Coffee className="w-5 h-5" />
+                  </span>
+                </div>
+                <h3 className="font-serif text-xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
+                  Cafés &amp; Patisseries
+                </h3>
+              </header>
+
+              <p className="text-sm text-taupe-600 leading-relaxed menzy-copy-pretty">
                 Botanical &amp; pastel presets, milk/roast add-on variants, daily stock toggles, and Guest Wi-Fi QR cards.
               </p>
-            </Link>
 
-            <Link
-              href="/digital-menu-for-cloud-kitchens"
-              className="p-6 bg-white rounded-3xl border border-cream-200 hover:border-terracotta transition-colors shadow-soft space-y-2 group"
-            >
-              <h3 className="font-serif text-xl font-bold text-espresso-900 group-hover:text-terracotta-700 transition-colors">
-                Food Courts &amp; QSRs
-              </h3>
-              <p className="text-xs sm:text-sm text-taupe-600 leading-relaxed">
+              <footer className="pt-4 border-t border-cream-200/90">
+                <Link
+                  href="/digital-menu-for-cafes"
+                  className="menzy-card-link inline-flex items-center justify-between w-full text-sm font-semibold text-terracotta-700 hover:text-espresso-900 transition-colors"
+                >
+                  <span>Explore café setup</span>
+                  <ArrowRight className="w-4 h-4 shrink-0 menzy-card-arrow" aria-hidden="true" />
+                </Link>
+              </footer>
+            </article>
+
+            <article className="menzy-card group">
+              <header className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-sage-50 border border-sage-200/80 text-[11px] font-semibold uppercase tracking-[0.08em] text-sage-600">
+                    Counters &amp; QSRs
+                  </span>
+                  <span
+                    className="w-10 h-10 rounded-2xl bg-sage-50 border border-sage-200/80 text-sage-600 flex items-center justify-center shrink-0"
+                    aria-hidden="true"
+                  >
+                    <Zap className="w-5 h-5" />
+                  </span>
+                </div>
+                <h3 className="font-serif text-xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
+                  Food Courts &amp; QSRs
+                </h3>
+              </header>
+
+              <p className="text-sm text-taupe-600 leading-relaxed menzy-copy-pretty">
                 Fast counter QR scanning, combo customization, real-time KDS queues, and zero per-order commission.
               </p>
-            </Link>
+
+              <footer className="pt-4 border-t border-cream-200/90">
+                <Link
+                  href="/digital-menu-for-cloud-kitchens"
+                  className="menzy-card-link inline-flex items-center justify-between w-full text-sm font-semibold text-terracotta-700 hover:text-espresso-900 transition-colors"
+                >
+                  <span>Explore QSR &amp; KDS tools</span>
+                  <ArrowRight className="w-4 h-4 shrink-0 menzy-card-arrow" aria-hidden="true" />
+                </Link>
+              </footer>
+            </article>
           </div>
         </section>
 

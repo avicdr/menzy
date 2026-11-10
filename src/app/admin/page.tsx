@@ -1477,7 +1477,7 @@ export default function SuperAdminPortalPage() {
                           <td className="py-3.5 px-4">
                             <span
                               className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                ord.status === 'PENDING'
+                                ord.status === 'PLACED' || ord.status === 'ACCEPTED'
                                   ? 'bg-amber-950 border border-amber-800/70 text-amber-300'
                                   : ord.status === 'PREPARING'
                                   ? 'bg-orange-950 border border-orange-800/70 text-orange-300'

@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { verifyStaffOrOwnerAccess } from '@/lib/auth/tenant-verify';
+import {
+  getHourInTimezone,
+  getStartOfDayInTimezone,
+  getStartOfMonthInTimezone,
+} from '@/lib/analytics/date-window';
 
 export async function GET(
   req: Request,
@@ -14,9 +19,10 @@ export async function GET(
     }
 
     const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-    const startOfWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+    const timeZone = auth.restaurant.timezone || 'Asia/Kolkata';
+    const startOfToday = getStartOfDayInTimezone(timeZone, 0, now);
+    const startOfWeek = getStartOfDayInTimezone(timeZone, 6, now);
+    const startOfMonth = getStartOfMonthInTimezone(timeZone, now);
 
     const [todayCount, weekCount, monthCount, allOrders] = await Promise.all([
       prisma.order.count({
@@ -68,12 +74,12 @@ export async function GET(
         rejectedCount++;
       }
 
-      // Hour bucket (0-23)
-      const hour = new Date(order.placedAt).getHours();
+      // Hour bucket in restaurant local timezone (0-23)
+      const hour = getHourInTimezone(new Date(order.placedAt), timeZone);
       hourlyCounts[hour]++;
 
       // Table bucket
-      const tblName = order.table.name;
+      const tblName = order.table?.name || 'Table';
       const currentTbl = tableCounts.get(tblName) || { name: tblName, count: 0 };
       currentTbl.count++;
       tableCounts.set(tblName, currentTbl);
@@ -87,10 +93,19 @@ export async function GET(
       }
     }
 
-    const aovMinor = totalOrdersCount > 0 ? Math.round(totalRecordedValueMinor / totalOrdersCount) : 0;
+    const activeOrdersCount = allOrders.filter((o) =>
+      ['PLACED', 'ACCEPTED', 'PREPARING', 'READY'].includes(o.status)
+    ).length;
+    const nonCancelledOrdersCount = Math.max(0, totalOrdersCount - cancelledCount - rejectedCount);
+    const activeOrderValueMinor = allOrders
+      .filter((o) => o.status !== 'CANCELLED' && o.status !== 'REJECTED')
+      .reduce((acc, o) => acc + o.totalMinor, 0);
+    const aovMinor =
+      nonCancelledOrdersCount > 0 ? Math.round(activeOrderValueMinor / nonCancelledOrdersCount) : 0;
+    const cancelledOrdersCount = cancelledCount + rejectedCount;
     const cancellationRatePercent =
       totalOrdersCount > 0
-        ? Math.round(((cancelledCount + rejectedCount) / totalOrdersCount) * 1000) / 10
+        ? Math.round((cancelledOrdersCount / totalOrdersCount) * 1000) / 10
         : 0;
 
     // Top 5 dishes
@@ -104,7 +119,7 @@ export async function GET(
 
     // Busiest hours formatted
     const busiestHours = hourlyCounts.map((count, hour) => ({
-      hour: `${hour}:00`,
+      hour: `${String(hour).padStart(2, '0')}:00`,
       count,
     }));
 
@@ -115,7 +130,9 @@ export async function GET(
         ordersThisWeek: weekCount,
         ordersThisMonth: monthCount,
         totalOrdersCount,
+        activeOrdersCount,
         completedOrdersCount: completedCount,
+        cancelledOrdersCount,
         totalRecordedValueMinor,
         completedOrderValueMinor,
         averageOrderValueMinor: aovMinor,
@@ -130,4 +147,3 @@ export async function GET(
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
-

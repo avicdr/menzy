@@ -17,9 +17,8 @@ import {
   ExternalLink,
   Sparkles,
   Eye,
-  X,
 } from 'lucide-react';
-import { Portal } from '@/components/ui/Portal';
+import { Modal } from '@/components/ui/Modal';
 
 interface TablesManagementViewProps {
   restaurant: any;
@@ -467,384 +466,332 @@ export function TablesManagementView({ restaurant }: TablesManagementViewProps) 
       {/* =========================================================================
           MODAL: ADD SINGLE TABLE
       ========================================================================= */}
-      {isCreateModalOpen && (
-        <Portal>
-          <div
-            className="fixed inset-0 z-[100] w-screen h-screen min-h-screen flex items-center justify-center p-4 bg-espresso-950/75 backdrop-blur-sm animate-modal-backdrop"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setIsCreateModalOpen(false);
-            }}
-          >
-            <div className="p-6 bg-white border border-cream-300 rounded-3xl max-w-md w-full shadow-lifted space-y-4 animate-modal-content">
-              <div className="flex items-center justify-between border-b border-cream-200 pb-3">
-                <h3 className="font-serif text-xl font-bold text-espresso-900">Add Dining Table</h3>
-                <button onClick={() => setIsCreateModalOpen(false)} className="text-taupe-400 hover:text-espresso-800">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+      {/* =========================================================================
+          MODAL: CREATE SINGLE TABLE
+      ========================================================================= */}
+      <Modal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        title="Add Dining Table"
+        maxWidth="md"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setIsCreateModalOpen(false)}
+              className="px-4 py-2 text-xs font-semibold text-taupe-500 hover:text-espresso-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="create-table-form"
+              disabled={isSubmitting}
+              className="px-4 py-2 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white text-xs font-semibold shadow-md disabled:opacity-50"
+            >
+              {isSubmitting ? 'Creating...' : 'Create Table'}
+            </button>
+          </>
+        }
+      >
+        <form id="create-table-form" onSubmit={handleCreateTable} className="space-y-3.5">
+          <div>
+            <label className="block text-xs font-semibold text-taupe-600 mb-1">
+              Table Name or Number
+            </label>
+            <input
+              type="text"
+              required
+              value={tableName}
+              onChange={(e) => setTableName(e.target.value)}
+              placeholder="e.g. Table 04, Patio 02, VIP Booth"
+              className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+            />
+          </div>
 
-              <form onSubmit={handleCreateTable} className="space-y-3.5">
-                <div>
-                  <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                    Table Name or Number
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={tableName}
-                    onChange={(e) => setTableName(e.target.value)}
-                    placeholder="e.g. Table 04, Patio 02, VIP Booth"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                  />
-                </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                Section / Area
+              </label>
+              <input
+                type="text"
+                value={tableSection}
+                onChange={(e) => setTableSection(e.target.value)}
+                placeholder="e.g. Main Floor, Patio, Bar"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+              />
+            </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                      Section / Area
-                    </label>
-                    <input
-                      type="text"
-                      value={tableSection}
-                      onChange={(e) => setTableSection(e.target.value)}
-                      placeholder="e.g. Main Floor, Patio, Bar"
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                      Seating Capacity
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="50"
-                      value={tableCapacity}
-                      onChange={(e) => setTableCapacity(parseInt(e.target.value, 10))}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-2 pt-3 border-t border-cream-200">
-                  <button
-                    type="button"
-                    onClick={() => setIsCreateModalOpen(false)}
-                    className="px-4 py-2 text-xs font-semibold text-taupe-500 hover:text-espresso-800"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="px-4 py-2 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white text-xs font-semibold shadow-md disabled:opacity-50"
-                  >
-                    {isSubmitting ? 'Creating...' : 'Create Table'}
-                  </button>
-                </div>
-              </form>
+            <div>
+              <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                Seating Capacity
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="50"
+                value={tableCapacity}
+                onChange={(e) => setTableCapacity(parseInt(e.target.value, 10))}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+              />
             </div>
           </div>
-        </Portal>
-      )}
+        </form>
+      </Modal>
 
       {/* =========================================================================
           MODAL: BULK GENERATE TABLES
       ========================================================================= */}
-      {isBulkModalOpen && (
-        <Portal>
-          <div
-            className="fixed inset-0 z-[100] w-screen h-screen min-h-screen flex items-center justify-center p-4 bg-espresso-950/75 backdrop-blur-sm animate-modal-backdrop"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setIsBulkModalOpen(false);
-            }}
-          >
-            <div className="p-6 sm:p-7 bg-white border border-cream-300 rounded-3xl max-w-lg w-full shadow-lifted space-y-4 animate-modal-content max-h-[92vh] overflow-y-auto">
-              <div className="flex items-center justify-between border-b border-cream-200 pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-espresso-900 text-white flex items-center justify-center">
-                    <Layers className="w-4 h-4 text-amber-400" />
-                  </div>
-                  <h3 className="font-serif text-xl font-bold text-espresso-900">Bulk Generate Tables</h3>
-                </div>
-                <button onClick={() => setIsBulkModalOpen(false)} className="text-taupe-400 hover:text-espresso-800">
-                  <X className="w-5 h-5" />
+      <Modal
+        isOpen={isBulkModalOpen}
+        onClose={() => setIsBulkModalOpen(false)}
+        title="Bulk Generate Tables"
+        icon={<Layers className="w-4 h-4 text-amber-400" />}
+        maxWidth="lg"
+        bodyClassName="space-y-4"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setIsBulkModalOpen(false)}
+              className="px-4 py-2.5 text-xs font-semibold text-taupe-500 hover:text-espresso-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="bulk-tables-form"
+              disabled={isSubmitting}
+              className="px-5 py-2.5 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white text-xs font-semibold shadow-md disabled:opacity-50"
+            >
+              {isSubmitting ? 'Generating...' : `Generate ${bulkCount} Tables`}
+            </button>
+          </>
+        }
+      >
+        <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-xs text-emerald-900 flex items-start gap-2.5">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold">Permanent, Life-Persistent QR Codes:</span>
+            <p className="text-[11px] text-emerald-800 mt-0.5">
+              Generated table QR codes are persistent and never expire. You can print them on tabletop tents or acrylic stands once and use them indefinitely.
+            </p>
+          </div>
+        </div>
+
+        <form id="bulk-tables-form" onSubmit={handleBulkCreate} className="space-y-4">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-taupe-700">
+                How Many Tables Do You Have?
+              </label>
+              <span className="text-xs font-bold font-mono text-espresso-900">
+                {bulkCount} {bulkCount === 1 ? 'Table' : 'Tables'}
+              </span>
+            </div>
+
+            {/* Quick Presets */}
+            <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+              {[5, 10, 15, 20, 25, 30].map((num) => (
+                <button
+                  key={num}
+                  type="button"
+                  onClick={() => setBulkCount(num)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                    bulkCount === num
+                      ? 'bg-espresso-900 text-white shadow-xs scale-105'
+                      : 'bg-cream-100 text-espresso-800 hover:bg-cream-200'
+                  }`}
+                >
+                  {num}
                 </button>
-              </div>
+              ))}
+            </div>
 
-              <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-xs text-emerald-900 flex items-start gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-bold">Permanent, Life-Persistent QR Codes:</span>
-                  <p className="text-[11px] text-emerald-800 mt-0.5">
-                    Generated table QR codes are persistent and never expire. You can print them on tabletop tents or acrylic stands once and use them indefinitely.
-                  </p>
-                </div>
-              </div>
+            <input
+              type="number"
+              min="1"
+              max="100"
+              required
+              value={bulkCount}
+              onChange={(e) => setBulkCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+            />
+          </div>
 
-              <form onSubmit={handleBulkCreate} className="space-y-4">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-semibold text-taupe-700">
-                      How Many Tables Do You Have?
-                    </label>
-                    <span className="text-xs font-bold font-mono text-espresso-900">
-                      {bulkCount} {bulkCount === 1 ? 'Table' : 'Tables'}
-                    </span>
-                  </div>
-
-                  {/* Quick Presets */}
-                  <div className="flex items-center gap-2 mb-2.5 flex-wrap">
-                    {[5, 10, 15, 20, 25, 30].map((num) => (
-                      <button
-                        key={num}
-                        type="button"
-                        onClick={() => setBulkCount(num)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                          bulkCount === num
-                            ? 'bg-espresso-900 text-white shadow-xs scale-105'
-                            : 'bg-cream-100 text-espresso-800 hover:bg-cream-200'
-                        }`}
-                      >
-                        {num}
-                      </button>
-                    ))}
-                  </div>
-
-                  <input
-                    type="number"
-                    min="1"
-                    max="100"
-                    required
-                    value={bulkCount}
-                    onChange={(e) => setBulkCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                    Naming Pattern
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={bulkNamingPattern}
-                    onChange={(e) => setBulkNamingPattern(e.target.value)}
-                    placeholder="Table {number} (e.g. Table 01, Table 02...)"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                  />
-                  <div className="text-[11px] text-taupe-500 mt-1 flex items-center justify-between">
-                    <span>Use &#123;number&#125; to insert auto-incrementing numbers</span>
-                    <span className="font-medium text-espresso-900">
-                      Preview: {bulkNamingPattern.replace('{number}', '01')} ... {bulkNamingPattern.replace('{number}', bulkCount < 10 ? `0${bulkCount}` : `${bulkCount}`)}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                      Section
-                    </label>
-                    <input
-                      type="text"
-                      value={bulkSection}
-                      onChange={(e) => setBulkSection(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                      Default Capacity
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="50"
-                      value={bulkCapacity}
-                      onChange={(e) => setBulkCapacity(parseInt(e.target.value, 10))}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-2 pt-3 border-t border-cream-200">
-                  <button
-                    type="button"
-                    onClick={() => setIsBulkModalOpen(false)}
-                    className="px-4 py-2.5 text-xs font-semibold text-taupe-500 hover:text-espresso-800"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="px-5 py-2.5 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white text-xs font-semibold shadow-md disabled:opacity-50"
-                  >
-                    {isSubmitting ? 'Generating...' : `Generate ${bulkCount} Tables`}
-                  </button>
-                </div>
-              </form>
+          <div>
+            <label className="block text-xs font-semibold text-taupe-600 mb-1">
+              Naming Pattern
+            </label>
+            <input
+              type="text"
+              required
+              value={bulkNamingPattern}
+              onChange={(e) => setBulkNamingPattern(e.target.value)}
+              placeholder="Table {number} (e.g. Table 01, Table 02...)"
+              className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+            />
+            <div className="text-[11px] text-taupe-500 mt-1 flex flex-wrap items-center justify-between gap-2">
+              <span>Use &#123;number&#125; to insert auto-incrementing numbers</span>
+              <span className="font-medium text-espresso-900">
+                Preview: {bulkNamingPattern.replace('{number}', '01')} ... {bulkNamingPattern.replace('{number}', bulkCount < 10 ? `0${bulkCount}` : `${bulkCount}`)}
+              </span>
             </div>
           </div>
-        </Portal>
-      )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                Section
+              </label>
+              <input
+                type="text"
+                value={bulkSection}
+                onChange={(e) => setBulkSection(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                Default Capacity
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="50"
+                value={bulkCapacity}
+                onChange={(e) => setBulkCapacity(parseInt(e.target.value, 10))}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+              />
+            </div>
+          </div>
+        </form>
+      </Modal>
 
       {/* =========================================================================
           MODAL: VIEW QR & TABLE TENT PREVIEW
       ========================================================================= */}
-      {previewTable && (
-        <Portal>
-          <div
-            className="fixed inset-0 z-[100] w-screen h-screen min-h-screen flex items-center justify-center p-4 bg-espresso-950/75 backdrop-blur-sm animate-modal-backdrop font-sans"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setPreviewTable(null);
-            }}
-          >
-            <div className="p-6 bg-white border border-cream-300 rounded-3xl max-w-sm w-full shadow-lifted space-y-4 text-center animate-modal-content">
-              <div className="flex items-center justify-between border-b border-cream-200 pb-2">
-                <span className="text-xs font-bold font-mono text-terracotta">Table Tent Preview</span>
-                <button onClick={() => setPreviewTable(null)} className="text-taupe-400 hover:text-espresso-800">
-                  <X className="w-5 h-5" />
-                </button>
+      <Modal
+        isOpen={Boolean(previewTable)}
+        onClose={() => setPreviewTable(null)}
+        title={<span className="text-xs font-bold font-mono text-terracotta">Table Tent Preview</span>}
+        maxWidth="sm"
+        className="font-sans"
+        bodyClassName="text-center space-y-4"
+      >
+        {previewTable && (
+          <>
+            {/* Printable Table Tent Mockup */}
+            <div className="p-6 bg-cream-50 rounded-2xl border-2 border-dashed border-cream-300 space-y-3 shadow-inner">
+              <div className="font-serif text-lg font-bold text-espresso-900 tracking-tight">
+                {restaurant.displayName}
               </div>
-
-              {/* Printable Table Tent Mockup */}
-              <div className="p-6 bg-cream-50 rounded-2xl border-2 border-dashed border-cream-300 space-y-3 shadow-inner">
-                <div className="font-serif text-lg font-bold text-espresso-900 tracking-tight">
-                  {restaurant.displayName}
-                </div>
-                <div className="text-2xl font-bold text-terracotta font-serif">
-                  {previewTable.name}
-                </div>
-                <p className="text-[11px] text-taupe-500 max-w-[200px] mx-auto">
-                  Scan to explore our visual interactive menu & send orders directly to the kitchen.
-                </p>
-
-                {previewLoading ? (
-                  <div className="w-48 h-48 flex items-center justify-center mx-auto bg-white rounded-xl">
-                    <div className="w-6 h-6 border-2 border-terracotta border-t-transparent rounded-full animate-spin" />
-                  </div>
-                ) : previewQrDataUrl ? (
-                  <img
-                    src={previewQrDataUrl}
-                    alt={`QR for ${previewTable.name}`}
-                    className="w-48 h-48 mx-auto rounded-xl shadow-xs border border-cream-200 bg-white p-2"
-                  />
-                ) : null}
-
-                <div className="text-[10px] font-mono text-taupe-400 uppercase tracking-widest pt-1">
-                  Powered by Menzy
-                </div>
+              <div className="text-2xl font-bold text-terracotta font-serif">
+                {previewTable.name}
               </div>
+              <p className="text-[11px] text-taupe-500 max-w-[200px] mx-auto">
+                Scan to explore our visual interactive menu & send orders directly to the kitchen.
+              </p>
 
-              {/* Actions */}
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <a
-                  href={`/api/qr/generate?slug=${restaurant.slug}&tableId=${previewTable.id}&format=svg`}
-                  download={`${previewTable.name}-qr.svg`}
-                  className="py-2.5 px-3 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Save SVG</span>
-                </a>
+              {previewLoading ? (
+                <div className="w-48 h-48 flex items-center justify-center mx-auto bg-white rounded-xl">
+                  <div className="w-6 h-6 border-2 border-terracotta border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : previewQrDataUrl ? (
+                <img
+                  src={previewQrDataUrl}
+                  alt={`QR for ${previewTable.name}`}
+                  className="w-48 h-48 mx-auto rounded-xl shadow-xs border border-cream-200 bg-white p-2"
+                />
+              ) : null}
 
-                <a
-                  href={previewScanUrl || previewTable.scanUrl || `/m/${restaurant.slug}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="py-2.5 px-3 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Test Menu</span>
-                </a>
+              <div className="text-[10px] font-mono text-taupe-400 uppercase tracking-widest pt-1">
+                Powered by Menzy
               </div>
             </div>
-          </div>
-        </Portal>
-      )}
+
+            {/* Actions */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <a
+                href={`/api/qr/generate?slug=${restaurant.slug}&tableId=${previewTable.id}&format=svg`}
+                download={`${previewTable.name}-qr.svg`}
+                className="py-2.5 px-3 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Save SVG</span>
+              </a>
+
+              <a
+                href={previewScanUrl || previewTable.scanUrl || `/m/${restaurant.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="py-2.5 px-3 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Test Menu</span>
+              </a>
+            </div>
+          </>
+        )}
+      </Modal>
 
       {/* =========================================================================
           MODAL: BULK PRINTABLE TABLE TENTS
       ========================================================================= */}
-      {isExportOpen && (
-        <Portal>
-          <div
-            className="fixed inset-0 z-[100] w-screen h-screen min-h-screen flex items-center justify-center p-4 bg-espresso-950/75 backdrop-blur-sm animate-modal-backdrop font-sans"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setIsExportOpen(false);
-            }}
+      <Modal
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        title="Bulk Printable Table Tents"
+        subtitle={`Ready to print for all ${tables.length} tables in ${restaurant.displayName}.`}
+        maxWidth="5xl"
+        className="font-sans"
+        headerActions={
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="px-3.5 py-1.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow"
           >
-            <div className="bg-white rounded-3xl max-w-5xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-modal-content">
-              <div className="px-6 py-4 border-b border-cream-200 flex items-center justify-between shrink-0 bg-cream-50">
-                <div>
-                  <h3 className="font-serif text-lg font-bold text-espresso-900">
-                    Bulk Printable Table Tents
-                  </h3>
-                  <p className="text-xs text-taupe-500">
-                    Ready to print for all {tables.length} tables in {restaurant.displayName}.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => window.print()}
-                    className="px-3.5 py-1.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow"
-                  >
-                    <Printer className="w-3.5 h-3.5" />
-                    <span>Print All Tents</span>
-                  </button>
-                  <button
-                    onClick={() => setIsExportOpen(false)}
-                    className="p-1.5 rounded-lg text-taupe-400 hover:text-espresso-800"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-6">
-                {exportLoading ? (
-                  <div className="py-24 text-center">
-                    <div className="w-8 h-8 border-3 border-terracotta border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                    <p className="text-xs text-taupe-500">Rendering high-res QR codes for all tables...</p>
-                  </div>
-                ) : exportData ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {exportData.tables.map((t: any) => (
-                      <div
-                        key={t.id}
-                        className="p-5 bg-cream-50/70 border-2 border-dashed border-cream-300 rounded-2xl text-center space-y-2.5 shadow-xs"
-                      >
-                        <div className="font-serif text-sm font-bold text-espresso-900">
-                          {exportData.restaurantName}
-                        </div>
-                        <div className="text-2xl font-bold font-serif text-terracotta">
-                          {t.name}
-                        </div>
-                        <p className="text-[10px] text-taupe-500 max-w-[180px] mx-auto">
-                          Scan to explore our visual interactive menu & send orders directly to the kitchen.
-                        </p>
-                        <img
-                          src={t.qrDataUrl}
-                          alt={t.name}
-                          className="w-40 h-40 mx-auto rounded-xl border border-cream-200 bg-white p-2 shadow-xs"
-                        />
-                        <div className="text-[9px] font-mono uppercase tracking-widest text-taupe-400">
-                          Powered by Menzy
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </div>
+            <Printer className="w-3.5 h-3.5" />
+            <span>Print All Tents</span>
+          </button>
+        }
+      >
+        {exportLoading ? (
+          <div className="py-24 text-center">
+            <div className="w-8 h-8 border-3 border-terracotta border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+            <p className="text-xs text-taupe-500">Rendering high-res QR codes for all tables...</p>
           </div>
-        </Portal>
-      )}
+        ) : exportData ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {exportData.tables.map((t: any) => (
+              <div
+                key={t.id}
+                className="p-5 bg-cream-50/70 border-2 border-dashed border-cream-300 rounded-2xl text-center space-y-2.5 shadow-xs"
+              >
+                <div className="font-serif text-sm font-bold text-espresso-900">
+                  {exportData.restaurantName}
+                </div>
+                <div className="text-2xl font-bold font-serif text-terracotta">
+                  {t.name}
+                </div>
+                <p className="text-[10px] text-taupe-500 max-w-[180px] mx-auto">
+                  Scan to explore our visual interactive menu & send orders directly to the kitchen.
+                </p>
+                <img
+                  src={t.qrDataUrl}
+                  alt={t.name}
+                  className="w-40 h-40 mx-auto rounded-xl border border-cream-200 bg-white p-2 shadow-xs"
+                />
+                <div className="text-[9px] font-mono uppercase tracking-widest text-taupe-400">
+                  Powered by Menzy
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }

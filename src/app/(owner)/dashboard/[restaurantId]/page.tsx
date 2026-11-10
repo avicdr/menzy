@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { DashboardNav } from '@/components/dashboard/DashboardNav';
 import {
@@ -36,7 +36,7 @@ import {
   Image as ImageIcon,
   Wifi,
 } from 'lucide-react';
-import { Portal } from '@/components/ui/Portal';
+import { Modal } from '@/components/ui/Modal';
 import { formatCurrencyMinor, type PlanDefinition } from '@/lib/payments/plans';
 import {
   THEME_PRESETS,
@@ -75,6 +75,11 @@ function RestaurantDashboardContent() {
 
   const restaurantId = params?.restaurantId as string;
   const currentTab = searchParams.get('tab') || 'overview';
+  const rawSubTab = searchParams.get('subtab');
+  const initialOrdersSubTab: 'live' | 'history' | 'analytics' | 'settings' =
+    rawSubTab === 'analytics' || rawSubTab === 'history' || rawSubTab === 'settings'
+      ? rawSubTab
+      : 'live';
 
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -151,6 +156,33 @@ function RestaurantDashboardContent() {
   // Analytics State
   const [analyticsData, setAnalyticsData] = useState<any>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const analyticsRequestRef = React.useRef(0);
+
+  const loadAnalytics = useCallback(async (targetRestaurantId: string) => {
+    const reqId = ++analyticsRequestRef.current;
+    try {
+      setAnalyticsLoading(true);
+      setAnalyticsError(null);
+      const res = await fetch(`/api/restaurant/analytics?restaurantId=${targetRestaurantId}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        throw new Error(data.error || 'Failed to load restaurant analytics');
+      }
+      if (analyticsRequestRef.current === reqId) {
+        setAnalyticsData(data);
+      }
+    } catch (err: any) {
+      if (analyticsRequestRef.current === reqId) {
+        console.error('Analytics load error:', err);
+        setAnalyticsError(err.message || 'Unable to load analytics data.');
+      }
+    } finally {
+      if (analyticsRequestRef.current === reqId) {
+        setAnalyticsLoading(false);
+      }
+    }
+  }, []);
 
   // Settings State
   const [settingsForm, setSettingsForm] = useState({
@@ -193,6 +225,8 @@ function RestaurantDashboardContent() {
     async function init() {
       try {
         setLoading(true);
+        setAnalyticsData(null);
+        setAnalyticsError(null);
         const meRes = await fetch('/api/auth/me');
         if (!meRes.ok) {
           router.push('/login');
@@ -245,12 +279,6 @@ function RestaurantDashboardContent() {
             const billData = await billRes.json();
             setBillingUsage(billData);
           }
-
-          // Load real analytics metrics
-          fetch(`/api/restaurant/analytics?restaurantId=${targetRest.id}`)
-            .then((r) => r.json())
-            .then((aData) => setAnalyticsData(aData))
-            .catch(() => {});
 
           // Load theme & settings
           const dinerRes = await fetch(`/api/diner/menu?slug=${targetRest.slug}`);
@@ -330,19 +358,12 @@ function RestaurantDashboardContent() {
     init();
   }, [restaurantId, router]);
 
-  // Load analytics when analytics tab is opened
+  // Keep analytics metrics fresh whenever Overview or Analytics tab is active
   useEffect(() => {
-    if (currentTab === 'analytics' && restaurant?.id && !analyticsData) {
-      setAnalyticsLoading(true);
-      fetch(`/api/restaurant/analytics?restaurantId=${restaurant.id}`)
-        .then((res) => res.json())
-        .then((data) => {
-          setAnalyticsData(data);
-        })
-        .catch((err) => console.error('Analytics load error:', err))
-        .finally(() => setAnalyticsLoading(false));
+    if ((currentTab === 'analytics' || currentTab === 'overview') && restaurant?.id) {
+      loadAnalytics(restaurant.id);
     }
-  }, [currentTab, restaurant?.id, analyticsData]);
+  }, [currentTab, restaurant?.id, loadAnalytics]);
 
   // Keep Wi-Fi & profile settings fresh whenever owner navigates to Settings tab
   useEffect(() => {
@@ -1002,30 +1023,6 @@ function RestaurantDashboardContent() {
     }
   };
 
-  // Lock body scroll and listen for Escape key when any dashboard modal is open
-  useEffect(() => {
-    const isAnyModalOpen = isEditDishOpen || isAddDishOpen || isDeleteDialogOpen || Boolean(candidateReview);
-    if (!isAnyModalOpen) return;
-
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsEditDishOpen(false);
-        setIsAddDishOpen(false);
-        setIsDeleteDialogOpen(false);
-        setCandidateReview(null);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.body.style.overflow = originalOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isEditDishOpen, isAddDishOpen, isDeleteDialogOpen, candidateReview]);
-
   if (loading || !restaurant) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-cream-100">
@@ -1038,10 +1035,10 @@ function RestaurantDashboardContent() {
   }
 
   const allRestaurants = currentUser?.organizations?.flatMap((o: any) => o.restaurants) || [restaurant];
-  const planName = billingUsage?.plan?.name || 'Growth';
+  const planName = billingUsage?.plan?.name || 'Starter';
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-cream-100/40 w-full min-w-0 overflow-x-clip">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-cream-100/40 w-full">
       {/* Sidebar Nav */}
       <DashboardNav
         currentRestaurant={restaurant}
@@ -1110,17 +1107,21 @@ function RestaurantDashboardContent() {
 
               <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
                 <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">AI Questions</span>
-                <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2">{billingUsage?.chatQueriesThisMonth || 0}</div>
+                <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
+                  {billingUsage ? billingUsage.chatQueriesThisMonth ?? 0 : '—'}
+                </div>
                 <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
-                  of {billingUsage?.maxChatQueries || 1000} allowance
+                  {billingUsage ? `of ${billingUsage.maxChatQueries} monthly allowance` : 'Loading usage...'}
                 </div>
               </div>
 
               <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
                 <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">3D Credits Left</span>
-                <div className="text-2xl sm:text-3xl font-bold text-terracotta mt-2">{billingUsage?.remainingImageCredits ?? 15}</div>
+                <div className="text-2xl sm:text-3xl font-bold text-terracotta mt-2 tabular-nums">
+                  {billingUsage ? billingUsage.remainingImageCredits ?? 0 : '—'}
+                </div>
                 <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
-                  {billingUsage?.plan?.name || 'Starter'} plan
+                  {billingUsage?.plan?.name ? `${billingUsage.plan.name} plan` : 'Loading plan...'}
                 </div>
               </div>
             </div>
@@ -1519,217 +1520,184 @@ function RestaurantDashboardContent() {
             {/* =========================================================================
                 MODAL A: EDIT DISH DETAILS (NAME, PRICE, RECIPE, SPOTLIGHTS)
             ========================================================================= */}
-            {isEditDishOpen && editingDish && (
-              <Portal>
-                <div
-                  className="fixed inset-0 z-[100] w-screen h-screen min-h-screen flex items-center justify-center p-4 bg-espresso-950/75 backdrop-blur-sm animate-modal-backdrop"
-                  onClick={(e) => {
-                    if (e.target === e.currentTarget) setIsEditDishOpen(false);
-                  }}
-                >
-                  <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-xl w-full shadow-lifted space-y-4 max-h-[92vh] overflow-y-auto animate-modal-content border border-cream-300">
-                    <div className="flex items-center justify-between border-b border-cream-200 pb-3">
-                      <div>
-                        <h3 className="font-serif text-xl font-bold text-espresso-900">Edit Dish Details</h3>
-                      <p className="text-xs text-taupe-500">
-                        Update name, pricing, dietary tags, and description for {editingDish.customName}
-                      </p>
+            <Modal
+              isOpen={Boolean(isEditDishOpen && editingDish)}
+              onClose={() => setIsEditDishOpen(false)}
+              title="Edit Dish Details"
+              subtitle={
+                editingDish
+                  ? `Update name, pricing, dietary tags, and description for ${editingDish.customName}`
+                  : undefined
+              }
+              maxWidth="xl"
+              footer={
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditDishOpen(false)}
+                    className="px-4 py-2 text-xs font-semibold text-taupe-600 hover:bg-cream-100 rounded-xl"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    form="edit-dish-form"
+                    disabled={isSavingEdit}
+                    className="px-5 py-2 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 disabled:opacity-50 shadow-sm"
+                  >
+                    {isSavingEdit ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </>
+              }
+            >
+              {editingDish && (
+                <form id="edit-dish-form" onSubmit={handleSaveEditedDish} className="space-y-4">
+                  {/* Dish Name & Category */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-taupe-600 mb-1">Dish Name *</label>
+                      <input
+                        type="text"
+                        required
+                        value={editDishName}
+                        onChange={(e) => setEditDishName(e.target.value)}
+                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+                      />
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditDishOpen(false)}
-                      className="p-1 rounded-lg text-taupe-400 hover:bg-cream-100"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-taupe-600 mb-1">Category</label>
+                      <select
+                        value={editDishCategory}
+                        onChange={(e) => setEditDishCategory(e.target.value)}
+                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
+                      >
+                        <option value="">Default / General</option>
+                        {existingCategories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
-                  <form onSubmit={handleSaveEditedDish} className="space-y-4">
-                    {/* Dish Name & Category */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-taupe-600 mb-1">Dish Name *</label>
+                  {/* Price */}
+                  <div>
+                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                      Price ({restaurant.currency}) *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      step="0.01"
+                      value={editDishPrice}
+                      onChange={(e) => setEditDishPrice(e.target.value)}
+                      className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+                    />
+                  </div>
+
+                  {/* Description */}
+                  <div>
+                    <label className="block text-xs font-semibold text-taupe-600 mb-1">Description / Recipe</label>
+                    <textarea
+                      rows={2}
+                      value={editDishDescription}
+                      onChange={(e) => setEditDishDescription(e.target.value)}
+                      placeholder="Key spices, preparation technique, portion size..."
+                      className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+                    />
+                  </div>
+
+                  {/* Spotlight: Popular & Chef Recommendation */}
+                  <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
+                    <span className="block text-xs font-semibold text-espresso-900">
+                      Menu Spotlight Options
+                    </span>
+                    <div className="flex flex-wrap gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
                         <input
-                          type="text"
-                          required
-                          value={editDishName}
-                          onChange={(e) => setEditDishName(e.target.value)}
-                          className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+                          type="checkbox"
+                          checked={editDishIsPopular}
+                          onChange={(e) => setEditDishIsPopular(e.target.checked)}
+                          className="rounded border-cream-300 text-rose-600 focus:ring-rose-500 w-4 h-4"
                         />
+                        <span className="flex items-center gap-1">
+                          <Flame className="w-3.5 h-3.5 text-rose-600" />
+                          <strong>Popular / Bestseller</strong>
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
+                        <input
+                          type="checkbox"
+                          checked={editDishChefRecommended}
+                          onChange={(e) => setEditDishChefRecommended(e.target.checked)}
+                          className="rounded border-cream-300 text-terracotta focus:ring-terracotta w-4 h-4"
+                        />
+                        <span className="flex items-center gap-1">
+                          <Sparkles className="w-3.5 h-3.5 text-terracotta-500" />
+                          <strong>Chef's Pick</strong>
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Dietary Classification: Indian FSSAI vs Western */}
+                  {isIndianRestaurant ? (
+                    <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-espresso-900 mb-2">
+                          Indian Food Classification (FSSAI) *
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditDishFoodType('VEG')}
+                            className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                              editDishFoodType === 'VEG'
+                                ? 'bg-green-100 border-green-600 text-green-900 ring-2 ring-green-500/20'
+                                : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
+                            }`}
+                          >
+                            <FssaiMarker type="VEG" /> Pure Veg
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setEditDishFoodType('NON_VEG')}
+                            className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                              editDishFoodType === 'NON_VEG'
+                                ? 'bg-amber-100 border-[#7B3F00] text-[#7B3F00] ring-2 ring-amber-500/20'
+                                : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
+                            }`}
+                          >
+                            <FssaiMarker type="NON_VEG" /> Non-Veg
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setEditDishFoodType('EGG')}
+                            className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                              editDishFoodType === 'EGG'
+                                ? 'bg-yellow-100 border-amber-500 text-amber-900 ring-2 ring-yellow-500/20'
+                                : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
+                            }`}
+                          >
+                            <FssaiMarker type="EGG" /> Contains Egg
+                          </button>
+                        </div>
                       </div>
 
                       <div>
-                        <label className="block text-xs font-semibold text-taupe-600 mb-1">Category</label>
-                        <select
-                          value={editDishCategory}
-                          onChange={(e) => setEditDishCategory(e.target.value)}
-                          className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
-                        >
-                          <option value="">Default / General</option>
-                          {existingCategories.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* Price */}
-                    <div>
-                      <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                        Price ({restaurant.currency}) *
-                      </label>
-                      <input
-                        type="number"
-                        required
-                        step="0.01"
-                        value={editDishPrice}
-                        onChange={(e) => setEditDishPrice(e.target.value)}
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                      />
-                    </div>
-
-                    {/* Description */}
-                    <div>
-                      <label className="block text-xs font-semibold text-taupe-600 mb-1">Description / Recipe</label>
-                      <textarea
-                        rows={2}
-                        value={editDishDescription}
-                        onChange={(e) => setEditDishDescription(e.target.value)}
-                        placeholder="Key spices, preparation technique, portion size..."
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                      />
-                    </div>
-
-                    {/* Spotlight: Popular & Chef Recommendation */}
-                    <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
-                      <span className="block text-xs font-semibold text-espresso-900">
-                        Menu Spotlight Options
-                      </span>
-                      <div className="flex flex-wrap gap-4">
-                        <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
-                          <input
-                            type="checkbox"
-                            checked={editDishIsPopular}
-                            onChange={(e) => setEditDishIsPopular(e.target.checked)}
-                            className="rounded border-cream-300 text-rose-600 focus:ring-rose-500 w-4 h-4"
-                          />
-                          <span className="flex items-center gap-1">
-                            <Flame className="w-3.5 h-3.5 text-rose-600" />
-                            <strong>Popular / Bestseller</strong>
-                          </span>
-                        </label>
-
-                        <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
-                          <input
-                            type="checkbox"
-                            checked={editDishChefRecommended}
-                            onChange={(e) => setEditDishChefRecommended(e.target.checked)}
-                            className="rounded border-cream-300 text-terracotta focus:ring-terracotta w-4 h-4"
-                          />
-                          <span className="flex items-center gap-1">
-                            <Sparkles className="w-3.5 h-3.5 text-terracotta-500" />
-                            <strong>Chef's Pick</strong>
-                          </span>
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* Dietary Classification: Indian FSSAI vs Western */}
-                    {isIndianRestaurant ? (
-                      <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-3">
-                        <div>
-                          <label className="block text-xs font-semibold text-espresso-900 mb-2">
-                            Indian Food Classification (FSSAI) *
-                          </label>
-                          <div className="grid grid-cols-3 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setEditDishFoodType('VEG')}
-                              className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                                editDishFoodType === 'VEG'
-                                  ? 'bg-green-100 border-green-600 text-green-900 ring-2 ring-green-500/20'
-                                  : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
-                              }`}
-                            >
-                              <FssaiMarker type="VEG" /> Pure Veg
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setEditDishFoodType('NON_VEG')}
-                              className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                                editDishFoodType === 'NON_VEG'
-                                  ? 'bg-amber-100 border-[#7B3F00] text-[#7B3F00] ring-2 ring-amber-500/20'
-                                  : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
-                              }`}
-                            >
-                              <FssaiMarker type="NON_VEG" /> Non-Veg
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setEditDishFoodType('EGG')}
-                              className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                                editDishFoodType === 'EGG'
-                                  ? 'bg-yellow-100 border-amber-500 text-amber-900 ring-2 ring-yellow-500/20'
-                                  : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
-                              }`}
-                            >
-                              <FssaiMarker type="EGG" /> Contains Egg
-                            </button>
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                            Additional Options
-                          </label>
-                          <div className="flex flex-wrap gap-2">
-                            {[
-                              { key: 'JAIN', label: 'Jain Safe (No Onion/Garlic)' },
-                              { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
-                              { key: 'VEGAN', label: 'Vegan' },
-                            ].map((tag) => {
-                              const checked = editDishDietaryTags.includes(tag.key);
-                              return (
-                                <button
-                                  type="button"
-                                  key={tag.key}
-                                  onClick={() => {
-                                    setEditDishDietaryTags((prev) =>
-                                      checked ? prev.filter((t) => t !== tag.key) : [...prev, tag.key]
-                                    );
-                                  }}
-                                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                                    checked
-                                      ? 'bg-espresso-900 text-white border-espresso-900'
-                                      : 'bg-white border-cream-300 text-taupe-600 hover:bg-cream-100'
-                                  }`}
-                                >
-                                  {checked ? '✓ ' : '+ '} {tag.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      /* Western / Abroad Dietary Classification */
-                      <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
-                        <label className="block text-xs font-semibold text-espresso-900 mb-1">
-                          Dietary Suitability & Allergens (Abroad)
+                        <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                          Additional Options
                         </label>
                         <div className="flex flex-wrap gap-2">
                           {[
-                            { key: 'VEGETARIAN', label: 'Vegetarian' },
-                            { key: 'VEGAN', label: 'Vegan' },
+                            { key: 'JAIN', label: 'Jain Safe (No Onion/Garlic)' },
                             { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
-                            { key: 'DAIRY_FREE', label: 'Dairy-Free' },
-                            { key: 'NUT_FREE', label: 'Nut-Free' },
-                            { key: 'HALAL', label: 'Halal' },
-                            { key: 'KOSHER', label: 'Kosher' },
+                            { key: 'VEGAN', label: 'Vegan' },
                           ].map((tag) => {
                             const checked = editDishDietaryTags.includes(tag.key);
                             return (
@@ -1753,300 +1721,302 @@ function RestaurantDashboardContent() {
                           })}
                         </div>
                       </div>
-                    )}
-
-                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-cream-200">
-                      <button
-                        type="button"
-                        onClick={() => setIsEditDishOpen(false)}
-                        className="px-4 py-2 text-xs font-semibold text-taupe-600 hover:bg-cream-100 rounded-xl"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={isSavingEdit}
-                        className="px-5 py-2 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 disabled:opacity-50 shadow-sm"
-                      >
-                        {isSavingEdit ? 'Saving...' : 'Save Changes'}
-                      </button>
                     </div>
-                  </form>
-                </div>
-              </div>
-            </Portal>
-          )}
-
-          {/* =========================================================================
-              MODAL B: ADD NEW DISH
-          ========================================================================= */}
-          {isAddDishOpen && (
-            <Portal>
-              <div
-                className="fixed inset-0 z-[100] w-screen h-screen min-h-screen flex items-center justify-center p-4 bg-espresso-950/75 backdrop-blur-sm animate-modal-backdrop"
-                onClick={(e) => {
-                  if (e.target === e.currentTarget) setIsAddDishOpen(false);
-                }}
-              >
-                <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-xl w-full shadow-lifted space-y-4 max-h-[92vh] overflow-y-auto animate-modal-content border border-cream-300">
-                  <div className="flex items-center justify-between border-b border-cream-200 pb-3">
-                    <div>
-                      <h3 className="font-serif text-xl font-bold text-espresso-900">Add New Dish</h3>
-                      <p className="text-xs text-taupe-500">
-                        {isIndianRestaurant ? 'Indian Restaurant Menu Item' : 'Hospitality Menu Item'}
-                      </p>
+                  ) : (
+                    /* Western / Abroad Dietary Classification */
+                    <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
+                      <label className="block text-xs font-semibold text-espresso-900 mb-1">
+                        Dietary Suitability & Allergens (Abroad)
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { key: 'VEGETARIAN', label: 'Vegetarian' },
+                          { key: 'VEGAN', label: 'Vegan' },
+                          { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
+                          { key: 'DAIRY_FREE', label: 'Dairy-Free' },
+                          { key: 'NUT_FREE', label: 'Nut-Free' },
+                          { key: 'HALAL', label: 'Halal' },
+                          { key: 'KOSHER', label: 'Kosher' },
+                        ].map((tag) => {
+                          const checked = editDishDietaryTags.includes(tag.key);
+                          return (
+                            <button
+                              type="button"
+                              key={tag.key}
+                              onClick={() => {
+                                setEditDishDietaryTags((prev) =>
+                                  checked ? prev.filter((t) => t !== tag.key) : [...prev, tag.key]
+                                );
+                              }}
+                              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                                checked
+                                  ? 'bg-espresso-900 text-white border-espresso-900'
+                                  : 'bg-white border-cream-300 text-taupe-600 hover:bg-cream-100'
+                              }`}
+                            >
+                              {checked ? '✓ ' : '+ '} {tag.label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsAddDishOpen(false)}
-                      className="p-1 rounded-lg text-taupe-400 hover:bg-cream-100"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
+                  )}
+                </form>
+              )}
+            </Modal>
+
+            {/* =========================================================================
+                MODAL B: ADD NEW DISH
+            ========================================================================= */}
+            <Modal
+              isOpen={isAddDishOpen}
+              onClose={() => setIsAddDishOpen(false)}
+              title="Add New Dish"
+              subtitle={isIndianRestaurant ? 'Indian Restaurant Menu Item' : 'Hospitality Menu Item'}
+              maxWidth="xl"
+              footer={
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddDishOpen(false)}
+                    className="px-4 py-2 text-xs font-semibold text-taupe-600 hover:bg-cream-100 rounded-xl"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    form="add-dish-form"
+                    className="px-5 py-2 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 shadow-sm"
+                  >
+                    Save Dish to Menu
+                  </button>
+                </>
+              }
+            >
+              <form id="add-dish-form" onSubmit={handleAddDish} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-taupe-600 mb-1">Dish Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={newDishName}
+                      onChange={(e) => setNewDishName(e.target.value)}
+                      placeholder={isIndianRestaurant ? "e.g. Paneer Butter Masala" : "e.g. Truffle Pappardelle"}
+                      className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+                    />
                   </div>
 
-                  <form onSubmit={handleAddDish} className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-taupe-600 mb-1">Dish Name *</label>
-                        <input
-                          type="text"
-                          required
-                          value={newDishName}
-                          onChange={(e) => setNewDishName(e.target.value)}
-                          placeholder={isIndianRestaurant ? "e.g. Paneer Butter Masala" : "e.g. Truffle Pappardelle"}
-                          className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                        />
-                      </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-taupe-600 mb-1">Category</label>
+                    <select
+                      value={newDishCategory}
+                      onChange={(e) => setNewDishCategory(e.target.value)}
+                      className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
+                    >
+                      <option value="">Default / Chef Specials</option>
+                      {existingCategories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
 
-                      <div>
-                        <label className="block text-xs font-semibold text-taupe-600 mb-1">Category</label>
-                        <select
-                          value={newDishCategory}
-                          onChange={(e) => setNewDishCategory(e.target.value)}
-                          className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
+                <div>
+                  <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                    Price ({restaurant.currency}) *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    step="0.01"
+                    value={newDishPrice}
+                    onChange={(e) => setNewDishPrice(e.target.value)}
+                    className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-taupe-600 mb-1">Description / Recipe</label>
+                  <textarea
+                    rows={2}
+                    value={newDishDescription}
+                    onChange={(e) => setNewDishDescription(e.target.value)}
+                    placeholder="Key spices, preparation technique, portion size..."
+                    className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+                  />
+                </div>
+
+                <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
+                  <span className="block text-xs font-semibold text-espresso-900">
+                    Menu Spotlight Options
+                  </span>
+                  <div className="flex flex-wrap gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
+                      <input
+                        type="checkbox"
+                        checked={newDishIsPopular}
+                        onChange={(e) => setNewDishIsPopular(e.target.checked)}
+                        className="rounded border-cream-300 text-rose-600 focus:ring-rose-500 w-4 h-4"
+                      />
+                      <span className="flex items-center gap-1">
+                        <Flame className="w-3.5 h-3.5 text-rose-600" />
+                        <strong>Popular / Bestseller</strong>
+                      </span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
+                      <input
+                        type="checkbox"
+                        checked={newDishChefRecommended}
+                        onChange={(e) => setNewDishChefRecommended(e.target.checked)}
+                        className="rounded border-cream-300 text-terracotta focus:ring-terracotta w-4 h-4"
+                      />
+                      <span className="flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5 text-terracotta-500" />
+                        <strong>Chef's Pick</strong>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                {isIndianRestaurant ? (
+                  <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-espresso-900 mb-2">
+                        Indian Food Classification (FSSAI) *
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setNewDishFoodType('VEG')}
+                          className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                            newDishFoodType === 'VEG'
+                              ? 'bg-green-100 border-green-600 text-green-900 ring-2 ring-green-500/20'
+                              : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
+                          }`}
                         >
-                          <option value="">Default / Chef Specials</option>
-                          {existingCategories.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
+                          <FssaiMarker type="VEG" /> Pure Veg
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setNewDishFoodType('NON_VEG')}
+                          className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                            newDishFoodType === 'NON_VEG'
+                              ? 'bg-amber-100 border-[#7B3F00] text-[#7B3F00] ring-2 ring-amber-500/20'
+                              : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
+                          }`}
+                        >
+                          <FssaiMarker type="NON_VEG" /> Non-Veg
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setNewDishFoodType('EGG')}
+                          className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                            newDishFoodType === 'EGG'
+                              ? 'bg-yellow-100 border-amber-500 text-amber-900 ring-2 ring-yellow-500/20'
+                              : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
+                          }`}
+                        >
+                          <FssaiMarker type="EGG" /> Contains Egg
+                        </button>
                       </div>
                     </div>
 
                     <div>
                       <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                        Price ({restaurant.currency}) *
+                        Additional Options
                       </label>
-                      <input
-                        type="number"
-                        required
-                        step="0.01"
-                        value={newDishPrice}
-                        onChange={(e) => setNewDishPrice(e.target.value)}
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-taupe-600 mb-1">Description / Recipe</label>
-                      <textarea
-                        rows={2}
-                        value={newDishDescription}
-                        onChange={(e) => setNewDishDescription(e.target.value)}
-                        placeholder="Key spices, preparation technique, portion size..."
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                      />
-                    </div>
-
-                    <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
-                      <span className="block text-xs font-semibold text-espresso-900">
-                        Menu Spotlight Options
-                      </span>
-                      <div className="flex flex-wrap gap-4">
-                        <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
-                          <input
-                            type="checkbox"
-                            checked={newDishIsPopular}
-                            onChange={(e) => setNewDishIsPopular(e.target.checked)}
-                            className="rounded border-cream-300 text-rose-600 focus:ring-rose-500 w-4 h-4"
-                          />
-                          <span className="flex items-center gap-1">
-                            <Flame className="w-3.5 h-3.5 text-rose-600" />
-                            <strong>Popular / Bestseller</strong>
-                          </span>
-                        </label>
-
-                        <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
-                          <input
-                            type="checkbox"
-                            checked={newDishChefRecommended}
-                            onChange={(e) => setNewDishChefRecommended(e.target.checked)}
-                            className="rounded border-cream-300 text-terracotta focus:ring-terracotta w-4 h-4"
-                          />
-                          <span className="flex items-center gap-1">
-                            <Sparkles className="w-3.5 h-3.5 text-terracotta-500" />
-                            <strong>Chef's Pick</strong>
-                          </span>
-                        </label>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { key: 'JAIN', label: 'Jain Safe (No Onion/Garlic)' },
+                          { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
+                          { key: 'VEGAN', label: 'Vegan' },
+                        ].map((tag) => {
+                          const checked = newDishDietaryTags.includes(tag.key);
+                          return (
+                            <button
+                              type="button"
+                              key={tag.key}
+                              onClick={() => {
+                                setNewDishDietaryTags((prev) =>
+                                  checked ? prev.filter((t) => t !== tag.key) : [...prev, tag.key]
+                                );
+                              }}
+                              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                                checked
+                                  ? 'bg-espresso-900 text-white border-espresso-900'
+                                  : 'bg-white border-cream-300 text-taupe-600 hover:bg-cream-100'
+                              }`}
+                            >
+                              {checked ? '✓ ' : '+ '} {tag.label}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
-
-                    {isIndianRestaurant ? (
-                      <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-3">
-                        <div>
-                          <label className="block text-xs font-semibold text-espresso-900 mb-2">
-                            Indian Food Classification (FSSAI) *
-                          </label>
-                          <div className="grid grid-cols-3 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setNewDishFoodType('VEG')}
-                              className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                                newDishFoodType === 'VEG'
-                                  ? 'bg-green-100 border-green-600 text-green-900 ring-2 ring-green-500/20'
-                                  : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
-                              }`}
-                            >
-                              <FssaiMarker type="VEG" /> Pure Veg
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setNewDishFoodType('NON_VEG')}
-                              className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                                newDishFoodType === 'NON_VEG'
-                                  ? 'bg-amber-100 border-[#7B3F00] text-[#7B3F00] ring-2 ring-amber-500/20'
-                                  : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
-                              }`}
-                            >
-                              <FssaiMarker type="NON_VEG" /> Non-Veg
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setNewDishFoodType('EGG')}
-                              className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                                newDishFoodType === 'EGG'
-                                  ? 'bg-yellow-100 border-amber-500 text-amber-900 ring-2 ring-yellow-500/20'
-                                  : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
-                              }`}
-                            >
-                              <FssaiMarker type="EGG" /> Contains Egg
-                            </button>
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                            Additional Options
-                          </label>
-                          <div className="flex flex-wrap gap-2">
-                            {[
-                              { key: 'JAIN', label: 'Jain Safe (No Onion/Garlic)' },
-                              { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
-                              { key: 'VEGAN', label: 'Vegan' },
-                            ].map((tag) => {
-                              const checked = newDishDietaryTags.includes(tag.key);
-                              return (
-                                <button
-                                  type="button"
-                                  key={tag.key}
-                                  onClick={() => {
-                                    setNewDishDietaryTags((prev) =>
-                                      checked ? prev.filter((t) => t !== tag.key) : [...prev, tag.key]
-                                    );
-                                  }}
-                                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                                    checked
-                                      ? 'bg-espresso-900 text-white border-espresso-900'
-                                      : 'bg-white border-cream-300 text-taupe-600 hover:bg-cream-100'
-                                  }`}
-                                >
-                                  {checked ? '✓ ' : '+ '} {tag.label}
-                                </button>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
+                    <label className="block text-xs font-semibold text-espresso-900 mb-1">
+                      Dietary Suitability & Allergens (Abroad)
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { key: 'VEGETARIAN', label: 'Vegetarian' },
+                        { key: 'VEGAN', label: 'Vegan' },
+                        { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
+                        { key: 'DAIRY_FREE', label: 'Dairy-Free' },
+                        { key: 'NUT_FREE', label: 'Nut-Free' },
+                        { key: 'HALAL', label: 'Halal' },
+                        { key: 'KOSHER', label: 'Kosher' },
+                      ].map((tag) => {
+                        const checked = newDishDietaryTags.includes(tag.key);
+                        return (
+                          <button
+                            type="button"
+                            key={tag.key}
+                            onClick={() => {
+                              setNewDishDietaryTags((prev) =>
+                                checked ? prev.filter((t) => t !== tag.key) : [...prev, tag.key]
                               );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
-                        <label className="block text-xs font-semibold text-espresso-900 mb-1">
-                          Dietary Suitability & Allergens (Abroad)
-                        </label>
-                        <div className="flex flex-wrap gap-2">
-                          {[
-                            { key: 'VEGETARIAN', label: 'Vegetarian' },
-                            { key: 'VEGAN', label: 'Vegan' },
-                            { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
-                            { key: 'DAIRY_FREE', label: 'Dairy-Free' },
-                            { key: 'NUT_FREE', label: 'Nut-Free' },
-                            { key: 'HALAL', label: 'Halal' },
-                            { key: 'KOSHER', label: 'Kosher' },
-                          ].map((tag) => {
-                            const checked = newDishDietaryTags.includes(tag.key);
-                            return (
-                              <button
-                                type="button"
-                                key={tag.key}
-                                onClick={() => {
-                                  setNewDishDietaryTags((prev) =>
-                                    checked ? prev.filter((t) => t !== tag.key) : [...prev, tag.key]
-                                  );
-                                }}
-                                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                                  checked
-                                    ? 'bg-espresso-900 text-white border-espresso-900'
-                                    : 'bg-white border-cream-300 text-taupe-600 hover:bg-cream-100'
-                                }`}
-                              >
-                                {checked ? '✓ ' : '+ '} {tag.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-cream-200">
-                      <button
-                        type="button"
-                        onClick={() => setIsAddDishOpen(false)}
-                        className="px-4 py-2 text-xs font-semibold text-taupe-600 hover:bg-cream-100 rounded-xl"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        className="px-5 py-2 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 shadow-sm"
-                      >
-                        Save Dish to Menu
-                      </button>
+                            }}
+                            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                              checked
+                                ? 'bg-espresso-900 text-white border-espresso-900'
+                                : 'bg-white border-cream-300 text-taupe-600 hover:bg-cream-100'
+                            }`}
+                          >
+                            {checked ? '✓ ' : '+ '} {tag.label}
+                          </button>
+                        );
+                      })}
                     </div>
-                  </form>
-                </div>
-              </div>
-            </Portal>
-          )}
+                  </div>
+                )}
+              </form>
+            </Modal>
 
-          {/* =========================================================================
-              MODAL: ON-SCREEN DELETE DISH CONFIRMATION
-          ========================================================================= */}
-          {isDeleteDialogOpen && dishToDelete && (
-            <Portal>
-              <div
-                className="fixed inset-0 z-[100] w-screen h-screen min-h-screen flex items-center justify-center p-4 bg-espresso-950/75 backdrop-blur-sm animate-modal-backdrop"
-                onClick={(e) => {
-                  if (e.target === e.currentTarget) {
-                    setIsDeleteDialogOpen(false);
-                    setDishToDelete(null);
-                  }
-                }}
-              >
-                <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-lifted space-y-4 text-center animate-modal-content border border-cream-300">
+            {/* =========================================================================
+                MODAL: ON-SCREEN DELETE DISH CONFIRMATION
+            ========================================================================= */}
+            <Modal
+              isOpen={Boolean(isDeleteDialogOpen && dishToDelete)}
+              onClose={() => {
+                setIsDeleteDialogOpen(false);
+                setDishToDelete(null);
+              }}
+              ariaLabel="Remove Dish from Menu?"
+              showCloseButton={false}
+              maxWidth="md"
+              bodyClassName="text-center space-y-4"
+            >
+              {dishToDelete && (
+                <>
                   <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto border border-red-200">
                     <Trash2 className="w-7 h-7" />
                   </div>
@@ -2060,9 +2030,10 @@ function RestaurantDashboardContent() {
                     </p>
                   </div>
 
-                  <div className="flex items-center justify-center gap-3 pt-3">
+                  <div className="flex items-center justify-center gap-3 pt-2">
                     <button
                       type="button"
+                      autoFocus
                       onClick={() => {
                         setIsDeleteDialogOpen(false);
                         setDishToDelete(null);
@@ -2087,10 +2058,9 @@ function RestaurantDashboardContent() {
                       {isDeletingDish ? 'Removing...' : 'Yes, Remove Dish'}
                     </button>
                   </div>
-                </div>
-              </div>
-            </Portal>
-          )}
+                </>
+              )}
+            </Modal>
           </div>
         )}
 
@@ -2161,33 +2131,43 @@ function RestaurantDashboardContent() {
         {/* =========================================================================
             MODAL C: CANDIDATE 3D IMAGE REVIEW (ACCEPT OR REJECT WORKFLOW)
         ========================================================================= */}
-        {candidateReview && (
-          <Portal>
-            <div
-              className="fixed inset-0 z-[100] w-screen h-screen min-h-screen flex items-center justify-center p-4 bg-espresso-950/75 backdrop-blur-sm animate-modal-backdrop"
-              onClick={(e) => {
-                if (e.target === e.currentTarget) setCandidateReview(null);
-              }}
-            >
-              <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-2xl w-full shadow-2xl flex flex-col max-h-[88vh] border border-cream-300 overflow-hidden animate-modal-content">
-                <div className="flex items-center justify-between border-b border-cream-200 pb-3 shrink-0">
-                  <div>
-                    <h3 className="font-serif text-xl font-bold text-espresso-900">
-                      Review 3D Clay Illustration
-                    </h3>
-                  <p className="text-xs text-taupe-500">
-                    Preview newly generated visual for "{candidateReview.item.customName}". You can accept or reject this generation.
-                  </p>
-                </div>
+        <Modal
+          isOpen={Boolean(candidateReview)}
+          onClose={() => setCandidateReview(null)}
+          title="Review 3D Clay Illustration"
+          subtitle={
+            candidateReview
+              ? `Preview newly generated visual for "${candidateReview.item.customName}". You can accept or reject this generation.`
+              : undefined
+          }
+          maxWidth="2xl"
+          bodyClassName="space-y-4"
+          footerClassName="flex-col-reverse sm:flex-row sm:justify-end"
+          footer={
+            candidateReview ? (
+              <>
                 <button
                   type="button"
                   onClick={() => setCandidateReview(null)}
-                  className="p-1 rounded-lg text-taupe-400 hover:bg-cream-100"
+                  className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-taupe-700 bg-cream-100 hover:bg-cream-200 rounded-xl transition-colors"
                 >
-                  <X className="w-5 h-5" />
+                  Reject & Keep Current
                 </button>
-              </div>
-
+                <button
+                  type="button"
+                  onClick={handleAcceptCandidateImage}
+                  disabled={isApplyingCandidate}
+                  className="w-full sm:w-auto px-5 py-2.5 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 transition-colors shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  {isApplyingCandidate ? 'Applying...' : 'Accept & Apply to Menu'}
+                </button>
+              </>
+            ) : undefined
+          }
+        >
+          {candidateReview && (
+            <>
               {/* Side-by-Side Comparison (Exact Uniform Square Aspect Ratio) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Current Image */}
@@ -2205,7 +2185,7 @@ function RestaurantDashboardContent() {
                         candidateReview.item.canonical?.imageAsset?.publicUrl ||
                         '/placeholder-dish.svg'
                       }
-                      alt="Current"
+                      alt="Current dish artwork"
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -2224,7 +2204,7 @@ function RestaurantDashboardContent() {
                   <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-cream-100 border-2 border-terracotta shadow-md">
                     <img
                       src={candidateReview.asset.publicUrl}
-                      alt="Candidate Generation"
+                      alt="Candidate generation"
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -2236,49 +2216,28 @@ function RestaurantDashboardContent() {
                 <span className="text-xs font-semibold text-espresso-900 block">
                   Want adjustments? Add custom styling tweaks
                 </span>
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="text"
                     value={candidatePromptTweak}
                     onChange={(e) => setCandidatePromptTweak(e.target.value)}
                     placeholder="e.g. Add extra fresh herbs, make the gravy darker, rustic ceramic bowl..."
-                    className="flex-1 px-3 py-1.5 text-xs bg-white border border-cream-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-terracotta"
+                    className="flex-1 min-w-0 px-3 py-2 text-xs bg-white border border-cream-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-terracotta"
                   />
                   <button
                     type="button"
                     onClick={() => handleGenerateIllustration(candidateReview.item, candidatePromptTweak)}
                     disabled={isGeneratingImg === candidateReview.item.id}
-                    className="px-3 py-1.5 text-xs font-semibold bg-cream-200 text-espresso-800 rounded-xl hover:bg-cream-300 transition-colors shrink-0 flex items-center gap-1"
+                    className="px-3.5 py-2 text-xs font-semibold bg-cream-200 text-espresso-800 rounded-xl hover:bg-cream-300 transition-colors shrink-0 flex items-center justify-center gap-1"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingImg === candidateReview.item.id ? 'animate-spin' : ''}`} />
                     Retry
                   </button>
                 </div>
               </div>
-
-              {/* Action Buttons: Reject vs Accept */}
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-cream-200">
-                <button
-                  type="button"
-                  onClick={() => setCandidateReview(null)}
-                  className="px-4 py-2.5 text-xs font-semibold text-taupe-700 bg-cream-100 hover:bg-cream-200 rounded-xl transition-colors"
-                >
-                  Reject & Keep Current
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAcceptCandidateImage}
-                  disabled={isApplyingCandidate}
-                  className="px-5 py-2.5 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 transition-colors shadow-sm flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  <Check className="w-4 h-4 text-emerald-400" />
-                  {isApplyingCandidate ? 'Applying...' : 'Accept & Apply to Menu'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </Portal>
-      )}
+            </>
+          )}
+        </Modal>
 
         {/* =========================================================================
             TAB 4: THEME STUDIO (REACTIVE PHONE PREVIEW + GRID/LIST CARD MODES)
@@ -2915,7 +2874,7 @@ function RestaurantDashboardContent() {
               </div>
 
               {/* Right Interactive AI Playground */}
-              <div className="lg:col-span-5 space-y-4 sticky top-6">
+              <div className="lg:col-span-5 space-y-4 lg:sticky lg:top-6 lg:self-start">
                 <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
                   <div className="flex items-center gap-2">
                     <Bot className="w-5 h-5 text-terracotta" />
@@ -3101,7 +3060,7 @@ function RestaurantDashboardContent() {
         ========================================================================= */}
         {currentTab === 'orders' && restaurant && (
           <div className="animate-fade-in">
-            <OrdersManagementView restaurant={restaurant} />
+            <OrdersManagementView restaurant={restaurant} initialSubTab={initialOrdersSubTab} />
           </div>
         )}
 
@@ -3115,164 +3074,361 @@ function RestaurantDashboardContent() {
         )}
 
         {/* =========================================================================
-            TAB 7: ANALYTICS & INSIGHTS (POPULATED DATA & METRICS)
+            TAB 7: ANALYTICS & INSIGHTS (REAL POSTGRES TELEMETRY)
         ========================================================================= */}
-        {currentTab === 'analytics' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="font-serif text-xl font-bold text-espresso-900">Dining & Menu Analytics</h2>
-                <p className="text-xs sm:text-sm text-taupe-500 mt-1">
-                  Track diner QR engagement, top-performing culinary items, and dietary demand patterns.
-                </p>
+        {currentTab === 'analytics' && (() => {
+          const fallbackTotalItems = menuItems.length;
+          const fallbackCounts = menuItems.reduce(
+            (acc, item) => {
+              const tags = ((item.dietaryStatus as string[]) || []).map((t: string) => String(t).toUpperCase());
+              const hasVeg = tags.some((t) => ['VEG', 'VEGETARIAN', 'PURE_VEG'].includes(t));
+              const hasNonVeg = tags.some((t) => ['NON_VEG', 'NON-VEG', 'NONVEG'].includes(t));
+              const hasEgg = tags.some((t) => ['EGG', 'CONTAINS_EGG', 'EGGETARIAN'].includes(t));
+              const hasVegan = tags.includes('VEGAN');
+              const hasGf = tags.includes('GLUTEN_FREE') || tags.includes('GF');
+              const hasDf = tags.includes('DAIRY_FREE') || tags.includes('DF');
+              if (hasVeg) acc.veg++;
+              if (hasNonVeg) acc.nonVeg++;
+              if (hasEgg) acc.egg++;
+              if (hasVegan) acc.vegan++;
+              if (hasVeg || hasVegan) acc.vegetarianOrVegan++;
+              if (hasGf) acc.glutenFree++;
+              if (hasDf) acc.dairyFree++;
+              return acc;
+            },
+            { veg: 0, nonVeg: 0, egg: 0, vegetarianOrVegan: 0, vegan: 0, glutenFree: 0, dairyFree: 0 }
+          );
+
+          const dietary = analyticsData?.dietary ?? { totalItems: fallbackTotalItems, ...fallbackCounts };
+          const dietaryTotal = dietary.totalItems || 0;
+          const pctOfMenu = (count: number) =>
+            dietaryTotal > 0 ? Math.min(100, Math.round((count / dietaryTotal) * 100)) : 0;
+
+          const totalScans = analyticsData?.scans?.total ?? 0;
+          const scansToday = analyticsData?.scans?.today ?? 0;
+          const scans30Days = analyticsData?.scans?.last30Days ?? 0;
+          const chatQueries30Days = analyticsData?.aiUsage?.chatQueries30Days ?? 0;
+          const chatQueriesTotal = analyticsData?.aiUsage?.chatQueriesTotal ?? 0;
+          const dishViews30Days = analyticsData?.dishViews?.last30Days ?? 0;
+          const viewsPerScan = analyticsData?.dishViews?.viewsPerScan30Days;
+          const orders30Days = analyticsData?.orders?.total30Days ?? 0;
+          const revenueMinor30Days = analyticsData?.orders?.revenueMinor30Days ?? 0;
+          const scanToOrderRate = analyticsData?.orders?.scanToOrderRatePercent ?? 0;
+          const bestsellerShare = analyticsData?.orders?.bestsellerSharePercent;
+          const topDishes: any[] = Array.isArray(analyticsData?.topDishes) ? analyticsData.topDishes : [];
+          const currency = analyticsData?.currency || restaurant.currency;
+
+          return (
+            <div className="space-y-6 animate-fade-in">
+              <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-serif text-xl font-bold text-espresso-900">Dining &amp; Menu Analytics</h2>
+                  <p className="text-xs sm:text-sm text-taupe-500 mt-1">
+                    Live diner QR scans, AI concierge questions, dish views, and menu composition across the last 30 days.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <span className="px-3 py-1.5 rounded-xl bg-cream-50 border border-cream-200 text-xs text-taupe-600 font-medium">
+                    Last 30 Days
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/dashboard/${restaurant.id}?tab=orders&subtab=analytics`)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cream-50 border border-cream-200 text-xs font-semibold text-espresso-800 hover:bg-cream-100 transition-colors"
+                  >
+                    <span>Ordering Analytics</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-terracotta" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => loadAnalytics(restaurant.id)}
+                    disabled={analyticsLoading}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-espresso-900 text-white text-xs font-semibold hover:bg-espresso-800 disabled:opacity-60 transition-colors"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${analyticsLoading ? 'animate-spin' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-taupe-500 font-medium">Last 30 Days</span>
-              </div>
+
+              {analyticsError && (
+                <div
+                  role="alert"
+                  className="p-4 bg-red-50 border border-red-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-red-900"
+                >
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                    <span>{analyticsError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => loadAnalytics(restaurant.id)}
+                    className="px-3 py-1.5 rounded-lg bg-red-700 text-white font-semibold hover:bg-red-800 shrink-0"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {analyticsLoading && !analyticsData ? (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4" aria-label="Loading analytics metrics">
+                  {[0, 1, 2, 3].map((slot) => (
+                    <div
+                      key={slot}
+                      className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-3 animate-pulse"
+                    >
+                      <div className="h-3 w-24 bg-cream-200 rounded" />
+                      <div className="h-8 w-16 bg-cream-200 rounded" />
+                      <div className="h-3 w-32 bg-cream-100 rounded" />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  {/* KPI Cards Grid (100% Real DB Data) */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft">
+                      <span className="text-xs font-semibold text-taupe-500 uppercase tracking-wider">Total QR Scans</span>
+                      <div className="text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
+                        {totalScans}
+                      </div>
+                      <div className={`text-xs mt-1 flex items-center gap-1 ${scansToday > 0 ? 'text-sage-700' : 'text-taupe-500'}`}>
+                        {totalScans > 0 ? (
+                          <>
+                            <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+                            <span>+{scansToday} today • {scans30Days} in 30d</span>
+                          </>
+                        ) : (
+                          <span>No QR scans recorded yet</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft">
+                      <span className="text-xs font-semibold text-taupe-500 uppercase tracking-wider">AI Questions Asked</span>
+                      <div className="text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
+                        {chatQueries30Days}
+                      </div>
+                      <div className="text-xs text-taupe-500 mt-1">
+                        {chatQueriesTotal > 0
+                          ? `Last 30 days • ${chatQueriesTotal} total`
+                          : 'No AI concierge queries yet'}
+                      </div>
+                    </div>
+
+                    <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft">
+                      <span className="text-xs font-semibold text-taupe-500 uppercase tracking-wider">Dish Detail Views</span>
+                      <div className="text-3xl font-bold text-terracotta mt-2 tabular-nums">
+                        {dishViews30Days}
+                      </div>
+                      <div className="text-xs text-taupe-500 mt-1">
+                        {viewsPerScan != null
+                          ? `${viewsPerScan} views per QR scan (30d)`
+                          : dishViews30Days > 0
+                          ? 'Real dish detail clicks (30d)'
+                          : 'No dish clicks recorded yet'}
+                      </div>
+                    </div>
+
+                    <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft">
+                      <span className="text-xs font-semibold text-taupe-500 uppercase tracking-wider">Table Orders (30d)</span>
+                      <div className="text-3xl font-bold text-emerald-700 mt-2 tabular-nums">
+                        {orders30Days}
+                      </div>
+                      <div className="text-xs text-taupe-500 mt-1">
+                        {orders30Days > 0 ? (
+                          <>
+                            {formatCurrencyMinor(revenueMinor30Days, currency)}
+                            {scans30Days > 0 ? ` • ${scanToOrderRate}% scan conversion` : ''}
+                            {bestsellerShare != null ? ` • ${bestsellerShare}% featured` : ''}
+                          </>
+                        ) : (
+                          'No table orders placed yet'
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Dietary Demand Breakdown & Top Dishes */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                    {/* Dietary Breakdown */}
+                    <div className="lg:col-span-5 p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h3 className="font-serif text-lg font-bold text-espresso-900">Dietary Distribution</h3>
+                          <p className="text-xs text-taupe-500">
+                            Share of {dietaryTotal} active menu {dietaryTotal === 1 ? 'dish' : 'dishes'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {dietaryTotal === 0 ? (
+                        <div className="py-8 text-center text-xs text-taupe-500 bg-cream-50 rounded-2xl border border-cream-200 px-4 space-y-2">
+                          <p>No menu items added yet.</p>
+                          <button
+                            type="button"
+                            onClick={() => router.push(`/dashboard/${restaurant.id}?tab=menu`)}
+                            className="font-semibold text-terracotta hover:underline"
+                          >
+                            Add dishes in Menu Studio →
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-3 pt-2">
+                          {isIndianRestaurant ? (
+                            <>
+                              {[
+                                { label: 'Pure Veg', marker: 'VEG' as const, count: dietary.veg || 0, barClass: 'bg-green-600' },
+                                { label: 'Non-Veg', marker: 'NON_VEG' as const, count: dietary.nonVeg || 0, barClass: 'bg-[#7B3F00]' },
+                                { label: 'Contains Egg', marker: 'EGG' as const, count: dietary.egg || 0, barClass: 'bg-amber-500' },
+                              ].map((row) => {
+                                const pct = pctOfMenu(row.count);
+                                return (
+                                  <div key={row.label}>
+                                    <div className="flex justify-between text-xs font-semibold text-espresso-800 mb-1">
+                                      <span className="flex items-center gap-1.5">
+                                        <FssaiMarker type={row.marker} /> {row.label}
+                                      </span>
+                                      <span className="tabular-nums">
+                                        {row.count} {row.count === 1 ? 'item' : 'items'} ({pct}%)
+                                      </span>
+                                    </div>
+                                    <div className="w-full h-2 rounded-full bg-cream-100 overflow-hidden">
+                                      <div
+                                        className={`h-full ${row.barClass} rounded-full transition-all duration-300`}
+                                        style={{ width: `${pct}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </>
+                          ) : (
+                            <>
+                              {[
+                                { label: 'Vegetarian / Vegan', count: dietary.vegetarianOrVegan || 0, barClass: 'bg-emerald-600' },
+                                { label: 'Vegan', count: dietary.vegan || 0, barClass: 'bg-teal-600' },
+                                { label: 'Gluten-Free', count: dietary.glutenFree || 0, barClass: 'bg-amber-600' },
+                                { label: 'Dairy-Free', count: dietary.dairyFree || 0, barClass: 'bg-sky-600' },
+                              ].map((row) => {
+                                const pct = pctOfMenu(row.count);
+                                return (
+                                  <div key={row.label}>
+                                    <div className="flex justify-between text-xs font-semibold text-espresso-800 mb-1">
+                                      <span>{row.label}</span>
+                                      <span className="tabular-nums">
+                                        {row.count} {row.count === 1 ? 'item' : 'items'} ({pct}%)
+                                      </span>
+                                    </div>
+                                    <div className="w-full h-2 rounded-full bg-cream-100 overflow-hidden">
+                                      <div
+                                        className={`h-full ${row.barClass} rounded-full transition-all duration-300`}
+                                        style={{ width: `${pct}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Top Engaged Dishes Table */}
+                    <div className="lg:col-span-7 p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
+                      <div>
+                        <h3 id="analytics-top-dishes-heading" className="font-serif text-lg font-bold text-espresso-900">
+                          Top Engaged Dishes
+                        </h3>
+                        <p className="text-xs text-taupe-500">
+                          Ranked by real dish card clicks, AI questions, and table orders in the last 30 days
+                        </p>
+                      </div>
+
+                      {topDishes.length === 0 ? (
+                        <div className="py-10 px-4 text-center bg-cream-50 rounded-2xl border border-cream-200 space-y-2.5">
+                          <Utensils className="w-7 h-7 text-taupe-400 mx-auto" />
+                          <p className="text-xs sm:text-sm font-medium text-espresso-900">
+                            No diner dish activity recorded yet
+                          </p>
+                          <p className="text-xs text-taupe-500 max-w-md mx-auto">
+                            When guests view dish details, ask your AI waiter, or place table orders, your most engaged dishes will appear here automatically.
+                          </p>
+                          <a
+                            href={`/m/${restaurant.slug}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-terracotta hover:underline pt-1"
+                          >
+                            <span>Open Live Diner Menu</span>
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
+                      ) : (
+                        <div
+                          tabIndex={0}
+                          role="region"
+                          aria-labelledby="analytics-top-dishes-heading"
+                          className="overflow-x-auto focus:outline-none focus:ring-2 focus:ring-terracotta/40 rounded-xl"
+                        >
+                          <table className="w-full text-left text-xs sm:text-sm">
+                            <thead className="bg-cream-50 text-taupe-500 border-b border-cream-200 uppercase font-semibold text-[10px]">
+                              <tr>
+                                <th scope="col" className="py-2.5 px-3">Dish</th>
+                                <th scope="col" className="py-2.5 px-3 text-center">Views</th>
+                                <th scope="col" className="py-2.5 px-3 text-center">AI Queries</th>
+                                <th scope="col" className="py-2.5 px-3 text-center">Orders</th>
+                                <th scope="col" className="py-2.5 px-3 text-right">Activity</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-cream-100">
+                              {topDishes.map((item: any, idx: number) => {
+                                const total = item.totalEngagement ?? item.interactions ?? 0;
+                                const tierLabel =
+                                  total >= 10 ? 'Top Performer' : total >= 3 ? 'Trending' : 'Active';
+                                const tierClass =
+                                  total >= 10
+                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                    : total >= 3
+                                    ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                    : 'bg-cream-100 text-espresso-700 border border-cream-200';
+                                return (
+                                  <tr key={item.id || idx}>
+                                    <th scope="row" className="py-3 px-3 font-normal text-left">
+                                      <div className="font-semibold text-espresso-900">{item.name}</div>
+                                      {item.categoryName && (
+                                        <div className="text-[11px] text-taupe-500">{item.categoryName}</div>
+                                      )}
+                                    </th>
+                                    <td className="py-3 px-3 text-center font-semibold text-espresso-800 tabular-nums">
+                                      {item.views ?? 0}
+                                    </td>
+                                    <td className="py-3 px-3 text-center font-semibold text-terracotta tabular-nums">
+                                      {item.chatQueries ?? 0}
+                                    </td>
+                                    <td className="py-3 px-3 text-center font-semibold text-emerald-700 tabular-nums">
+                                      {item.orders ?? 0}
+                                    </td>
+                                    <td className="py-3 px-3 text-right">
+                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${tierClass}`}>
+                                        {tierLabel}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-
-            {/* KPI Cards Grid */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft">
-                <span className="text-xs font-semibold text-taupe-500 uppercase tracking-wider">Total QR Scans</span>
-                <div className="text-3xl font-bold text-espresso-900 mt-2">
-                  {analyticsData?.scans?.total ?? 142}
-                </div>
-                <div className="text-xs text-sage-700 mt-1 flex items-center gap-1">
-                  <TrendingUp className="w-3.5 h-3.5" /> +{analyticsData?.scans?.today ?? 18} today
-                </div>
-              </div>
-
-              <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft">
-                <span className="text-xs font-semibold text-taupe-500 uppercase tracking-wider">AI Questions Asked</span>
-                <div className="text-3xl font-bold text-espresso-900 mt-2">
-                  {analyticsData?.aiUsage?.chatQueries30Days ?? billingUsage?.chatQueriesThisMonth ?? 34}
-                </div>
-                <div className="text-xs text-taupe-500 mt-1">Conversational inquiries</div>
-              </div>
-
-              <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft">
-                <span className="text-xs font-semibold text-taupe-500 uppercase tracking-wider">3D Illustrations Views</span>
-                <div className="text-3xl font-bold text-terracotta mt-2">
-                  {(analyticsData?.scans?.total ?? 142) * 4}
-                </div>
-                <div className="text-xs text-taupe-500 mt-1">~4 items viewed per session</div>
-              </div>
-
-              <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft">
-                <span className="text-xs font-semibold text-taupe-500 uppercase tracking-wider">Bestseller Conversion</span>
-                <div className="text-3xl font-bold text-emerald-700 mt-2">84%</div>
-                <div className="text-xs text-sage-700 mt-1">High diner engagement</div>
-              </div>
-            </div>
-
-            {/* Dietary Demand Breakdown & Top Dishes */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              {/* Dietary Breakdown */}
-              <div className="lg:col-span-5 p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                <h3 className="font-serif text-lg font-bold text-espresso-900">Dietary Distribution</h3>
-                <p className="text-xs text-taupe-500">Breakdown of dietary tags across your active menu</p>
-
-                <div className="space-y-3 pt-2">
-                  {isIndianRestaurant ? (
-                    <>
-                      <div>
-                        <div className="flex justify-between text-xs font-semibold text-espresso-800 mb-1">
-                          <span className="flex items-center gap-1.5"><FssaiMarker type="VEG" /> Pure Veg</span>
-                          <span>{analyticsData?.dietary?.veg ?? menuItems.filter((i) => ((i.dietaryStatus as string[]) || []).includes('VEG')).length} items</span>
-                        </div>
-                        <div className="w-full h-2 rounded-full bg-cream-100 overflow-hidden">
-                          <div className="h-full bg-green-600 rounded-full" style={{ width: '65%' }} />
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between text-xs font-semibold text-espresso-800 mb-1">
-                          <span className="flex items-center gap-1.5"><FssaiMarker type="NON_VEG" /> Non-Veg</span>
-                          <span>{analyticsData?.dietary?.nonVeg ?? menuItems.filter((i) => ((i.dietaryStatus as string[]) || []).includes('NON_VEG')).length} items</span>
-                        </div>
-                        <div className="w-full h-2 rounded-full bg-cream-100 overflow-hidden">
-                          <div className="h-full bg-[#7B3F00] rounded-full" style={{ width: '30%' }} />
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between text-xs font-semibold text-espresso-800 mb-1">
-                          <span className="flex items-center gap-1.5"><FssaiMarker type="EGG" /> Contains Egg</span>
-                          <span>{analyticsData?.dietary?.egg ?? menuItems.filter((i) => ((i.dietaryStatus as string[]) || []).includes('EGG')).length} items</span>
-                        </div>
-                        <div className="w-full h-2 rounded-full bg-cream-100 overflow-hidden">
-                          <div className="h-full bg-amber-500 rounded-full" style={{ width: '15%' }} />
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div>
-                        <div className="flex justify-between text-xs font-semibold text-espresso-800 mb-1">
-                          <span>Vegetarian / Vegan</span>
-                          <span>{analyticsData?.dietary?.vegan ?? 8} items</span>
-                        </div>
-                        <div className="w-full h-2 rounded-full bg-cream-100 overflow-hidden">
-                          <div className="h-full bg-emerald-600 rounded-full" style={{ width: '50%' }} />
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between text-xs font-semibold text-espresso-800 mb-1">
-                          <span>Gluten-Free</span>
-                          <span>{analyticsData?.dietary?.glutenFree ?? 5} items</span>
-                        </div>
-                        <div className="w-full h-2 rounded-full bg-cream-100 overflow-hidden">
-                          <div className="h-full bg-amber-600 rounded-full" style={{ width: '35%' }} />
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Top Interacted Dishes Table */}
-              <div className="lg:col-span-7 p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                <h3 className="font-serif text-lg font-bold text-espresso-900">Top Inquired Dishes</h3>
-                <p className="text-xs text-taupe-500">Most viewed and asked-about items by diners</p>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs sm:text-sm">
-                    <thead className="bg-cream-50 text-taupe-500 border-b border-cream-200 uppercase font-semibold text-[10px]">
-                      <tr>
-                        <th className="py-2.5 px-3">Dish</th>
-                        <th className="py-2.5 px-3 text-center">Diner Inquiries</th>
-                        <th className="py-2.5 px-3 text-right">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-cream-100">
-                      {(analyticsData?.topDishes || menuItems.slice(0, 5)).map((item: any, idx: number) => {
-                        const name = item.name || item.customName;
-                        const interactions = item.interactions ?? (45 - idx * 7);
-                        return (
-                          <tr key={item.id || idx}>
-                            <td className="py-3 px-3">
-                              <span className="font-semibold text-espresso-900">{name}</span>
-                            </td>
-                            <td className="py-3 px-3 text-center font-bold text-terracotta">
-                              {interactions}
-                            </td>
-                            <td className="py-3 px-3 text-right">
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sage-100 text-sage-800">
-                                High Demand
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* =========================================================================
             TAB 8: RESTAURANT SETTINGS (PROFILE, CITY, CURRENCY, ADDRESS)

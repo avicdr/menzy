@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { CheckCircle2 } from 'lucide-react';
+import { ArrowRight, Check, Sparkles } from 'lucide-react';
 import type { PlanDefinition } from '@/lib/payments/plans';
 import { trackConversionEvent } from '@/lib/analytics/events';
 
@@ -15,6 +15,12 @@ interface PricingCardsClientProps {
   subheading?: string;
   asH1?: boolean;
 }
+
+const TIER_SUBTITLES: Record<PlanDefinition['tier'], string> = {
+  STARTER: 'Core AI menu extraction & QR ordering for single venues',
+  GROWTH: 'Custom theme colors, dish pairings & advanced analytics',
+  PRO: 'Unlimited dishes, multiple menus & high monthly allowances',
+};
 
 export function PricingCardsClient({
   authoritativeGeo,
@@ -89,102 +95,218 @@ export function PricingCardsClient({
       id={sectionId}
       className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20"
     >
-      <div className="text-center max-w-2xl mx-auto mb-10 space-y-3">
-        <span className="text-xs font-semibold uppercase tracking-wider text-terracotta-700">
+      <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-12 space-y-3">
+        <span className="inline-flex items-center px-3 py-1 rounded-full bg-cream-200/80 border border-cream-300/80 text-[11px] font-semibold uppercase tracking-[0.14em] text-terracotta-700">
           {eyebrow}
         </span>
         <HeadingTag
           className={
             asH1
-              ? 'font-serif text-3xl sm:text-5xl font-bold text-espresso-900 tracking-tight'
-              : 'font-serif text-3xl sm:text-4xl font-bold text-espresso-900'
+              ? 'font-serif text-3xl sm:text-5xl font-bold text-espresso-900 tracking-tight menzy-heading-balance'
+              : 'font-serif text-3xl sm:text-4xl font-bold text-espresso-900 tracking-tight menzy-heading-balance'
           }
         >
           {heading}
         </HeadingTag>
-        <p className="text-xs sm:text-sm text-taupe-600">{subheading}</p>
+        <p className="text-sm text-taupe-600 mx-auto menzy-copy-pretty">{subheading}</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8" aria-busy={plans === null}>
+      <div className="menzy-card-grid" aria-busy={plans === null}>
         {plans === null
-          ? [0, 1, 2].map((slot) => (
-              <div
-                key={slot}
-                className="p-6 sm:p-8 bg-white rounded-3xl border border-cream-200 flex flex-col justify-between shadow-soft min-h-[340px] animate-pulse"
-              >
-                <div className="space-y-4">
-                  <div className="h-6 w-32 bg-cream-200 rounded-lg" />
-                  <div className="h-9 w-28 bg-cream-200 rounded-lg" />
-                  <div className="space-y-3 pt-2">
-                    <div className="h-4 w-44 bg-cream-100 rounded" />
-                    <div className="h-4 w-48 bg-cream-100 rounded" />
-                    <div className="h-4 w-40 bg-cream-100 rounded" />
-                    <div className="h-4 w-52 bg-cream-100 rounded" />
-                  </div>
-                </div>
-                <div className="h-11 w-full bg-cream-100 rounded-full mt-8" />
-              </div>
-            ))
-          : plans.map((p) => {
-              const CardHeadingTag = asH1 ? 'h2' : 'h3';
+          ? [0, 1, 2].map((slot) => {
+              const isSkeletonFeatured = slot === 1;
               return (
                 <div
-                  key={p.key}
-                  className={`p-6 sm:p-8 bg-white rounded-3xl border flex flex-col justify-between shadow-soft ${
-                    p.tier === 'GROWTH'
-                      ? 'border-terracotta ring-2 ring-terracotta/20 relative'
-                      : 'border-cream-200'
-                  }`}
+                  key={slot}
+                  aria-hidden="true"
+                  className={`menzy-card animate-pulse ${isSkeletonFeatured ? 'menzy-card--featured' : ''}`}
                 >
-                  {p.tier === 'GROWTH' && (
-                    <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-terracotta-700 text-white px-3 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider shadow whitespace-nowrap">
-                      Most Popular
-                    </div>
-                  )}
-
-                  <div>
-                    <CardHeadingTag className="font-serif text-xl font-bold text-espresso-900 mb-1">
-                      {p.name}
-                    </CardHeadingTag>
-                    <div className="text-3xl font-bold text-espresso-900 mb-4">
-                      {p.monthlyPriceFormatted}
-                    </div>
-
-                    <ul className="space-y-3 text-xs sm:text-sm text-taupe-600 mb-8">
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" aria-hidden="true" />
-                        <span>Up to {p.itemLimit > 1000 ? 'Unlimited' : p.itemLimit} menu dishes</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" aria-hidden="true" />
-                        <span>{p.imageCreditsMonthly} custom 3D image credits/mo</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" aria-hidden="true" />
-                        <span>{p.aiQuestionsMonthly.toLocaleString()} AI diner queries/mo</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" aria-hidden="true" />
-                        <span>Theme Studio & QR Studio Table Tents</span>
-                      </li>
-                    </ul>
-                  </div>
-
-                  <Link
-                    href={`/signup?plan=${p.tier.toLowerCase()}`}
-                    className={`w-full py-3 rounded-full text-center font-semibold text-xs sm:text-sm transition-all ${
-                      p.tier === 'GROWTH'
-                        ? 'bg-espresso-900 text-white hover:bg-espresso-800 shadow-md'
-                        : 'bg-cream-100 text-espresso-900 hover:bg-cream-200'
+                  <div
+                    className={`space-y-4 pb-5 border-b ${
+                      isSkeletonFeatured ? 'border-white/10' : 'border-cream-200'
                     }`}
                   >
-                    Get Started
-                  </Link>
+                    <div
+                      className={`h-6 w-32 rounded-lg ${
+                        isSkeletonFeatured ? 'bg-white/15' : 'bg-cream-200'
+                      }`}
+                    />
+                    <div
+                      className={`h-4 w-48 rounded ${
+                        isSkeletonFeatured ? 'bg-white/10' : 'bg-cream-100'
+                      }`}
+                    />
+                    <div
+                      className={`h-10 w-28 rounded-lg ${
+                        isSkeletonFeatured ? 'bg-white/15' : 'bg-cream-200'
+                      }`}
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className={`h-4 w-44 rounded ${isSkeletonFeatured ? 'bg-white/10' : 'bg-cream-100'}`} />
+                    <div className={`h-4 w-48 rounded ${isSkeletonFeatured ? 'bg-white/10' : 'bg-cream-100'}`} />
+                    <div className={`h-4 w-40 rounded ${isSkeletonFeatured ? 'bg-white/10' : 'bg-cream-100'}`} />
+                    <div className={`h-4 w-52 rounded ${isSkeletonFeatured ? 'bg-white/10' : 'bg-cream-100'}`} />
+                  </div>
+
+                  <div className="pt-2">
+                    <div
+                      className={`h-11 w-full rounded-full ${
+                        isSkeletonFeatured ? 'bg-white/15' : 'bg-cream-100'
+                      }`}
+                    />
+                  </div>
                 </div>
+              );
+            })
+          : plans.map((p) => {
+              const CardHeadingTag = asH1 ? 'h2' : 'h3';
+              const isFeatured = p.tier === 'GROWTH';
+              const slashIndex = p.monthlyPriceFormatted.indexOf('/');
+              const priceAmount =
+                slashIndex >= 0
+                  ? p.monthlyPriceFormatted.slice(0, slashIndex)
+                  : p.monthlyPriceFormatted;
+              const pricePeriod =
+                slashIndex >= 0 ? p.monthlyPriceFormatted.slice(slashIndex) : '';
+
+              return (
+                <article
+                  key={p.key}
+                  className={`menzy-card ${isFeatured ? 'menzy-card--featured' : ''}`}
+                >
+                  <header
+                    className={`flex flex-col justify-between gap-4 pb-5 border-b ${
+                      isFeatured ? 'border-white/15' : 'border-cream-200/90'
+                    }`}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <CardHeadingTag
+                          className={`font-serif text-xl font-bold tracking-tight menzy-heading-balance ${
+                            isFeatured ? 'text-[#FAF7F2]' : 'text-espresso-900'
+                          }`}
+                        >
+                          {p.name}
+                        </CardHeadingTag>
+                        {isFeatured && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-terracotta-500/20 border border-terracotta-300/35 text-[11px] font-semibold text-[#F5DFD6] shrink-0">
+                            <Sparkles className="w-3 h-3" aria-hidden="true" />
+                            <span>Most Popular</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <p
+                        className={`text-xs leading-relaxed menzy-copy-pretty ${
+                          isFeatured ? 'text-[#D9CBB9]' : 'text-taupe-600'
+                        }`}
+                      >
+                        {TIER_SUBTITLES[p.tier]}
+                      </p>
+                    </div>
+
+                    <div className="flex items-baseline gap-1 pt-1">
+                      <span
+                        className={`text-4xl font-bold tracking-tight menzy-tabular ${
+                          isFeatured ? 'text-[#FAF7F2]' : 'text-espresso-900'
+                        }`}
+                      >
+                        {priceAmount}
+                      </span>
+                      {pricePeriod && (
+                        <span
+                          className={`text-sm font-medium ${
+                            isFeatured ? 'text-[#DFD2C2]' : 'text-taupe-600'
+                          }`}
+                        >
+                          {pricePeriod}
+                        </span>
+                      )}
+                    </div>
+                  </header>
+
+                  <ul className="space-y-3 text-sm menzy-copy-pretty">
+                    <li className="flex items-start gap-2.5">
+                      <span
+                        className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 border ${
+                          isFeatured
+                            ? 'bg-terracotta-500/20 border-terracotta-300/35 text-[#F5DFD6]'
+                            : 'bg-sage-50 border-sage-200/80 text-sage-600'
+                        }`}
+                        aria-hidden="true"
+                      >
+                        <Check className="w-3 h-3 stroke-[2.5]" />
+                      </span>
+                      <span className={isFeatured ? 'text-[#EFE8DE]' : 'text-espresso-700'}>
+                        Up to {p.itemLimit > 1000 ? 'Unlimited' : p.itemLimit} menu dishes
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <span
+                        className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 border ${
+                          isFeatured
+                            ? 'bg-terracotta-500/20 border-terracotta-300/35 text-[#F5DFD6]'
+                            : 'bg-sage-50 border-sage-200/80 text-sage-600'
+                        }`}
+                        aria-hidden="true"
+                      >
+                        <Check className="w-3 h-3 stroke-[2.5]" />
+                      </span>
+                      <span className={isFeatured ? 'text-[#EFE8DE]' : 'text-espresso-700'}>
+                        {p.imageCreditsMonthly} custom 3D image credits/mo
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <span
+                        className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 border ${
+                          isFeatured
+                            ? 'bg-terracotta-500/20 border-terracotta-300/35 text-[#F5DFD6]'
+                            : 'bg-sage-50 border-sage-200/80 text-sage-600'
+                        }`}
+                        aria-hidden="true"
+                      >
+                        <Check className="w-3 h-3 stroke-[2.5]" />
+                      </span>
+                      <span className={isFeatured ? 'text-[#EFE8DE]' : 'text-espresso-700'}>
+                        {p.aiQuestionsMonthly.toLocaleString()} AI diner queries/mo
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <span
+                        className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 border ${
+                          isFeatured
+                            ? 'bg-terracotta-500/20 border-terracotta-300/35 text-[#F5DFD6]'
+                            : 'bg-sage-50 border-sage-200/80 text-sage-600'
+                        }`}
+                        aria-hidden="true"
+                      >
+                        <Check className="w-3 h-3 stroke-[2.5]" />
+                      </span>
+                      <span className={isFeatured ? 'text-[#EFE8DE]' : 'text-espresso-700'}>
+                        Theme Studio &amp; QR Studio Table Tents
+                      </span>
+                    </li>
+                  </ul>
+
+                  <footer className="pt-2">
+                    <Link
+                      href={`/signup?plan=${p.tier.toLowerCase()}`}
+                      className={`menzy-cta inline-flex items-center justify-center gap-2 w-full py-3.5 px-5 rounded-full font-semibold text-sm ${
+                        isFeatured
+                          ? 'bg-[#FAF7F2] text-espresso-900 hover:bg-white shadow-lifted'
+                          : 'bg-cream-100 text-espresso-900 hover:bg-cream-200 border border-cream-300'
+                      }`}
+                    >
+                      <span>Get Started</span>
+                      <ArrowRight className="w-4 h-4 shrink-0 menzy-card-arrow" aria-hidden="true" />
+                    </Link>
+                  </footer>
+                </article>
               );
             })}
       </div>
     </section>
   );
 }
-

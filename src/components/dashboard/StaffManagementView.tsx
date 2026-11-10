@@ -21,7 +21,7 @@ import {
   Clock,
   Sparkles,
 } from 'lucide-react';
-import { Portal } from '@/components/ui/Portal';
+import { Modal } from '@/components/ui/Modal';
 
 interface StaffMember {
   id: string;
@@ -481,248 +481,233 @@ export function StaffManagementView({ restaurant }: StaffManagementViewProps) {
       </div>
 
       {/* Add Staff Modal */}
-      {isAddModalOpen && (
-        <Portal>
-          <div
-            className="fixed inset-0 z-[100] w-screen h-screen min-h-screen bg-espresso-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-modal-backdrop"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setIsAddModalOpen(false);
-            }}
-          >
-            <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-lifted border border-cream-300 animate-modal-content max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-cream-200">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-terracotta/10 text-terracotta flex items-center justify-center font-bold">
-                  <Plus className="w-4 h-4" />
-                </div>
-                <h3 className="font-serif text-xl font-bold text-espresso-900">
-                  Add Staff Member
-                </h3>
-              </div>
+      <Modal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        title="Add Staff Member"
+        icon={<Plus className="w-4 h-4 text-terracotta" />}
+        maxWidth="lg"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setIsAddModalOpen(false)}
+              className="px-4 py-2 rounded-xl text-taupe-600 hover:bg-cream-100 text-sm font-medium transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="add-staff-form"
+              disabled={isSubmitting}
+              className="px-5 py-2 rounded-xl bg-terracotta hover:bg-terracotta-dark text-white font-medium text-sm transition-colors shadow-sm disabled:opacity-50"
+            >
+              {isSubmitting ? 'Creating...' : 'Create Account'}
+            </button>
+          </>
+        }
+      >
+        <form id="add-staff-form" onSubmit={handleAddStaff} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-espresso-900 mb-1">
+              Staff Display Name
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Chef Vikram, Captain Priya"
+              value={addName}
+              onChange={(e) => {
+                setAddName(e.target.value);
+                if (!addLoginId) {
+                  // Suggest login id based on name
+                  const slug = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 15);
+                  setAddLoginId(slug);
+                }
+              }}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 bg-cream-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-terracotta/40 text-espresso-900 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-espresso-900 mb-1">
+              Unique Terminal Login ID
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. chef-vikram, kitchen-1, runner-priya"
+              value={addLoginId}
+              onChange={(e) => setAddLoginId(e.target.value.toLowerCase())}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 bg-cream-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-terracotta/40 text-espresso-900 text-sm font-mono"
+            />
+            <span className="text-[11px] text-taupe-400 mt-1 block">
+              Used by the staff member to log in at /orders/login
+            </span>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-espresso-900 mb-1">
+              Initial Password
+            </label>
+            <div className="relative">
+              <input
+                type={showAddPassword ? 'text' : 'password'}
+                required
+                minLength={6}
+                placeholder="Min 6 characters"
+                value={addPassword}
+                onChange={(e) => setAddPassword(e.target.value)}
+                className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-cream-300 bg-cream-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-terracotta/40 text-espresso-900 text-sm"
+              />
               <button
-                onClick={() => setIsAddModalOpen(false)}
-                className="p-1 rounded-lg text-taupe-400 hover:bg-cream-200 hover:text-espresso-900"
+                type="button"
+                onClick={() => setShowAddPassword(!showAddPassword)}
+                className="absolute right-3 top-2.5 text-taupe-400 hover:text-espresso-800"
               >
-                <X className="w-5 h-5" />
+                {showAddPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-
-            <form onSubmit={handleAddStaff} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-espresso-900 mb-1">
-                  Staff Display Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Chef Vikram, Captain Priya"
-                  value={addName}
-                  onChange={(e) => {
-                    setAddName(e.target.value);
-                    if (!addLoginId) {
-                      // Suggest login id based on name
-                      const slug = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 15);
-                      setAddLoginId(slug);
-                    }
-                  }}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 bg-cream-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-terracotta/40 text-espresso-900 text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-espresso-900 mb-1">
-                  Unique Terminal Login ID
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. chef-vikram, kitchen-1, runner-priya"
-                  value={addLoginId}
-                  onChange={(e) => setAddLoginId(e.target.value.toLowerCase())}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-cream-300 bg-cream-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-terracotta/40 text-espresso-900 text-sm font-mono"
-                />
-                <span className="text-[11px] text-taupe-400 mt-1 block">
-                  Used by the staff member to log in at /orders/login
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-espresso-900 mb-1">
-                  Initial Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showAddPassword ? 'text' : 'password'}
-                    required
-                    minLength={6}
-                    placeholder="Min 6 characters"
-                    value={addPassword}
-                    onChange={(e) => setAddPassword(e.target.value)}
-                    className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-cream-300 bg-cream-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-terracotta/40 text-espresso-900 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowAddPassword(!showAddPassword)}
-                    className="absolute right-3 top-2.5 text-taupe-400 hover:text-espresso-800"
-                  >
-                    {showAddPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-espresso-900 mb-2">
-                  Staff Role & Permission Tier
-                </label>
-                <div className="grid grid-cols-2 gap-2.5">
-                  <label
-                    className={`flex flex-col p-3 rounded-xl border cursor-pointer transition-all ${
-                      addRole === 'KITCHEN'
-                        ? 'border-terracotta bg-terracotta/5 shadow-sm'
-                        : 'border-cream-300 hover:bg-cream-50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="role"
-                      value="KITCHEN"
-                      checked={addRole === 'KITCHEN'}
-                      onChange={() => setAddRole('KITCHEN')}
-                      className="sr-only"
-                    />
-                    <div className="flex items-center gap-1.5 font-semibold text-xs text-espresso-900 mb-0.5">
-                      <ChefHat className="w-3.5 h-3.5 text-amber-600" /> Kitchen (KDS)
-                    </div>
-                    <span className="text-[11px] text-taupe-500">
-                      Can view incoming orders, accept, cook, and mark food ready.
-                    </span>
-                  </label>
-
-                  <label
-                    className={`flex flex-col p-3 rounded-xl border cursor-pointer transition-all ${
-                      addRole === 'WAITER'
-                        ? 'border-terracotta bg-terracotta/5 shadow-sm'
-                        : 'border-cream-300 hover:bg-cream-50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="role"
-                      value="WAITER"
-                      checked={addRole === 'WAITER'}
-                      onChange={() => setAddRole('WAITER')}
-                      className="sr-only"
-                    />
-                    <div className="flex items-center gap-1.5 font-semibold text-xs text-espresso-900 mb-0.5">
-                      <Users className="w-3.5 h-3.5 text-emerald-600" /> Waiter / Runner
-                    </div>
-                    <span className="text-[11px] text-taupe-500">
-                      Can view ready tickets, mark served to tables, and check notes.
-                    </span>
-                  </label>
-
-                  <label
-                    className={`flex flex-col p-3 rounded-xl border cursor-pointer transition-all ${
-                      addRole === 'MANAGER'
-                        ? 'border-terracotta bg-terracotta/5 shadow-sm'
-                        : 'border-cream-300 hover:bg-cream-50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="role"
-                      value="MANAGER"
-                      checked={addRole === 'MANAGER'}
-                      onChange={() => setAddRole('MANAGER')}
-                      className="sr-only"
-                    />
-                    <div className="flex items-center gap-1.5 font-semibold text-xs text-espresso-900 mb-0.5">
-                      <UserCheck className="w-3.5 h-3.5 text-blue-600" /> Manager (POS)
-                    </div>
-                    <span className="text-[11px] text-taupe-500">
-                      Can modify order statuses, cancel/void, and view history.
-                    </span>
-                  </label>
-
-                  <label
-                    className={`flex flex-col p-3 rounded-xl border cursor-pointer transition-all ${
-                      addRole === 'OWNER'
-                        ? 'border-terracotta bg-terracotta/5 shadow-sm'
-                        : 'border-cream-300 hover:bg-cream-50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="role"
-                      value="OWNER"
-                      checked={addRole === 'OWNER'}
-                      onChange={() => setAddRole('OWNER')}
-                      className="sr-only"
-                    />
-                    <div className="flex items-center gap-1.5 font-semibold text-xs text-espresso-900 mb-0.5">
-                      <ShieldCheck className="w-3.5 h-3.5 text-purple-600" /> Owner Staff
-                    </div>
-                    <span className="text-[11px] text-taupe-500">
-                      Full operational authority over orders and staff rosters.
-                    </span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-cream-200">
-                <button
-                  type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-taupe-600 hover:bg-cream-100 text-sm font-medium transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 rounded-xl bg-terracotta hover:bg-terracotta-dark text-white font-medium text-sm transition-colors shadow-sm disabled:opacity-50"
-                >
-                  {isSubmitting ? 'Creating...' : 'Create Account'}
-                </button>
-              </div>
-            </form>
           </div>
-        </div>
-      </Portal>
-    )}
+
+          <div>
+            <label className="block text-xs font-semibold text-espresso-900 mb-2">
+              Staff Role & Permission Tier
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <label
+                className={`flex flex-col p-3 rounded-xl border cursor-pointer transition-all ${
+                  addRole === 'KITCHEN'
+                    ? 'border-terracotta bg-terracotta/5 shadow-sm'
+                    : 'border-cream-300 hover:bg-cream-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="role"
+                  value="KITCHEN"
+                  checked={addRole === 'KITCHEN'}
+                  onChange={() => setAddRole('KITCHEN')}
+                  className="sr-only"
+                />
+                <div className="flex items-center gap-1.5 font-semibold text-xs text-espresso-900 mb-0.5">
+                  <ChefHat className="w-3.5 h-3.5 text-amber-600" /> Kitchen (KDS)
+                </div>
+                <span className="text-[11px] text-taupe-500">
+                  Can view incoming orders, accept, cook, and mark food ready.
+                </span>
+              </label>
+
+              <label
+                className={`flex flex-col p-3 rounded-xl border cursor-pointer transition-all ${
+                  addRole === 'WAITER'
+                    ? 'border-terracotta bg-terracotta/5 shadow-sm'
+                    : 'border-cream-300 hover:bg-cream-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="role"
+                  value="WAITER"
+                  checked={addRole === 'WAITER'}
+                  onChange={() => setAddRole('WAITER')}
+                  className="sr-only"
+                />
+                <div className="flex items-center gap-1.5 font-semibold text-xs text-espresso-900 mb-0.5">
+                  <Users className="w-3.5 h-3.5 text-emerald-600" /> Waiter / Runner
+                </div>
+                <span className="text-[11px] text-taupe-500">
+                  Can view ready tickets, mark served to tables, and check notes.
+                </span>
+              </label>
+
+              <label
+                className={`flex flex-col p-3 rounded-xl border cursor-pointer transition-all ${
+                  addRole === 'MANAGER'
+                    ? 'border-terracotta bg-terracotta/5 shadow-sm'
+                    : 'border-cream-300 hover:bg-cream-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="role"
+                  value="MANAGER"
+                  checked={addRole === 'MANAGER'}
+                  onChange={() => setAddRole('MANAGER')}
+                  className="sr-only"
+                />
+                <div className="flex items-center gap-1.5 font-semibold text-xs text-espresso-900 mb-0.5">
+                  <UserCheck className="w-3.5 h-3.5 text-blue-600" /> Manager (POS)
+                </div>
+                <span className="text-[11px] text-taupe-500">
+                  Can modify order statuses, cancel/void, and view history.
+                </span>
+              </label>
+
+              <label
+                className={`flex flex-col p-3 rounded-xl border cursor-pointer transition-all ${
+                  addRole === 'OWNER'
+                    ? 'border-terracotta bg-terracotta/5 shadow-sm'
+                    : 'border-cream-300 hover:bg-cream-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="role"
+                  value="OWNER"
+                  checked={addRole === 'OWNER'}
+                  onChange={() => setAddRole('OWNER')}
+                  className="sr-only"
+                />
+                <div className="flex items-center gap-1.5 font-semibold text-xs text-espresso-900 mb-0.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-purple-600" /> Owner Staff
+                </div>
+                <span className="text-[11px] text-taupe-500">
+                  Full operational authority over orders and staff rosters.
+                </span>
+              </label>
+            </div>
+          </div>
+        </form>
+      </Modal>
 
       {/* Reset Password Modal */}
-      {resetModalStaff && (
-        <Portal>
-          <div
-            className="fixed inset-0 z-[100] w-screen h-screen min-h-screen bg-espresso-950/75 backdrop-blur-sm flex items-center justify-center p-4 animate-modal-backdrop"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setResetModalStaff(null);
-            }}
-          >
-            <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-lifted border border-cream-300 animate-modal-content">
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-cream-200">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-terracotta/10 text-terracotta flex items-center justify-center font-bold">
-                  <KeyRound className="w-4 h-4" />
-                </div>
-                <h3 className="font-serif text-xl font-bold text-espresso-900">
-                  Reset Password
-                </h3>
-              </div>
+      <Modal
+        isOpen={Boolean(resetModalStaff)}
+        onClose={() => setResetModalStaff(null)}
+        title="Reset Password"
+        icon={<KeyRound className="w-4 h-4 text-terracotta" />}
+        maxWidth="md"
+        bodyClassName="space-y-4"
+        footer={
+          resetModalStaff ? (
+            <>
               <button
+                type="button"
                 onClick={() => setResetModalStaff(null)}
-                className="p-1 rounded-lg text-taupe-400 hover:bg-cream-200 hover:text-espresso-900"
+                className="px-4 py-2 rounded-xl text-taupe-600 hover:bg-cream-100 text-sm font-medium transition-colors"
               >
-                <X className="w-5 h-5" />
+                Cancel
               </button>
-            </div>
-
-            <p className="text-xs text-taupe-500 mb-4">
+              <button
+                type="submit"
+                form="reset-staff-password-form"
+                disabled={isResetting}
+                className="px-5 py-2 rounded-xl bg-terracotta hover:bg-terracotta-dark text-white font-medium text-sm transition-colors shadow-sm disabled:opacity-50"
+              >
+                {isResetting ? 'Saving...' : 'Update Password'}
+              </button>
+            </>
+          ) : undefined
+        }
+      >
+        {resetModalStaff && (
+          <>
+            <p className="text-xs text-taupe-500">
               Enter a new password for <strong className="text-espresso-900">{resetModalStaff.displayName}</strong> ({resetModalStaff.loginId}). All current active sessions for this employee will be immediately revoked.
             </p>
 
-            <form onSubmit={handleResetPassword} className="space-y-4">
+            <form id="reset-staff-password-form" onSubmit={handleResetPassword} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-espresso-900 mb-1">
                   New Password
@@ -746,28 +731,10 @@ export function StaffManagementView({ restaurant }: StaffManagementViewProps) {
                   </button>
                 </div>
               </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-cream-200">
-                <button
-                  type="button"
-                  onClick={() => setResetModalStaff(null)}
-                  className="px-4 py-2 rounded-xl text-taupe-600 hover:bg-cream-100 text-sm font-medium transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isResetting}
-                  className="px-5 py-2 rounded-xl bg-terracotta hover:bg-terracotta-dark text-white font-medium text-sm transition-colors shadow-sm disabled:opacity-50"
-                >
-                  {isResetting ? 'Saving...' : 'Update Password'}
-                </button>
-              </div>
             </form>
-          </div>
-        </div>
-      </Portal>
-    )}
+          </>
+        )}
+      </Modal>
     </div>
   );
 }
