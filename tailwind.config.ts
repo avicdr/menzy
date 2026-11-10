@@ -69,8 +69,8 @@ const config: Config = {
         }
       },
       fontFamily: {
-        serif: ["var(--font-serif)", "DM Serif Display", "Instrument Serif", "Georgia", "serif"],
-        sans: ["var(--font-sans)", "DM Sans", "Manrope", "-apple-system", "sans-serif"],
+        serif: ["var(--font-serif)", "Plus Jakarta Sans", "Lora", "Georgia", "serif"],
+        sans: ["var(--font-sans)", "Inter", "DM Sans", "-apple-system", "sans-serif"],
       },
       borderRadius: {
         card: "var(--card-radius, 16px)",

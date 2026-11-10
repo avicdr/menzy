@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 
 async function runWorkerLoop() {
-  console.log('🚀 Dishora Background Worker running...');
+  console.log('🚀 Menzy Background Worker running...');
 
   while (true) {
     try {

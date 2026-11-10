@@ -85,18 +85,19 @@ export async function generateOrReuseDishIllustration(params: {
   });
 
   const client = getGenAIClient();
-  let imageBuffer: Buffer;
-  let mimeType = 'image/webp';
+  let imageBuffer: Buffer | null = null;
+  let mimeType = 'image/jpeg';
+  let ext = 'jpg';
 
+  // Tier 1: Try official Google GenAI if available
   if (client) {
     try {
-      // Official Imagen / Gemini image generation call
       const response = await (client.models as any).generateImages({
         model: modelName,
         prompt,
         config: {
           numberOfImages: 1,
-          outputMimeType: 'image/webp',
+          outputMimeType: 'image/jpeg',
           aspectRatio: '1:1',
         },
       });
@@ -104,23 +105,46 @@ export async function generateOrReuseDishIllustration(params: {
       const generatedImage = response.generatedImages?.[0];
       if (generatedImage?.image?.imageBytes) {
         imageBuffer = Buffer.from(generatedImage.image.imageBytes, 'base64');
-      } else {
-        throw new Error('No image bytes returned from GenAI');
+        mimeType = 'image/jpeg';
+        ext = 'jpg';
       }
-    } catch (err) {
-      console.warn('GenAI image generation fallback triggered:', err);
-      imageBuffer = createPlaceholderIllustrationBuffer(params.dishName);
+    } catch (err: any) {
+      console.warn('GenAI generateImages unavailable or exceeded quota, trying AI generation fallback...', err?.message || err);
     }
-  } else {
-    // Sandbox illustration generator (draws a clean appetizing SVG converted to buffer)
-    imageBuffer = createPlaceholderIllustrationBuffer(params.dishName);
-    mimeType = 'image/svg+xml';
   }
 
-  // Store asset
+  // Tier 2: Real AI 3D-Clay Culinary Image via high-availability AI endpoint
+  if (!imageBuffer) {
+    try {
+      const cleanDish = params.dishName.replace(/[^a-zA-Z0-9\s]/g, '').trim();
+      const clayPrompt = `3d clay style delicious ${cleanDish}, contemporary food presentation, ceramic plate, studio lighting, soft shadows, warm editorial culinary aesthetic`;
+      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(clayPrompt)}?width=512&height=512&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
+
+      const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+      if (res.ok) {
+        const ab = await res.arrayBuffer();
+        if (ab.byteLength > 2000) {
+          imageBuffer = Buffer.from(ab);
+          mimeType = res.headers.get('content-type') || 'image/jpeg';
+          ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+        }
+      }
+    } catch (aiErr: any) {
+      console.warn('AI image service fallback unavailable, generating vector clay illustration...', aiErr?.message || aiErr);
+    }
+  }
+
+  // Tier 3: Guaranteed Valid, Appetite-Focused 3D Clay Vector SVG Illustration
+  if (!imageBuffer) {
+    imageBuffer = createPlaceholderIllustrationBuffer(params.dishName);
+    mimeType = 'image/svg+xml';
+    ext = 'svg';
+  }
+
+  // Store asset with correct MIME type and matching file extension
   const uploadResult = await uploadAsset(
     imageBuffer,
-    `${params.dishName.toLowerCase().replace(/[^a-z0-9]/g, '-')}.webp`,
+    `${params.dishName.toLowerCase().replace(/[^a-z0-9]/g, '-')}.${ext}`,
     mimeType,
     'illustrations'
   );
@@ -196,34 +220,81 @@ export async function generateOrReuseDishIllustration(params: {
 }
 
 /**
- * Creates a beautiful warm SVG clay-style food illustration placeholder
+ * Creates a beautiful warm SVG clay-style food illustration placeholder with 100% valid XML tags
  */
 function createPlaceholderIllustrationBuffer(dishName: string): Buffer {
+  const safeName = (dishName || 'Menzy Dish')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const lower = dishName.toLowerCase();
+  let foodColor1 = '#C86843'; // rich terracotta
+  let foodColor2 = '#E69C24'; // saffron / curry
+  let foodColor3 = '#4E6E58'; // herb sage
+  let garnishColor = '#6A8E4E'; // fresh coriander
+
+  if (lower.includes('biryani') || lower.includes('rice') || lower.includes('pulao')) {
+    foodColor1 = '#F3C053';
+    foodColor2 = '#C6753B';
+    foodColor3 = '#883E1E';
+    garnishColor = '#4B7B44';
+  } else if (lower.includes('chicken') || lower.includes('mutton') || lower.includes('meat') || lower.includes('roast') || lower.includes('kebab') || lower.includes('meal')) {
+    foodColor1 = '#9E381C';
+    foodColor2 = '#BF572A';
+    foodColor3 = '#5D2414';
+    garnishColor = '#507D42';
+  } else if (lower.includes('paneer') || lower.includes('cheese') || lower.includes('pasta') || lower.includes('pizza')) {
+    foodColor1 = '#F4D279';
+    foodColor2 = '#D47E3A';
+    foodColor3 = '#EBD9B2';
+    garnishColor = '#3A6B35';
+  } else if (lower.includes('coffee') || lower.includes('chai') || lower.includes('tea') || lower.includes('drink')) {
+    foodColor1 = '#4A2E1F';
+    foodColor2 = '#8B5A3C';
+    foodColor3 = '#E8D3B7';
+    garnishColor = '#C18855';
+  } else if (lower.includes('dessert') || lower.includes('cake') || lower.includes('sweet') || lower.includes('tart')) {
+    foodColor1 = '#B73255';
+    foodColor2 = '#ECA3B6';
+    foodColor3 = '#FDF0D5';
+    garnishColor = '#944D62';
+  }
+
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
     <defs>
-      <radialGradient id="bgGrad" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stop-color="#FFFFFF" />
-        <stop offset="100%" stop-color="#F2ECE1" />
+      <radialGradient id="bgGrad" cx="50%" cy="40%" r="60%">
+        <stop offset="0%" stop-color="#FCFAF7" />
+        <stop offset="100%" stop-color="#EDE4D6" />
       </radialGradient>
       <filter id="clayShadow" x="-20%" y="-20%" width="140%" height="140%">
-        <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#35271F" flood-opacity="0.12" />
-      </radialGradient>
+        <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#35271F" flood-opacity="0.15" />
+      </filter>
+      <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.08" />
+      </filter>
     </defs>
-    <rect width="600" height="600" rx="32" fill="url(#bgGrad)" />
-    <!-- Ceramic Serving Plate -->
-    <ellipse cx="300" cy="340" rx="190" ry="110" fill="#E8DEC8" opacity="0.3" filter="url(#clayShadow)" />
-    <ellipse cx="300" cy="330" rx="180" ry="100" fill="#FAF7F2" stroke="#E4D9CB" stroke-width="4" />
-    <ellipse cx="300" cy="330" rx="140" ry="75" fill="#EFE8DE" stroke="#E0D3C1" stroke-width="2" />
-    <!-- 3D Clay Food Silhouette -->
-    <circle cx="300" cy="300" r="70" fill="#B86D52" opacity="0.9" filter="url(#clayShadow)" />
-    <circle cx="280" cy="285" r="45" fill="#C9785A" />
-    <circle cx="330" cy="310" r="30" fill="#70816B" opacity="0.85" />
-    <circle cx="260" cy="320" r="22" fill="#E9DDCC" />
-    <!-- Garnish & Highlights -->
-    <path d="M295 245 C 310 230, 325 240, 320 255 C 310 270, 280 260, 295 245 Z" fill="#70816B" />
-    <!-- Dishora 3D Clay Tag -->
-    <rect x="180" y="470" width="240" height="42" rx="21" fill="#35271F" opacity="0.08" />
-    <text x="300" y="497" font-family="DM Sans, sans-serif" font-size="14" font-weight="600" fill="#7C695C" text-anchor="middle" letter-spacing="1">DISHORA 3D CLAY STUDIO</text>
+    <rect width="600" height="600" rx="36" fill="url(#bgGrad)" />
+
+    <!-- Ceramic Plate Shadow & Base -->
+    <ellipse cx="300" cy="350" rx="210" ry="120" fill="#E2D7C5" opacity="0.4" filter="url(#clayShadow)" />
+    <ellipse cx="300" cy="340" rx="200" ry="110" fill="#FAF7F2" stroke="#DFD3C2" stroke-width="4" />
+    <ellipse cx="300" cy="340" rx="160" ry="85" fill="#F3ECE0" stroke="#DDD0BD" stroke-width="2" />
+
+    <!-- 3D Clay Food Composition -->
+    <ellipse cx="300" cy="325" rx="110" ry="60" fill="${foodColor1}" filter="url(#softGlow)" />
+    <circle cx="260" cy="305" r="48" fill="${foodColor2}" filter="url(#softGlow)" />
+    <circle cx="335" cy="315" r="40" fill="${foodColor3}" filter="url(#softGlow)" />
+    <circle cx="295" cy="285" r="32" fill="${foodColor1}" />
+    <circle cx="310" cy="330" r="24" fill="${foodColor2}" />
+
+    <!-- Herb Garnish Plating -->
+    <path d="M290 260 C 315 240, 330 250, 320 270 C 305 285, 275 275, 290 260 Z" fill="${garnishColor}" />
+    <path d="M270 290 C 285 280, 295 288, 290 300 C 280 308, 260 300, 270 290 Z" fill="${garnishColor}" opacity="0.9" />
+
+    <!-- 3D Clay Dish Title Badge -->
+    <rect x="70" y="480" width="460" height="64" rx="32" fill="#35271F" opacity="0.92" filter="url(#clayShadow)" />
+    <text x="300" y="520" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="19" font-weight="700" fill="#F7F3EC" text-anchor="middle" letter-spacing="0.5">${safeName}</text>
   </svg>`;
 
   return Buffer.from(svg, 'utf-8');

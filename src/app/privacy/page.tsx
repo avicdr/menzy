@@ -5,13 +5,13 @@ export default function PrivacyPage() {
   return (
     <div className="min-h-screen bg-[#F7F3EC] text-espresso-900 py-16 px-6">
       <div className="max-w-3xl mx-auto bg-white p-8 sm:p-12 rounded-3xl border border-cream-300 shadow-soft space-y-6">
-        <Link href="/" className="text-xs font-semibold text-terracotta hover:underline">&larr; Back to Dishora</Link>
+        <Link href="/" className="text-xs font-semibold text-terracotta hover:underline">&larr; Back to Menzy</Link>
         <h1 className="font-serif text-3xl sm:text-4xl font-bold text-espresso-900">Privacy Notice</h1>
         <p className="text-xs text-taupe-500">Effective Date: November 2026</p>
 
         <div className="prose text-xs sm:text-sm text-taupe-700 space-y-4 leading-relaxed">
           <p>
-            Dishora is designed with privacy-first hospitality principles. Diners never need to download an application, create an account, or share personal identifying information (PII) to browse a restaurant menu.
+            Menzy is designed with privacy-first hospitality principles. Diners never need to download an application, create an account, or share personal identifying information (PII) to browse a restaurant menu.
           </p>
 
           <h2 className="font-serif text-lg font-bold text-espresso-900">1. Diner Information Collection</h2>

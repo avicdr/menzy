@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react';
+
 export interface ThemeConfig {
   presetKey: 'WARM_EDITORIAL' | 'MIDNIGHT_ESPRESSO' | 'BOTANICAL_CAFE' | 'PASTEL_PATISSERIE' | 'CUSTOM';
   backgroundColor: string;
@@ -15,6 +17,46 @@ export interface ThemeConfig {
   texture: 'none' | 'paper' | 'gradient';
 }
 
+export const CONDENSED_FONT_FALLBACKS: Record<string, string> = {
+  'Instrument Serif': 'Lora',
+  'Cormorant Garamond': 'Playfair Display',
+};
+
+export const HEADING_FONT_OPTIONS = [
+  { value: 'Plus Jakarta Sans', label: 'Plus Jakarta Sans (Clean Modern)' },
+  { value: 'Lora', label: 'Lora (Warm Editorial Serif)' },
+  { value: 'Playfair Display', label: 'Playfair Display (Classic Bistro)' },
+  { value: 'DM Serif Display', label: 'DM Serif Display (Modern Display)' },
+  { value: 'DM Sans', label: 'DM Sans (Balanced Contemporary)' },
+  { value: 'Inter', label: 'Inter (Crisp Static UI)' },
+] as const;
+
+export const BODY_FONT_OPTIONS = [
+  { value: 'Inter', label: 'Inter (Crisp Static UI)' },
+  { value: 'DM Sans', label: 'DM Sans (Balanced Modern)' },
+  { value: 'Plus Jakarta Sans', label: 'Plus Jakarta Sans (Contemporary)' },
+  { value: 'Manrope', label: 'Manrope (Clean Geometric)' },
+  { value: 'Outfit', label: 'Outfit (Friendly Geometric)' },
+] as const;
+
+const SANS_FONT_SET = new Set(['DM Sans', 'Manrope', 'Plus Jakarta Sans', 'Outfit', 'Inter']);
+
+/**
+ * Replaces legacy condensed fonts with clean static web-safe alternatives
+ */
+export function normalizeThemeFont(font: string | null | undefined, fallback: string): string {
+  const cleaned = (font || '').replace(/['"]/g, '').trim();
+  if (!cleaned) return fallback;
+  return CONDENSED_FONT_FALLBACKS[cleaned] || cleaned;
+}
+
+export function buildFontCssStack(font: string | null | undefined, fallback: string): string {
+  const normalized = normalizeThemeFont(font, fallback);
+  return SANS_FONT_SET.has(normalized)
+    ? `'${normalized}', -apple-system, BlinkMacSystemFont, sans-serif`
+    : `'${normalized}', Georgia, serif`;
+}
+
 export const THEME_PRESETS: Record<string, ThemeConfig> = {
   WARM_EDITORIAL: {
     presetKey: 'WARM_EDITORIAL',
@@ -24,7 +66,7 @@ export const THEME_PRESETS: Record<string, ThemeConfig> = {
     secondaryTextColor: '#7C695C',
     accentColor: '#B86D52',
     secondaryAccentColor: '#70816B',
-    headingFont: 'Instrument Serif',
+    headingFont: 'Lora',
     bodyFont: 'DM Sans',
     layoutMode: 'GRID',
     cardRadius: '16px',
@@ -72,8 +114,8 @@ export const THEME_PRESETS: Record<string, ThemeConfig> = {
     secondaryTextColor: '#8C6774',
     accentColor: '#D98A9B',
     secondaryAccentColor: '#70816B',
-    headingFont: 'Instrument Serif',
-    bodyFont: 'Plus Jakarta Sans',
+    headingFont: 'Plus Jakarta Sans',
+    bodyFont: 'DM Sans',
     layoutMode: 'GRID',
     cardRadius: '20px',
     buttonStyle: 'pill',
@@ -139,17 +181,14 @@ export function validateThemeAccessibility(theme: Partial<ThemeConfig>): {
 /**
  * Generates dynamic inline CSS variables from a ThemeConfig
  */
-export function generateThemeVariables(theme: ThemeConfig): React.CSSProperties {
+export function generateThemeVariables(theme: ThemeConfig): CSSProperties {
   const isDark = getLuminance(theme.backgroundColor || '#F7F3EC') < 0.25;
   const border = isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
   const buttonRadius =
     theme.buttonStyle === 'pill' ? '9999px' : theme.buttonStyle === 'sharp' ? '4px' : '14px';
 
-  const headingFontClean = theme.headingFont || 'Instrument Serif';
-  const bodyFontClean = theme.bodyFont || 'DM Sans';
-
-  const headingFontCss = `'${headingFontClean}', Georgia, serif`;
-  const bodyFontCss = `'${bodyFontClean}', -apple-system, BlinkMacSystemFont, sans-serif`;
+  const headingFontCss = buildFontCssStack(theme.headingFont, 'Plus Jakarta Sans');
+  const bodyFontCss = buildFontCssStack(theme.bodyFont, 'Inter');
 
   return {
     '--dishora-bg': theme.backgroundColor,
@@ -159,6 +198,7 @@ export function generateThemeVariables(theme: ThemeConfig): React.CSSProperties 
     '--dishora-accent': theme.accentColor,
     '--dishora-secondary-accent': theme.secondaryAccentColor,
     '--dishora-border': border,
+    '--dishora-hover': isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
     '--dishora-card-radius': theme.cardRadius || '16px',
     '--dishora-button-radius': buttonRadius,
     '--card-radius': theme.cardRadius || '16px',
@@ -166,6 +206,24 @@ export function generateThemeVariables(theme: ThemeConfig): React.CSSProperties 
     '--font-body': bodyFontCss,
     '--font-serif': headingFontCss,
     '--font-sans': bodyFontCss,
-  } as React.CSSProperties;
+    fontFamily: bodyFontCss,
+  } as CSSProperties;
+}
+
+/**
+ * Generates typography-only CSS variables for staff KDS / order panels so they
+ * mirror the owner's configured heading and body fonts while preserving dark high-contrast surfaces.
+ */
+export function generateStaffTypographyVars(theme?: Partial<ThemeConfig> | null): CSSProperties {
+  const headingFontCss = buildFontCssStack(theme?.headingFont, 'Plus Jakarta Sans');
+  const bodyFontCss = buildFontCssStack(theme?.bodyFont, 'Inter');
+
+  return {
+    '--font-heading': headingFontCss,
+    '--font-body': bodyFontCss,
+    '--font-serif': headingFontCss,
+    '--font-sans': bodyFontCss,
+    fontFamily: bodyFontCss,
+  } as CSSProperties;
 }
 

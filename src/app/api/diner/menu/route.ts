@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getCache } from '@/lib/cache/redis';
+import { normalizeThemeFont } from '@/lib/theme/theme-presets';
+import { isWifiVisibleToDiners } from '@/lib/wifi/wifi-qr';
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -26,6 +28,7 @@ export async function GET(req: Request) {
     include: {
       settings: true,
       theme: true,
+      orderingSettings: true,
       menus: {
         where: { active: true },
         include: {
@@ -45,6 +48,14 @@ export async function GET(req: Request) {
                   variants: {
                     orderBy: { sortOrder: 'asc' },
                   },
+                  modifierGroups: {
+                    orderBy: { sortOrder: 'asc' },
+                    include: {
+                      options: {
+                        orderBy: { sortOrder: 'asc' },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -57,6 +68,17 @@ export async function GET(req: Request) {
   if (!restaurant) {
     return NextResponse.json({ error: 'Restaurant not found' }, { status: 404 });
   }
+
+  const notifSettings = (restaurant.orderingSettings?.notificationSettings as Record<string, any>) || {};
+  const wifiConfig = isWifiVisibleToDiners(notifSettings?.wifi) ? notifSettings.wifi : null;
+
+  const normalizedTheme = restaurant.theme
+    ? {
+        ...restaurant.theme,
+        headingFont: normalizeThemeFont(restaurant.theme.headingFont, 'Plus Jakarta Sans'),
+        bodyFont: normalizeThemeFont(restaurant.theme.bodyFont, 'Inter'),
+      }
+    : null;
 
   const responseData = {
     restaurant: {
@@ -73,9 +95,12 @@ export async function GET(req: Request) {
       coverUrl: restaurant.coverUrl,
       googleReviewUrl: restaurant.googleReviewUrl,
       publicationState: restaurant.publicationState,
+      theme: normalizedTheme,
     },
     settings: restaurant.settings,
-    theme: restaurant.theme,
+    theme: normalizedTheme,
+    orderingSettings: restaurant.orderingSettings,
+    wifi: wifiConfig,
     menus: restaurant.menus,
   };
 

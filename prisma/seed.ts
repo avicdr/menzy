@@ -4,8 +4,14 @@ import crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
+function hashStaffPassword(plainText: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(plainText, salt, 100000, 64, 'sha512').toString('hex');
+  return `${salt}:${hash}`;
+}
+
 async function main() {
-  console.log('🌱 Starting Dishora database seeding...');
+  console.log('🌱 Starting Menzy database seeding...');
 
   // 1. Seed Plan Catalog
   const plans = [
@@ -15,7 +21,7 @@ async function main() {
       name: 'Starter (India)',
       country: 'IN',
       currency: 'INR',
-      priceMinor: 79900,
+      priceMinor: 99900,
       itemLimit: 50,
       imageCreditsMonthly: 15,
       aiQuestionsMonthly: 1000,
@@ -27,7 +33,7 @@ async function main() {
       name: 'Growth (India)',
       country: 'IN',
       currency: 'INR',
-      priceMinor: 149900,
+      priceMinor: 179900,
       itemLimit: 150,
       imageCreditsMonthly: 50,
       aiQuestionsMonthly: 5000,
@@ -39,7 +45,7 @@ async function main() {
       name: 'Pro (India)',
       country: 'IN',
       currency: 'INR',
-      priceMinor: 399900,
+      priceMinor: 269900,
       itemLimit: 9999,
       imageCreditsMonthly: 200,
       aiQuestionsMonthly: 20000,
@@ -361,7 +367,7 @@ async function main() {
       secondaryTextColor: '#7C695C',
       accentColor: '#B86D52',
       secondaryAccentColor: '#70816B',
-      headingFont: 'Instrument Serif',
+      headingFont: 'Lora',
       bodyFont: 'DM Sans',
       layoutMode: LayoutMode.GRID,
       cardRadius: '16px',
@@ -372,13 +378,50 @@ async function main() {
     },
   });
 
-  // Indian Tables
-  await prisma.table.createMany({
-    data: [
-      { restaurantId: indianRestaurant.id, tableLabel: 'Table 1', qrToken: 'cc_tbl_01' },
-      { restaurantId: indianRestaurant.id, tableLabel: 'Table 2', qrToken: 'cc_tbl_02' },
-      { restaurantId: indianRestaurant.id, tableLabel: 'Courtyard 5', qrToken: 'cc_tbl_05' },
-    ],
+  // Indian Tables - 9 Tables (Table 01 to Table 09)
+  const indianTableTokens = [
+    { name: 'Table 01', token: 'cc_tbl_token_01', section: 'Main Dining', cap: 2 },
+    { name: 'Table 02', token: 'cc_tbl_token_02', section: 'Main Dining', cap: 4 },
+    { name: 'Table 03', token: 'cc_tbl_token_03', section: 'Main Dining', cap: 4 },
+    { name: 'Table 04', token: 'cc_tbl_token_04', section: 'Main Dining', cap: 4 },
+    { name: 'Table 05', token: 'cc_tbl_token_05', section: 'Window Alcove', cap: 2 },
+    { name: 'Table 06', token: 'cc_tbl_token_06', section: 'Veranda', cap: 6 },
+    { name: 'Table 07', token: 'cc_tbl_token_07', section: 'Veranda', cap: 6 },
+    { name: 'Table 08', token: 'cc_tbl_token_08', section: 'Courtyard Garden', cap: 8 },
+    { name: 'Table 09', token: 'cc_tbl_token_09', section: 'Courtyard Garden', cap: 8 },
+  ];
+
+  for (const tbl of indianTableTokens) {
+    const qrTokenHash = crypto.createHash('sha256').update(tbl.token).digest('hex');
+    await prisma.restaurantTable.upsert({
+      where: { qrTokenHash },
+      update: { name: tbl.name, section: tbl.section, capacity: tbl.cap, isActive: true },
+      create: {
+        restaurantId: indianRestaurant.id,
+        name: tbl.name,
+        section: tbl.section,
+        capacity: tbl.cap,
+        qrTokenHash,
+        qrVersion: 1,
+        isActive: true,
+      },
+    });
+  }
+
+  // Indian Restaurant Ordering Settings
+  await prisma.restaurantOrderingSettings.upsert({
+    where: { restaurantId: indianRestaurant.id },
+    update: {},
+    create: {
+      restaurantId: indianRestaurant.id,
+      orderingEnabled: true,
+      acceptsNewOrders: true,
+      allowSpecialInstructions: true,
+      paymentMode: 'PAY_AT_COUNTER',
+      taxPercentage: 5.0,
+      serviceChargePercentage: 0.0,
+      maxActiveOrders: 50,
+    },
   });
 
   const indianMenu = await prisma.menu.create({
@@ -754,6 +797,182 @@ async function main() {
   });
   console.log('✅ The Gilded Fork (US) bistro seeded.');
 
+  // US Tables (Table 01 to Table 04)
+  const usTableTokens = [
+    { name: 'Table 01', token: 'us_tbl_token_01', section: 'Dining Room', cap: 2 },
+    { name: 'Table 02', token: 'us_tbl_token_02', section: 'Dining Room', cap: 4 },
+    { name: 'Table 03', token: 'us_tbl_token_03', section: 'Patio', cap: 4 },
+    { name: 'Table 04', token: 'us_tbl_token_04', section: 'Patio', cap: 6 },
+  ];
+
+  for (const tbl of usTableTokens) {
+    const qrTokenHash = crypto.createHash('sha256').update(tbl.token).digest('hex');
+    await prisma.restaurantTable.upsert({
+      where: { qrTokenHash },
+      update: { name: tbl.name, section: tbl.section, capacity: tbl.cap, isActive: true },
+      create: {
+        restaurantId: usRestaurant.id,
+        name: tbl.name,
+        section: tbl.section,
+        capacity: tbl.cap,
+        qrTokenHash,
+        qrVersion: 1,
+        isActive: true,
+      },
+    });
+  }
+
+  // US Restaurant Ordering Settings
+  await prisma.restaurantOrderingSettings.upsert({
+    where: { restaurantId: usRestaurant.id },
+    update: {},
+    create: {
+      restaurantId: usRestaurant.id,
+      orderingEnabled: true,
+      acceptsNewOrders: true,
+      allowSpecialInstructions: true,
+      paymentMode: 'PAY_AT_COUNTER',
+      taxPercentage: 8.5,
+      serviceChargePercentage: 4.0,
+      maxActiveOrders: 30,
+    },
+  });
+
+  // Seed Staff Accounts
+  const staffHash = hashStaffPassword('dishora2026!');
+
+  await prisma.restaurantStaff.upsert({
+    where: { loginId: 'manager-chai' },
+    update: { passwordHash: staffHash, isActive: true },
+    create: {
+      restaurantId: indianRestaurant.id,
+      displayName: 'Vikram Mehta (Floor Manager)',
+      loginId: 'manager-chai',
+      passwordHash: staffHash,
+      role: 'MANAGER',
+      isActive: true,
+    },
+  });
+
+  await prisma.restaurantStaff.upsert({
+    where: { loginId: 'kitchen-chai' },
+    update: { passwordHash: staffHash, isActive: true },
+    create: {
+      restaurantId: indianRestaurant.id,
+      displayName: 'Chef Ramesh (Head Chef)',
+      loginId: 'kitchen-chai',
+      passwordHash: staffHash,
+      role: 'KITCHEN',
+      isActive: true,
+    },
+  });
+
+  await prisma.restaurantStaff.upsert({
+    where: { loginId: 'waiter-chai' },
+    update: { passwordHash: staffHash, isActive: true },
+    create: {
+      restaurantId: indianRestaurant.id,
+      displayName: 'Anil Kumar (Lead Server)',
+      loginId: 'waiter-chai',
+      passwordHash: staffHash,
+      role: 'WAITER',
+      isActive: true,
+    },
+  });
+
+  await prisma.restaurantStaff.upsert({
+    where: { loginId: 'kitchen-gilded' },
+    update: { passwordHash: staffHash, isActive: true },
+    create: {
+      restaurantId: usRestaurant.id,
+      displayName: 'Chef Julien (Executive Chef)',
+      loginId: 'kitchen-gilded',
+      passwordHash: staffHash,
+      role: 'KITCHEN',
+      isActive: true,
+    },
+  });
+
+  // Seed Dish Modifiers
+  const chaiItem = await prisma.restaurantMenuItem.findFirst({
+    where: { restaurantId: indianRestaurant.id, customName: { contains: 'Chai' } },
+  });
+  if (chaiItem) {
+    const sizeGroup = await prisma.menuModifierGroup.create({
+      data: {
+        restaurantMenuItemId: chaiItem.id,
+        name: 'Cup Size',
+        required: true,
+        minSelections: 1,
+        maxSelections: 1,
+        sortOrder: 1,
+      },
+    });
+    await prisma.menuModifierOption.createMany({
+      data: [
+        { modifierGroupId: sizeGroup.id, name: 'Clay Kulhad (Standard)', priceMinor: 0, sortOrder: 1 },
+        { modifierGroupId: sizeGroup.id, name: 'Sharing Pot (Serves 2)', priceMinor: 12000, sortOrder: 2 },
+      ],
+    });
+
+    const milkGroup = await prisma.menuModifierGroup.create({
+      data: {
+        restaurantMenuItemId: chaiItem.id,
+        name: 'Milk Preference',
+        required: false,
+        minSelections: 0,
+        maxSelections: 1,
+        sortOrder: 2,
+      },
+    });
+    await prisma.menuModifierOption.createMany({
+      data: [
+        { modifierGroupId: milkGroup.id, name: 'A2 Farm Cow Milk', priceMinor: 0, sortOrder: 1 },
+        { modifierGroupId: milkGroup.id, name: 'Oat Milk', priceMinor: 5000, sortOrder: 2 },
+      ],
+    });
+  }
+
+  const coffeeItem = await prisma.restaurantMenuItem.findFirst({
+    where: { restaurantId: usRestaurant.id, customName: { contains: 'Flat White' } },
+  });
+  if (coffeeItem) {
+    const milkGroup = await prisma.menuModifierGroup.create({
+      data: {
+        restaurantMenuItemId: coffeeItem.id,
+        name: 'Milk Preference',
+        required: false,
+        minSelections: 0,
+        maxSelections: 1,
+        sortOrder: 1,
+      },
+    });
+    await prisma.menuModifierOption.createMany({
+      data: [
+        { modifierGroupId: milkGroup.id, name: 'Minor Figures Oat Milk', priceMinor: 0, sortOrder: 1 },
+        { modifierGroupId: milkGroup.id, name: 'House Almond Milk', priceMinor: 75, sortOrder: 2 },
+        { modifierGroupId: milkGroup.id, name: 'Organic Whole Milk', priceMinor: 0, sortOrder: 3 },
+      ],
+    });
+
+    const extraGroup = await prisma.menuModifierGroup.create({
+      data: {
+        restaurantMenuItemId: coffeeItem.id,
+        name: 'Add-ons',
+        required: false,
+        minSelections: 0,
+        maxSelections: 2,
+        sortOrder: 2,
+      },
+    });
+    await prisma.menuModifierOption.createMany({
+      data: [
+        { modifierGroupId: extraGroup.id, name: 'Extra Espresso Shot', priceMinor: 150, sortOrder: 1 },
+        { modifierGroupId: extraGroup.id, name: 'Vanilla Bean Syrup', priceMinor: 75, sortOrder: 2 },
+      ],
+    });
+  }
+
   // 6. Seed Founder Demo Menu ready for Claim Workflow: "Bakehouse 72 Artisan Bakery"
   const demoRestaurant = await prisma.restaurant.create({
     data: {
@@ -778,7 +997,7 @@ async function main() {
       secondaryTextColor: '#8C6774',
       accentColor: '#D98A9B',
       secondaryAccentColor: '#70816B',
-      headingFont: 'Instrument Serif',
+      headingFont: 'Plus Jakarta Sans',
       bodyFont: 'Plus Jakarta Sans',
       layoutMode: LayoutMode.GRID,
       cardRadius: '20px',
@@ -836,7 +1055,7 @@ async function main() {
   });
 
   console.log(`✅ Founder demo restaurant seeded: /m/bakehouse-72-demo (Claim Token: ${rawClaimToken})`);
-  console.log('🎉 Dishora database seeding complete!');
+  console.log('🎉 Menzy database seeding complete!');
 }
 
 main()

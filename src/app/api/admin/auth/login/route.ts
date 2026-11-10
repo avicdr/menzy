@@ -4,7 +4,7 @@ import { verifyAdminPassword, createAdminToken, setAdminSessionCookie, logAdminA
 export async function POST(req: Request) {
   try {
     const { email, password } = await req.json();
-    const adminEmail = process.env.ADMIN_EMAIL || 'founder@dishora.app';
+    const adminEmail = process.env.ADMIN_EMAIL || 'founder@menzy.app';
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Email and password required' }, { status: 400 });

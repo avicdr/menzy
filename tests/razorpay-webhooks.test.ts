@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import crypto from 'crypto';
 import { verifyRazorpayWebhookSignature } from '../src/lib/payments/razorpay';
+import { PLAN_CATALOG } from '../src/lib/payments/plans';
 
 describe('Razorpay Webhook Signature Verification & Idempotency', () => {
   const secret = 'test_webhook_secret_key_12345';
@@ -33,6 +34,15 @@ describe('Razorpay Webhook Signature Verification & Idempotency', () => {
     const tamperedPayload = samplePayload + ' ';
     const result = verifyRazorpayWebhookSignature(tamperedPayload, validSignature, secret);
     expect(result).toBe(false);
+  });
+
+  it('exposes configured Menzy India pricing tiers (999, 1799, 2699)', () => {
+    expect(PLAN_CATALOG.IN_STARTER.priceMinor).toBe(99900);
+    expect(PLAN_CATALOG.IN_STARTER.monthlyPriceFormatted).toBe('₹999/mo');
+    expect(PLAN_CATALOG.IN_GROWTH.priceMinor).toBe(179900);
+    expect(PLAN_CATALOG.IN_GROWTH.monthlyPriceFormatted).toBe('₹1,799/mo');
+    expect(PLAN_CATALOG.IN_PRO.priceMinor).toBe(269900);
+    expect(PLAN_CATALOG.IN_PRO.monthlyPriceFormatted).toBe('₹2,699/mo');
   });
 });
 

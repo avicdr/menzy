@@ -17,6 +17,8 @@ import {
   ChevronDown,
   Menu,
   X,
+  ChefHat,
+  Users,
 } from 'lucide-react';
 
 interface DashboardNavProps {
@@ -44,7 +46,9 @@ export function DashboardNav({
     { label: 'Illustration Lab', icon: Sparkles, tab: 'illustrations' },
     { label: 'Theme Studio', icon: Palette, tab: 'theme' },
     { label: 'AI Waiter', icon: Bot, tab: 'ai' },
-    { label: 'QR Studio', icon: QrCode, tab: 'qr' },
+    { label: 'Tables & QR Codes', icon: QrCode, tab: 'tables' },
+    { label: 'Live Orders & POS', icon: ChefHat, tab: 'orders' },
+    { label: 'Staff & Access', icon: Users, tab: 'staff' },
     { label: 'Analytics', icon: BarChart3, tab: 'analytics' },
     { label: 'Settings', icon: Settings, tab: 'settings' },
     { label: 'Billing & Usage', icon: CreditCard, tab: 'billing' },
@@ -61,17 +65,17 @@ export function DashboardNav({
   };
 
   const SidebarContent = () => (
-    <div className="flex flex-col justify-between h-full">
-      <div>
+    <div className="flex flex-col h-full bg-cream-50">
+      <div className="shrink-0">
         {/* Brand Logo & Tagline */}
         <div className="p-5 sm:p-6 border-b border-cream-200 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-espresso-900 text-cream-100 flex items-center justify-center font-serif text-xl font-bold shadow-sm shrink-0">
-              D
+              M
             </div>
             <div>
               <span className="font-serif text-xl font-bold tracking-tight text-espresso-900">
-                Dishora
+                Menzy
               </span>
               <span className="block text-[10px] font-sans text-taupe-500 tracking-wider uppercase">
                 Owner Console
@@ -127,32 +131,32 @@ export function DashboardNav({
             </a>
           </div>
         </div>
-
-        {/* Nav Links */}
-        <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-260px)]">
-          {navItems.map((item) => {
-            const isActive = currentTab === item.tab;
-
-            return (
-              <button
-                key={item.tab}
-                onClick={() => handleTabClick(item.tab)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left ${
-                  isActive
-                    ? 'bg-espresso-900 text-cream-50 shadow-sm'
-                    : 'text-espresso-700 hover:bg-cream-200/70 hover:text-espresso-900'
-                }`}
-              >
-                <item.icon className="w-4 h-4 shrink-0" />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
       </div>
 
+      {/* Nav Links */}
+      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+        {navItems.map((item) => {
+          const isActive = currentTab === item.tab;
+
+          return (
+            <button
+              key={item.tab}
+              onClick={() => handleTabClick(item.tab)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left ${
+                isActive
+                  ? 'bg-espresso-900 text-cream-50 shadow-sm'
+                  : 'text-espresso-700 hover:bg-cream-200/70 hover:text-espresso-900'
+              }`}
+            >
+              <item.icon className="w-4 h-4 shrink-0" />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
       {/* Footer user & logout */}
-      <div className="p-4 border-t border-cream-200 bg-cream-100/50">
+      <div className="shrink-0 p-4 border-t border-cream-200 bg-cream-100/50">
         <div className="flex items-center justify-between">
           <div className="min-w-0 pr-2">
             <p className="text-xs font-semibold text-espresso-900 truncate">{userEmail}</p>
@@ -184,7 +188,7 @@ export function DashboardNav({
           </button>
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-espresso-900 text-cream-100 flex items-center justify-center font-serif text-sm font-bold shadow-sm">
-              D
+              M
             </div>
             <div className="min-w-0">
               <span className="font-serif text-sm font-bold text-espresso-900 truncate block max-w-[150px] sm:max-w-xs">
@@ -223,7 +227,7 @@ export function DashboardNav({
       </div>
 
       {/* Desktop Persistent Sidebar (>= lg) */}
-      <aside className="hidden lg:flex w-64 bg-cream-50 border-r border-cream-300 flex-col justify-between shrink-0 h-screen sticky top-0 z-20">
+      <aside className="hidden lg:flex w-64 bg-cream-50 border-r border-cream-300 flex-col justify-between shrink-0 h-screen sticky top-0 self-start z-20">
         <SidebarContent />
       </aside>
     </>

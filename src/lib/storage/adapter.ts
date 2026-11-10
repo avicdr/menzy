@@ -12,7 +12,7 @@ export async function uploadAsset(
   buffer: Buffer,
   filename: string,
   mimeType: string,
-  folder: 'menus' | 'illustrations' | 'photos' | 'qr' = 'illustrations'
+  folder: 'menus' | 'illustrations' | 'photos' | 'qr' | 'banners' = 'illustrations'
 ): Promise<StorageUploadResult> {
   const cleanName = `${Date.now()}-${filename.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
   const storageKey = `${folder}/${cleanName}`;

@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
-import { validateThemeAccessibility } from '@/lib/theme/theme-presets';
+import { normalizeThemeFont, validateThemeAccessibility } from '@/lib/theme/theme-presets';
 import prisma from '@/lib/db/prisma';
 import { getCache } from '@/lib/cache/redis';
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { restaurantId, isPublishing, ...themeFields } = body;
+    const { restaurantId, isPublishing, ...rawThemeFields } = body;
 
     if (!restaurantId) {
       return NextResponse.json({ error: 'restaurantId required' }, { status: 400 });
@@ -17,6 +17,16 @@ export async function POST(req: Request) {
     if (!auth.authorized) {
       return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
     }
+
+    const themeFields = {
+      ...rawThemeFields,
+      ...(rawThemeFields.headingFont !== undefined
+        ? { headingFont: normalizeThemeFont(rawThemeFields.headingFont, 'Plus Jakarta Sans') }
+        : {}),
+      ...(rawThemeFields.bodyFont !== undefined
+        ? { bodyFont: normalizeThemeFont(rawThemeFields.bodyFont, 'Inter') }
+        : {}),
+    };
 
     // Check accessibility & contrast
     const accessCheck = validateThemeAccessibility(themeFields);
@@ -46,10 +56,9 @@ export async function POST(req: Request) {
       },
     });
 
-    if (isPublishing) {
-      const cache = getCache();
-      await cache.del(`menu:slug:${auth.restaurant.slug}`);
-    }
+    // Always invalidate diner menu cache so saved or published fonts/styles apply immediately
+    const cache = getCache();
+    await cache.del(`menu:slug:${auth.restaurant.slug}`);
 
     return NextResponse.json({
       success: true,

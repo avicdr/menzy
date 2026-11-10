@@ -105,7 +105,10 @@ model Restaurant {
   organization     Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   settings         RestaurantSettings?
   theme            RestaurantTheme?
-  tables           Table[]
+  tables           RestaurantTable[]
+  staff            RestaurantStaff[]
+  orders           Order[]
+  orderingSettings RestaurantOrderingSettings?
   menus            Menu[]
   menuItems        RestaurantMenuItem[]
   uploads          MenuUpload[]
@@ -161,8 +164,8 @@ model RestaurantTheme {
   secondaryTextColor   String      @default("#7C695C")
   accentColor          String      @default("#B86D52")
   secondaryAccentColor String      @default("#70816B")
-  headingFont          String      @default("Instrument Serif")
-  bodyFont             String      @default("DM Sans")
+  headingFont          String      @default("Plus Jakarta Sans")
+  bodyFont             String      @default("Inter")
   layoutMode           LayoutMode  @default(GRID)
   cardRadius           String      @default("16px")
   buttonStyle          String      @default("rounded") // rounded, pill, sharp
@@ -177,20 +180,27 @@ model RestaurantTheme {
   restaurant           Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 }
 
-model Table {
-  id           String      @id @default(uuid())
+model RestaurantTable {
+  id           String         @id @default(uuid())
   restaurantId String
-  tableLabel   String
-  qrToken      String      @unique
-  active       Boolean     @default(true)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  name         String
+  section      String?        @default("Main Dining")
+  capacity     Int?           @default(4)
+  qrTokenHash  String         @unique
+  qrVersion    Int            @default(1)
+  isActive     Boolean        @default(true)
+  isArchived   Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
-  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  restaurant   Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orders       Order[]
+  dinerSessions DinerSession[]
   scanEvents   ScanEvent[]
 
-  @@unique([restaurantId, tableLabel])
+  @@unique([restaurantId, name])
   @@index([restaurantId])
+  @@index([qrTokenHash])
 }
 
 // ----------------------------------------------------
@@ -285,6 +295,8 @@ model RestaurantMenuItem {
   canonical             CanonicalDish?    @relation(fields: [canonicalId], references: [id], onDelete: SetNull)
   imageOverride         Asset?            @relation("MenuItemImageOverride", fields: [imageOverrideAssetId], references: [id], onDelete: SetNull)
   variants              DishVariant[]
+  modifierGroups        MenuModifierGroup[]
+  orderItems            OrderItem[]
   generationJobs        GenerationJob[]
   dishInteractions      DishInteractionEvent[]
 
@@ -700,17 +712,19 @@ model RateLimitPolicy {
 // ----------------------------------------------------
 
 model DinerSession {
-  id           String        @id @default(uuid())
-  sessionToken String        @unique
+  id           String           @id @default(uuid())
+  sessionToken String           @unique
   restaurantId String
   tableId      String?
   ipHash       String?
   userAgent    String?
-  lastActiveAt DateTime      @default(now())
-  createdAt    DateTime      @default(now())
+  lastActiveAt DateTime         @default(now())
+  createdAt    DateTime         @default(now())
 
-  restaurant   Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  restaurant   Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table        RestaurantTable? @relation(fields: [tableId], references: [id], onDelete: SetNull)
   messages     ChatMessage[]
+  orders       Order[]
 
   @@index([restaurantId])
   @@index([sessionToken])
@@ -743,8 +757,8 @@ model ScanEvent {
   ipHash       String?
   timestamp    DateTime    @default(now())
 
-  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  table        Table?      @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  restaurant   Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table        RestaurantTable? @relation(fields: [tableId], references: [id], onDelete: SetNull)
 
   @@index([restaurantId])
   @@index([timestamp])
@@ -858,5 +872,209 @@ model Notification {
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
+}
+
+// ----------------------------------------------------
+// 10. Table QR, Web Ordering & Restaurant Orders
+// ----------------------------------------------------
+
+enum StaffRole {
+  OWNER
+  MANAGER
+  KITCHEN
+  WAITER
+}
+
+model RestaurantStaff {
+  id            String               @id @default(uuid())
+  restaurantId  String
+  displayName   String
+  loginId       String               @unique
+  passwordHash  String
+  role          StaffRole            @default(KITCHEN)
+  isActive      Boolean              @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  restaurant    Restaurant           @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  sessions      StaffSession[]
+  statusHistory OrderStatusHistory[]
+
+  @@index([restaurantId])
+  @@index([loginId])
+}
+
+model StaffSession {
+  id               String          @id @default(uuid())
+  staffId          String
+  sessionTokenHash String          @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime        @default(now())
+
+  staff            RestaurantStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([staffId])
+  @@index([sessionTokenHash])
+}
+
+enum OrderStatus {
+  PLACED
+  ACCEPTED
+  PREPARING
+  READY
+  SERVED
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+}
+
+enum OrderActorType {
+  STAFF
+  DINER
+  SYSTEM
+}
+
+model Order {
+  id                  String               @id @default(uuid())
+  restaurantId        String
+  tableId             String
+  dinerSessionId      String?
+  orderNumber         String
+  status              OrderStatus          @default(PLACED)
+  currency            String               @default("INR")
+  subtotalMinor       Int
+  taxMinor            Int                  @default(0)
+  serviceChargeMinor  Int                  @default(0)
+  totalMinor          Int
+  paymentMethod       String               @default("PAY_AT_COUNTER")
+  paymentStatus       PaymentStatus        @default(PENDING)
+  specialInstructions String?
+  placedAt            DateTime             @default(now())
+  acceptedAt          DateTime?
+  preparingAt         DateTime?
+  readyAt             DateTime?
+  servedAt            DateTime?
+  completedAt         DateTime?
+  cancelledAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  restaurant          Restaurant           @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table               RestaurantTable      @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  dinerSession        DinerSession?        @relation(fields: [dinerSessionId], references: [id], onDelete: SetNull)
+  items               OrderItem[]
+  statusHistory       OrderStatusHistory[]
+  events              OrderEvent[]
+
+  @@unique([restaurantId, orderNumber])
+  @@index([restaurantId, status, placedAt])
+  @@index([restaurantId, tableId, placedAt])
+  @@index([restaurantId, createdAt])
+}
+
+model OrderItem {
+  id                   String              @id @default(uuid())
+  orderId              String
+  restaurantMenuItemId String?
+  dishNameSnapshot     String
+  variantSnapshot      String?
+  modifierSnapshot     Json?
+  quantity             Int                 @default(1)
+  unitPriceMinor       Int
+  modifiersTotalMinor  Int                 @default(0)
+  lineTotalMinor       Int
+  specialInstructions  String?
+
+  order                Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem             RestaurantMenuItem? @relation(fields: [restaurantMenuItemId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([restaurantMenuItemId])
+}
+
+model OrderStatusHistory {
+  id               String           @id @default(uuid())
+  orderId          String
+  previousStatus   OrderStatus?
+  newStatus        OrderStatus
+  changedByStaffId String?
+  actorType        OrderActorType   @default(STAFF)
+  reason           String?
+  createdAt        DateTime         @default(now())
+
+  order            Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  staff            RestaurantStaff? @relation(fields: [changedByStaffId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([changedByStaffId])
+}
+
+model MenuModifierGroup {
+  id                   String               @id @default(uuid())
+  restaurantMenuItemId String
+  name                 String
+  required             Boolean              @default(false)
+  minSelections        Int                  @default(0)
+  maxSelections        Int                  @default(1)
+  sortOrder            Int                  @default(0)
+
+  menuItem             RestaurantMenuItem   @relation(fields: [restaurantMenuItemId], references: [id], onDelete: Cascade)
+  options              MenuModifierOption[]
+
+  @@index([restaurantMenuItemId])
+}
+
+model MenuModifierOption {
+  id              String            @id @default(uuid())
+  modifierGroupId String
+  name            String
+  priceMinor      Int               @default(0)
+  isAvailable     Boolean           @default(true)
+  sortOrder       Int               @default(0)
+
+  group           MenuModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
+
+  @@index([modifierGroupId])
+}
+
+model RestaurantOrderingSettings {
+  id                       String     @id @default(uuid())
+  restaurantId             String     @unique
+  orderingEnabled          Boolean    @default(true)
+  acceptsNewOrders         Boolean    @default(true)
+  orderingHours            Json?
+  allowSpecialInstructions Boolean    @default(true)
+  paymentMode              String     @default("PAY_AT_COUNTER")
+  notificationSettings     Json?
+  maxActiveOrders          Int        @default(50)
+  autoRejectWhenClosed     Boolean    @default(false)
+  taxPercentage            Float      @default(5.0)
+  serviceChargePercentage  Float      @default(0.0)
+  createdAt                DateTime   @default(now())
+  updatedAt                DateTime   @updatedAt
+
+  restaurant               Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+}
+
+model OrderEvent {
+  id           String   @id @default(uuid())
+  restaurantId String
+  orderId      String
+  eventType    String
+  payload      Json
+  createdAt    DateTime @default(now())
+
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, createdAt])
+  @@index([orderId])
 }
 

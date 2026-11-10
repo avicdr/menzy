@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#FCFAF7" />
+      <stop offset="100%" stop-color="#EDE4D6" />
+    </radialGradient>
+    <filter id="clayShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#35271F" flood-opacity="0.15" />
+    </filter>
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.08" />
+    </filter>
+  </defs>
+  <rect width="600" height="600" rx="36" fill="url(#bgGrad)" />
+
+  <!-- Ceramic Serving Plate -->
+  <ellipse cx="300" cy="350" rx="210" ry="120" fill="#E2D7C5" opacity="0.4" filter="url(#clayShadow)" />
+  <ellipse cx="300" cy="340" rx="200" ry="110" fill="#FAF7F2" stroke="#DFD3C2" stroke-width="4" />
+  <ellipse cx="300" cy="340" rx="160" ry="85" fill="#F3ECE0" stroke="#DDD0BD" stroke-width="2" />
+
+  <!-- 3D Clay Food Composition -->
+  <ellipse cx="300" cy="325" rx="110" ry="60" fill="#B86D52" filter="url(#softGlow)" />
+  <circle cx="260" cy="305" r="48" fill="#D98A5F" filter="url(#softGlow)" />
+  <circle cx="335" cy="315" r="40" fill="#70816B" filter="url(#softGlow)" />
+  <circle cx="295" cy="285" r="32" fill="#E89B74" />
+  <circle cx="310" cy="330" r="24" fill="#E9DDCC" />
+
+  <!-- Garnish -->
+  <path d="M290 260 C 315 240, 330 250, 320 270 C 305 285, 275 275, 290 260 Z" fill="#70816B" />
+  <path d="M270 290 C 285 280, 295 288, 290 300 C 280 308, 260 300, 270 290 Z" fill="#70816B" opacity="0.9" />
+
+  <!-- Brand Plate Badge -->
+  <rect x="150" y="480" width="300" height="52" rx="26" fill="#35271F" opacity="0.9" filter="url(#clayShadow)" />
+  <text x="300" y="513" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="700" fill="#F7F3EC" text-anchor="middle" letter-spacing="1">MENZY 3D CLAY STUDIO</text>
+</svg>
+

@@ -1,4 +1,4 @@
-# Dishora — Implementation Status & Architecture Log
+# Menzy — Implementation Status & Architecture Log
 
 **Tagline**: See it. Ask it. Crave it.  
 **Product**: Premium AI-Powered Interactive Digital Menus & AI Waiter for Restaurants  
@@ -10,7 +10,7 @@
 
 ## 1. Executive Summary
 
-Dishora is an operational, multi-tenant SaaS that converts printed/PDF restaurant menus into interactive, beautifully branded digital dining experiences. The entire application has been implemented, validated with a real PostgreSQL database, verified with automated Vitest test suites, and built with Next.js 15.
+Menzy is an operational, multi-tenant SaaS that converts printed/PDF restaurant menus into interactive, beautifully branded digital dining experiences. The complete table QR management, diner mobile web ordering, kitchen order terminal (KDS), and staff operations portal are fully built, backed by real database models and verified with automated test suites.
 
 ---
 
@@ -29,11 +29,12 @@ Dishora is an operational, multi-tenant SaaS that converts printed/PDF restauran
 | **Phase 9: Advanced Founder Operations** | Renewal watchlists (7d, 3d, 24h, past due, cancelled), complimentary entitlement overrides with audit logging, operational cost breakdown per model/venue | ✅ COMPLETE | Integrated in `/admin` console and `/api/admin/entitlements/grant` |
 | **Phase 10: QR Studio, Demos & Marketing** | Printable 4x6" table tents, high-res SVG and PNG QR generation, founder-created demo builder, private claim links (`/claim/[token]`), conversion marketing page | ✅ COMPLETE | Tested at `/api/qr/generate`, `/claim/[token]`, `/`, `/demo`, `/pricing` |
 | **Phase 11: Production Hardening, Tests & CI** | Automated Vitest test suite (12/12 passing), clean Next.js 15 production build (`next build` 39/39 pages) | ✅ COMPLETE | `npm run test` (0 errors), `npm run build` (0 errors) |
-| **Phase 12: Mobile & Multi-Device Responsiveness Overhaul** | Resolved mobile navigation squishing, added off-canvas slide-over drawer for owner dashboard, mobile top app bar, horizontal scroll wrappers on all data tables (Menu Studio, Subscriptions, Margins, Claims, Canonical), responsive phone preview in Theme Studio, and high-contrast dual-dish + AI sommelier preview on marketing site | ✅ COMPLETE | Verified 100% responsive on 320px, 375px, 768px, and 1280px viewports |
-| **Phase 13: Regional Plan Isolation, Zero Metric Fabrication & UX Polish** | Dynamic US/IN regional detection across landing page, signup and billing switcher. Replaced fabricated scan numbers with real zero-state database counts (`analyticsData?.scans?.today`). Replaced browser alerts with on-screen modal dialogs. Bound dynamic typography CSS variables (`--font-serif`, `--font-sans`) across theme studio and diner views. Optimized navbar scaling on narrow 320px viewports and high-contrast admin login inputs. | ✅ COMPLETE | Verified 41/41 routes built with zero errors, 12/12 Vitest tests passing |
-| **Phase 14: Strict Menu Extraction Error Handling & Zero Dummy Data** | Eliminated silent fallback to simulated dummy dishes (Cappuccino, Paneer Tikka, Avocado Tartine) when Gemini vision extraction fails or API key is unconfigured. Propagated genuine failure states to `MenuUpload` and `ExtractionJob`. Replaced browser alerts with an on-screen Menu Studio error banner guiding users to upload clear, focused images and try again. | ✅ COMPLETE | Tested with `tests/menu-extraction.test.ts` (14/14 tests passing), verified zero dummy data created |
-| **Phase 15: Admin Portal Styling Refinement & Credential Button Removal** | Added `espresso-950` (`#140E0A`) to Tailwind config to fix unstyled white input background boxes. Styled inputs with deep dark background (`bg-[#140E0A]`), crisp cream text (`text-cream-50`), and webkit autofill styling override. Completely removed the "Fill configured founder credentials" button and helper method. | ✅ COMPLETE | Tested and production-build verified across all 41 routes with zero errors |
-| **Phase 16: Super-Admin Visual Redesign & Dark Dropdown Contrast** | Overhauled `/admin` console with live system telemetry, elevated gradient KPI cards, modern pill navigation tabs with count badges, and dedicated search/filter inputs for restaurants, subscriptions, and canonical dishes. Solved white-on-white text in select dropdowns and browser autofill by applying `color-scheme: dark`, explicit dark option backgrounds (`#1A120D`), and scoped CSS overrides (`.admin-portal`). Replaced browser `prompt()` with a custom on-screen claim verification modal. | ✅ COMPLETE | 16/16 Vitest tests passing, 41/41 routes built with zero errors |
+| **Phase 12: Mobile & Multi-Device Responsiveness Overhaul** | Resolved mobile navigation squishing, added off-canvas slide-over drawer for owner dashboard, mobile top app bar, horizontal scroll wrappers on all data tables, responsive phone preview in Theme Studio | ✅ COMPLETE | Verified 100% responsive on 320px, 375px, 768px, and 1280px viewports |
+| **Phase 13: Regional Plan Isolation, Zero Metric Fabrication & UX Polish** | Dynamic US/IN regional detection across landing page, signup and billing switcher. Replaced fabricated scan numbers with real zero-state database counts. Replaced browser alerts with on-screen modal dialogs. Bound dynamic typography CSS variables across theme studio and diner views. | ✅ COMPLETE | Verified 41/41 routes built with zero errors, 12/12 Vitest tests passing |
+| **Phase 14: Strict Menu Extraction Error Handling & Zero Dummy Data** | Eliminated silent fallback to simulated dummy dishes when Gemini vision extraction fails or API key is unconfigured. Propagated genuine failure states to Menu Studio with actionable guidance. | ✅ COMPLETE | Tested with `tests/menu-extraction.test.ts` (14/14 tests passing), verified zero dummy data created |
+| **Phase 15: Admin Portal Styling Refinement & Credential Button Removal** | Added `espresso-950` to Tailwind config, deep dark inputs (`bg-[#140E0A]`), crisp cream text (`text-cream-50`), removed autofill buttons. | ✅ COMPLETE | Tested and production-build verified across all 41 routes with zero errors |
+| **Phase 16: Super-Admin Visual Redesign & Dark Dropdown Contrast** | Overhauled `/admin` console with elevated gradient KPI cards, modern pill navigation tabs with count badges, and dedicated search/filter inputs. | ✅ COMPLETE | 16/16 Vitest tests passing, 41/41 routes built with zero errors |
+| **Phase 17: Multi-Tenant Table Management, Web Ordering & Restaurant Staff Order Portal System** | Full database-backed table management (individual & bulk creation of 9+ tables, unguessable `tbl_` QR tokens, SHA-256 token hashing, token rotation, printable table tent exports). Customer Web Ordering with table session association, modifier groups, cart bottom sheet, strict server-side quote recalculation (`/api/diner/orders/quote`), in-person payment settlement, and live step-tracking modal. Operational staff portal (`/orders/login`, `/orders`, `/orders/history`) with role-based permissions (`OWNER`, `MANAGER`, `KITCHEN`, `WAITER`), Web Audio chime on incoming tickets, and transition enforcement. Owner dashboard tabs (`tables`, `orders`, `staff`) and Super-Admin operations telemetry. | ✅ COMPLETE | Tested with `tests/table-qr-ordering.test.ts` (34/34 tests passing), Next.js 15 production build (49/49 routes, 0 errors) |
 
 ---
 
@@ -41,15 +42,19 @@ Dishora is an operational, multi-tenant SaaS that converts printed/PDF restauran
 
 Running `npm run test`:
 ```
+ RUN  v3.2.7 D:/Code/askplate
+
  ✓ tests/rate-limiter.test.ts (2 tests)
  ✓ tests/tenant-isolation.test.ts (3 tests)
- ✓ tests/canonical-matching.test.ts (4 tests)
  ✓ tests/razorpay-webhooks.test.ts (3 tests)
+ ✓ tests/canonical-matching.test.ts (4 tests)
  ✓ tests/menu-extraction.test.ts (4 tests)
+ ✓ tests/table-qr-ordering.test.ts (18 tests)
 
-Test Files  5 passed (5)
-     Tests  16 passed (16)
-  Duration  994ms
+ Test Files  6 passed (6)
+      Tests  34 passed (34)
+   Start at  03:35:03
+   Duration  1.77s
 ```
 
 ---
@@ -60,9 +65,12 @@ Running `npm run build`:
 ```
    ▲ Next.js 15.5.29
    - Environments: .env
- ✓ Compiled successfully in 6.3s
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 6.6s
    Linting and checking validity of types ...
-   Generating static pages (41/41)
+   Collecting page data ...
+ ✓ Generating static pages (49/49)
    Finalizing page optimization ...
    Collecting build traces ...
  ✓ Build completed with 0 errors
@@ -70,14 +78,21 @@ Running `npm run build`:
 
 ---
 
-## 5. Seeded Accounts & Verification URLs
+## 5. Seeded Accounts & Operational Verification URLs
 
-- **Indian Café Demo**: `/m/chai-and-chutney`  
+- **Indian Café Demo**: `/m/chai-and-chutney` (Seeded with 9 active tables: Table 01 – Table 09)
   - Owner: `aarav@chaiandchutney.in` / `dishora2026!`
-- **US Bistro Demo**: `/m/the-gilded-fork`  
+  - Manager Terminal: `manager-chai` / `dishora2026!`
+  - Kitchen Display System: `kitchen-chai` / `dishora2026!`
+  - Floor Waiter: `waiter-chai` / `dishora2026!`
+- **US Bistro Demo**: `/m/the-gilded-fork` (Seeded with 4 tables: Table 01 – Table 04)
   - Owner: `elena@gildedbistro.com` / `dishora2026!`
-- **Founder Demo (Unclaimed)**: `/m/bakehouse-72-demo`  
-  - Claim Link: `/claim/demo-claim-bakehouse72-secret2026`
-- **Owner Dashboard**: `/dashboard`
-- **Founder Console**: `/admin`  
-  - Login at `/admin/login`: `founder@dishora.app` / `dishora2026!`
+  - Kitchen Display System: `kitchen-gilded` / `dishora2026!`
+- **Founder Super-Admin Portal**: `/admin`
+  - Login at `/admin/login`: `founder@menzy.app` / `dishora2026!`
+  - Includes dedicated **Orders & Tables Operations** telemetry tracking platform GMV and active orders.
+- **Kitchen & Staff POS Terminal**: `/orders/login` -> `/orders` (Live Kanban) -> `/orders/history`
+- **Owner Dashboard Tabs**:
+  - Tables & Table QR Codes: `/dashboard/[id]?tab=tables`
+  - Live Orders & POS Management: `/dashboard/[id]?tab=orders`
+  - Staff & Kitchen Access: `/dashboard/[id]?tab=staff`

@@ -52,33 +52,37 @@ export async function POST(req: Request) {
 
     // 3. Persist chat message if session exists
     if (sessionToken) {
-      const dinerSession = await prisma.dinerSession.findUnique({
-        where: { sessionToken },
-      });
-
-      if (dinerSession) {
-        await prisma.chatMessage.createMany({
-          data: [
-            {
-              sessionId: dinerSession.id,
-              restaurantId,
-              sender: 'USER',
-              content: message,
-            },
-            {
-              sessionId: dinerSession.id,
-              restaurantId,
-              sender: 'ASSISTANT',
-              content: response.message,
-              recommendedDishIds: response.dishIds,
-              metadata: {
-                selectedDishId: response.selectedDishId,
-                pairingDishId: response.pairingDishId,
-                safetyNotice: response.safetyNotice,
-              },
-            },
-          ],
+      try {
+        const dinerSession = await prisma.dinerSession.findUnique({
+          where: { sessionToken },
         });
+
+        if (dinerSession) {
+          await prisma.chatMessage.createMany({
+            data: [
+              {
+                sessionId: dinerSession.id,
+                restaurantId,
+                sender: 'USER',
+                content: message,
+              },
+              {
+                sessionId: dinerSession.id,
+                restaurantId,
+                sender: 'ASSISTANT',
+                content: response.message,
+                recommendedDishIds: response.dishIds,
+                metadata: {
+                  selectedDishId: response.selectedDishId,
+                  pairingDishId: response.pairingDishId,
+                  safetyNotice: response.safetyNotice,
+                },
+              },
+            ],
+          });
+        }
+      } catch (persistErr) {
+        console.warn('Failed to persist diner chat transcript:', persistErr);
       }
     }
 

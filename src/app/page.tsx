@@ -44,38 +44,40 @@ export default function MarketingLandingPage() {
   const plans = Object.values(PLAN_CATALOG).filter((p) => p.country === pricingCountry);
 
   return (
-    <div className="min-h-screen bg-[#F7F3EC] text-espresso-900 selection:bg-terracotta-200 overflow-x-hidden">
-      {/* Navigation Bar */}
-      <nav className="max-w-7xl mx-auto px-3.5 sm:px-8 py-3.5 sm:py-6 flex items-center justify-between">
-        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-espresso-900 text-cream-100 flex items-center justify-center font-serif text-lg sm:text-xl font-bold shadow-sm">
-            D
+    <div className="min-h-screen bg-[#F7F3EC] text-espresso-900 selection:bg-terracotta-200 overflow-x-clip">
+      {/* Sticky Navigation Bar */}
+      <header className="sticky top-0 z-40 w-full bg-[#F7F3EC]/95 backdrop-blur-md border-b border-cream-300/70">
+        <nav className="max-w-7xl mx-auto px-3.5 sm:px-8 py-3 sm:py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-espresso-900 text-cream-100 flex items-center justify-center font-serif text-lg sm:text-xl font-bold shadow-sm">
+              M
+            </div>
+            <span className="font-serif text-xl sm:text-2xl font-bold text-espresso-900 tracking-tight">Menzy</span>
           </div>
-          <span className="font-serif text-xl sm:text-2xl font-bold text-espresso-900 tracking-tight">Dishora</span>
-        </div>
 
-        <div className="hidden md:flex items-center gap-8 text-sm font-medium text-taupe-700">
-          <Link href="#how-it-works" className="hover:text-espresso-900 transition-colors">How It Works</Link>
-          <Link href="#preview" className="hover:text-espresso-900 transition-colors">Diner Preview</Link>
-          <Link href="#pricing" className="hover:text-espresso-900 transition-colors">Pricing</Link>
-          <Link href="/m/chai-and-chutney" className="hover:text-espresso-900 transition-colors">Live Menu</Link>
-        </div>
+          <div className="hidden md:flex items-center gap-8 text-sm font-medium text-taupe-700">
+            <Link href="#how-it-works" className="hover:text-espresso-900 transition-colors">How It Works</Link>
+            <Link href="#preview" className="hover:text-espresso-900 transition-colors">Diner Preview</Link>
+            <Link href="#pricing" className="hover:text-espresso-900 transition-colors">Pricing</Link>
+            <Link href="/m/chai-and-chutney" className="hover:text-espresso-900 transition-colors">Live Menu</Link>
+          </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-          <Link
-            href="/login"
-            className="px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-espresso-800 hover:text-espresso-950 transition-colors whitespace-nowrap"
-          >
-            Sign In
-          </Link>
-          <Link
-            href="/signup"
-            className="px-3.5 sm:px-5 py-1.5 sm:py-2.5 rounded-full bg-espresso-900 text-white text-xs sm:text-sm font-semibold hover:bg-espresso-800 active:scale-95 transition-all shadow-sm whitespace-nowrap"
-          >
-            Create Menu
-          </Link>
-        </div>
-      </nav>
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+            <Link
+              href="/login"
+              className="px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-espresso-800 hover:text-espresso-950 transition-colors whitespace-nowrap"
+            >
+              Sign In
+            </Link>
+            <Link
+              href="/signup"
+              className="px-3.5 sm:px-5 py-1.5 sm:py-2.5 rounded-full bg-espresso-900 text-white text-xs sm:text-sm font-semibold hover:bg-espresso-800 active:scale-95 transition-all shadow-sm whitespace-nowrap"
+            >
+              Create Menu
+            </Link>
+          </div>
+        </nav>
+      </header>
 
       {/* Hero Section */}
       <section className="max-w-5xl mx-auto px-4 sm:px-6 pt-10 sm:pt-20 pb-16 text-center space-y-6">
@@ -378,7 +380,7 @@ export default function MarketingLandingPage() {
       <footer className="border-t border-cream-300 bg-cream-50 py-10 px-4 sm:px-8">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-taupe-500 text-center sm:text-left">
           <div className="flex items-center gap-2 font-serif text-base font-bold text-espresso-900">
-            <span>Dishora</span>
+            <span>Menzy</span>
             <span className="text-xs font-sans font-normal text-taupe-500">
               — See it. Ask it. Crave it.
             </span>
@@ -391,7 +393,7 @@ export default function MarketingLandingPage() {
           </div>
 
           <div>
-            &copy; {new Date().getFullYear()} Dishora Hospitality AI.
+            &copy; {new Date().getFullYear()} Menzy Hospitality AI.
           </div>
         </div>
       </footer>

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ThinkingLevel } from '@google/genai';
 import { getGenAIClient, getTextModelName } from './client';
 import prisma from '../db/prisma';
 
@@ -13,13 +14,42 @@ export const DinerAIResponseSchema = z.object({
 
 export type DinerAIResponse = z.infer<typeof DinerAIResponseSchema>;
 
+export const DEFAULT_GEMINI_CHAT_TIMEOUT_MS = 10000;
+
+export function parseGeminiJsonResponse(responseText: string): any {
+  const cleaned = (responseText || '')
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  if (!cleaned) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+    }
+    throw new Error('Malformed JSON returned by Gemini model');
+  }
+}
+
 export async function processDinerQuery(params: {
   restaurantId: string;
   userMessage: string;
   selectedDishId?: string | null;
   history?: Array<{ sender: string; content: string }>;
+  timeoutMs?: number;
 }): Promise<DinerAIResponse> {
   const startTime = Date.now();
+  const timeoutMs =
+    params.timeoutMs ??
+    (Number(process.env.GEMINI_CHAT_TIMEOUT_MS) || DEFAULT_GEMINI_CHAT_TIMEOUT_MS);
 
   // 1. Load published & available menu items for this restaurant
   const items = await prisma.restaurantMenuItem.findMany({
@@ -110,24 +140,46 @@ CRITICAL RULES:
      "selectedDishId": "uuid-or-null",
      "pairingDishId": "uuid-or-null",
      "suggestedQuestions": ["1-3 short follow-up questions"],
-     "safetyNotice": "string or null"
+     "safetyNotice": "string ONLY when allergy/medical safety caution applies, otherwise null"
    }`;
 
       const userPrompt = `Diner says: "${params.userMessage}".
 Selected dish context: ${focusedDish ? focusedDish.customName : 'None'}.
 Available menu snapshot: ${JSON.stringify(sanitizedMenu)}`;
 
-      const response = await client.models.generateContent({
-        model: modelName,
-        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-        config: {
-          systemInstruction: systemPrompt,
-          responseMimeType: 'application/json',
-        },
-      });
+      const controller = new AbortController();
+      let requestTimer: ReturnType<typeof setTimeout> | undefined;
+      let raceTimer: ReturnType<typeof setTimeout> | undefined;
 
-      const responseText = response.text || '{}';
-      const parsed = JSON.parse(responseText);
+      let response: any;
+      try {
+        requestTimer = setTimeout(() => {
+          controller.abort(new Error('GEMINI_CHAT_TIMEOUT'));
+        }, timeoutMs);
+
+        response = await Promise.race([
+          client.models.generateContent({
+            model: modelName,
+            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+            config: {
+              systemInstruction: systemPrompt,
+              responseMimeType: 'application/json',
+              thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+              abortSignal: controller.signal,
+              httpOptions: { timeout: timeoutMs },
+            },
+          }),
+          new Promise<never>((_, reject) => {
+            raceTimer = setTimeout(() => reject(new Error('GEMINI_CHAT_TIMEOUT')), timeoutMs + 250);
+          }),
+        ]);
+      } finally {
+        if (requestTimer) clearTimeout(requestTimer);
+        if (raceTimer) clearTimeout(raceTimer);
+      }
+
+      const responseText = response?.text || '{}';
+      const parsed = parseGeminiJsonResponse(responseText);
 
       // Sanitize returned IDs against actual published items
       const sanitizedDishIds = Array.isArray(parsed.dishIds)
@@ -144,7 +196,7 @@ Available menu snapshot: ${JSON.stringify(sanitizedMenu)}`;
           ? parsed.pairingDishId
           : null;
 
-      // Record AI usage event
+      // Record AI usage event (non-blocking if tracking fails)
       const latencyMs = Date.now() - startTime;
       await prisma.aIUsageEvent.create({
         data: {
@@ -157,7 +209,7 @@ Available menu snapshot: ${JSON.stringify(sanitizedMenu)}`;
           status: 'SUCCESS',
           latencyMs,
         },
-      });
+      }).catch((e) => console.warn('AIUsageEvent log failed:', e));
 
       return {
         message: parsed.message || "Here are our recommendations from the menu.",
@@ -224,16 +276,33 @@ Available menu snapshot: ${JSON.stringify(sanitizedMenu)}`;
     suggestedQuestions = ["How much protein does it have?", "What drink pairs with it?", "Is it spicy?"];
   } else if (queryLower.includes('vegetarian') || queryLower.includes('veg')) {
     const vegItems = items.filter((i) => {
-      const dietary = (i.dietaryStatus as string[]) || [];
-      return dietary.includes('VEGETARIAN') || dietary.includes('VEGAN');
+      const dietary = ((i.dietaryStatus as string[]) || []).map((tag) => String(tag).toUpperCase());
+      const isVeg =
+        dietary.includes('VEG') ||
+        dietary.includes('VEGETARIAN') ||
+        dietary.includes('VEGAN') ||
+        dietary.includes('JAIN');
+      return isVeg && !dietary.includes('NON_VEG');
     });
-    dishIds = vegItems.slice(0, 3).map((i) => i.id);
-    message = `We have wonderful vegetarian choices! Here are ${dishIds.length} guest favorites prepared fresh in our kitchen:`;
+    const fallbackList = vegItems.length > 0 ? vegItems : items;
+    dishIds = fallbackList.slice(0, 3).map((i) => i.id);
+    message =
+      vegItems.length > 0
+        ? `We have wonderful vegetarian choices! Here are ${dishIds.length} guest favorites prepared fresh in our kitchen:`
+        : `Here are popular dishes from our menu — ask your server for vegetarian customization options:`;
     suggestedQuestions = ["Which is highest in protein?", "Any vegan options?", "Show desserts"];
   } else if (queryLower.includes('under') || queryLower.includes('cheap') || queryLower.includes('budget') || queryLower.includes('300')) {
-    const budgetItems = items.filter((i) => (i.priceMinor || 0) <= 30000);
-    dishIds = (budgetItems.length ? budgetItems : items).slice(0, 3).map((i) => i.id);
-    message = "Here are delicious options that offer incredible flavor and great value:";
+    const ceilingMatch = queryLower.match(/under\s*(?:rs\.?|inr|₹|\$)?\s*(\d+)/i);
+    const maxMinor = ceilingMatch ? Number(ceilingMatch[1]) * 100 : 30000;
+    const budgetItems = items
+      .filter((i) => (i.priceMinor || 0) <= maxMinor)
+      .sort((a, b) => (a.priceMinor || 0) - (b.priceMinor || 0));
+    dishIds = (budgetItems.length ? budgetItems : items.slice().sort((a, b) => (a.priceMinor || 0) - (b.priceMinor || 0)))
+      .slice(0, 3)
+      .map((i) => i.id);
+    message = budgetItems.length
+      ? "Here are delicious options within your budget that offer great flavor and value:"
+      : "Here are our best-value dishes sorted from the lowest price on the menu:";
     suggestedQuestions = ["What's popular here?", "Are there combos?", "Show drinks"];
   } else {
     // General popular / chef recommended
@@ -244,7 +313,7 @@ Available menu snapshot: ${JSON.stringify(sanitizedMenu)}`;
     suggestedQuestions = ["What's in the top dish?", "Show vegetarian options", "Best coffee pairing"];
   }
 
-  // Record fallback AI usage event
+  // Record fallback AI usage event (non-blocking)
   const latencyMs = Date.now() - startTime;
   await prisma.aIUsageEvent.create({
     data: {
@@ -257,7 +326,7 @@ Available menu snapshot: ${JSON.stringify(sanitizedMenu)}`;
       status: 'SUCCESS',
       latencyMs,
     },
-  });
+  }).catch((e) => console.warn('AIUsageEvent fallback log failed:', e));
 
   return {
     message,

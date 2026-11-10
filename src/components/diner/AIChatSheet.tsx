@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Send, Sparkles, AlertCircle, Clock, Maximize2, Minimize2, ChevronRight } from 'lucide-react';
+import { X, Send, Sparkles, AlertCircle, Clock, Maximize2, Minimize2, ChevronRight, ShoppingBag } from 'lucide-react';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
+import { useCart } from '@/lib/diner/cart-context';
+import { Portal } from '@/components/ui/Portal';
 
 interface AIChatSheetProps {
   isOpen: boolean;
@@ -35,6 +37,7 @@ export function AIChatSheet({
   onSelectDish,
   publishedItems,
 }: AIChatSheetProps) {
+  const { addItem, setIsCartOpen } = useCart();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
@@ -100,10 +103,14 @@ export function AIChatSheet({
     setMessages(newMessages);
     setLoading(true);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
       const res = await fetch('/api/diner/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           restaurantId,
           sessionToken,
@@ -135,16 +142,20 @@ export function AIChatSheet({
           safetyNotice: data.safetyNotice,
         },
       ]);
-    } catch (err) {
+    } catch (err: any) {
+      const isTimeout = err?.name === 'AbortError';
       setMessages((prev) => [
         ...prev,
         {
           id: `err_${Date.now()}`,
           sender: 'ASSISTANT',
-          content: 'Sorry, I had trouble processing that request. Please try again or ask our floor staff.',
+          content: isTimeout
+            ? 'The host took too long to respond. Please try asking again in a moment or call a waiter for quick assistance.'
+            : 'Sorry, I had trouble processing that request. Please try again or ask our floor staff.',
         },
       ]);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
@@ -152,15 +163,16 @@ export function AIChatSheet({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-espresso-900/60 backdrop-blur-sm animate-fade-in">
-      {/* Backdrop */}
-      <div className="absolute inset-0" onClick={onClose} />
+    <Portal>
+      <div className="fixed inset-0 z-[100] w-screen h-screen min-h-screen flex items-end justify-center bg-espresso-950/75 backdrop-blur-sm animate-modal-backdrop">
+        {/* Backdrop */}
+        <div className="absolute inset-0" onClick={onClose} />
 
-      {/* Sheet Container */}
-      <div
-        className={`relative w-full max-w-2xl bg-[var(--dishora-surface)] rounded-t-3xl shadow-sheet flex flex-col z-10 transition-all duration-300 ease-out ${
-          isExpanded ? 'h-[95vh]' : 'h-[75vh]'
-        }`}
+        {/* Sheet Container */}
+        <div
+          className={`relative w-full max-w-2xl bg-[var(--dishora-surface)] rounded-t-3xl shadow-sheet flex flex-col z-10 transition-all duration-300 ease-out animate-modal-content ${
+            isExpanded ? 'h-[95vh]' : 'h-[75vh]'
+          }`}
       >
         {/* Header */}
         <div className="px-5 py-3 border-b border-cream-200 flex items-center justify-between bg-cream-50/50 rounded-t-3xl shrink-0">
@@ -249,28 +261,68 @@ export function AIChatSheet({
                     {recommendedItems.map((item) => {
                       const img = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
                       const price = item.priceMinor != null ? formatCurrencyMinor(item.priceMinor, item.currency) : '';
+                      const hasOptions = (item.variants && item.variants.length > 0) || (item.modifierGroups && item.modifierGroups.length > 0);
 
                       return (
                         <div
                           key={item.id}
-                          onClick={() => {
-                            onSelectDish(item);
-                            onClose();
-                          }}
-                          className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-cream-200 hover:border-[var(--dishora-accent)] shadow-sm hover:shadow transition-all cursor-pointer group"
+                          className="flex flex-col p-2.5 bg-white rounded-xl border border-cream-200 hover:border-[var(--dishora-accent)] shadow-sm hover:shadow transition-all group"
                         >
-                          <img
-                            src={img}
-                            alt={item.customName}
-                            className="w-14 h-14 rounded-lg object-cover bg-cream-50 shrink-0"
-                          />
-                          <div className="flex-1 min-w-0 pr-1">
-                            <h4 className="font-semibold text-xs sm:text-sm text-espresso-800 truncate group-hover:text-[var(--dishora-accent)]">
-                              {item.customName}
-                            </h4>
-                            <span className="text-xs font-bold text-espresso-900">{price}</span>
+                          <div
+                            onClick={() => {
+                              onSelectDish(item);
+                              onClose();
+                            }}
+                            className="flex items-center gap-3 cursor-pointer"
+                          >
+                            <img
+                              src={img}
+                              alt={item.customName}
+                              className="w-12 h-12 rounded-lg object-cover bg-cream-50 shrink-0"
+                            />
+                            <div className="flex-1 min-w-0 pr-1">
+                              <h4 className="font-semibold text-xs sm:text-sm text-espresso-800 truncate group-hover:text-[var(--dishora-accent)]">
+                                {item.customName}
+                              </h4>
+                              <span className="text-xs font-bold text-espresso-900 font-mono">{price}</span>
+                            </div>
+                            <ChevronRight className="w-4 h-4 text-taupe-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
                           </div>
-                          <ChevronRight className="w-4 h-4 text-taupe-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+
+                          <div className="flex items-center gap-2 pt-2 mt-2 border-t border-cream-100">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (hasOptions) {
+                                  onSelectDish(item);
+                                  onClose();
+                                } else {
+                                  addItem({
+                                    menuItemId: item.id,
+                                    name: item.customName,
+                                    imageUrl: img,
+                                    basePriceMinor: item.priceMinor || 0,
+                                    modifiers: [],
+                                    quantity: 1,
+                                  });
+                                }
+                              }}
+                              className="flex-1 py-1.5 px-2 rounded-lg bg-[var(--dishora-accent)]/10 hover:bg-[var(--dishora-accent)] text-[var(--dishora-accent)] hover:text-white text-[11px] font-semibold transition-colors flex items-center justify-center gap-1"
+                            >
+                              <ShoppingBag className="w-3 h-3" />
+                              <span>{hasOptions ? 'Customize' : 'Add to Order'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onSelectDish(item);
+                                onClose();
+                              }}
+                              className="px-2 py-1.5 text-[11px] text-taupe-500 hover:text-espresso-800 font-medium"
+                            >
+                              Details
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -307,8 +359,10 @@ export function AIChatSheet({
             {suggestedChips.map((chip) => (
               <button
                 key={chip}
+                type="button"
+                disabled={loading}
                 onClick={() => handleSend(chip)}
-                className="whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium bg-cream-100 text-espresso-700 hover:bg-cream-200 border border-cream-200 active:scale-95 transition-all shrink-0"
+                className="whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium bg-cream-100 text-espresso-700 hover:bg-cream-200 border border-cream-200 active:scale-95 transition-all shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {chip}
               </button>
@@ -345,6 +399,7 @@ export function AIChatSheet({
         </div>
       </div>
     </div>
-  );
+  </Portal>
+);
 }
 

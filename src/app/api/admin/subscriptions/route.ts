@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getAdminSession } from '@/lib/auth/admin-auth';
+import { PLAN_CATALOG, PlanKey } from '@/lib/payments/plans';
 
 export async function GET(req: Request) {
   const session = await getAdminSession();
@@ -54,14 +55,12 @@ export async function GET(req: Request) {
   let usdMrr = 0;
 
   for (const s of allActive) {
+    const planDef = PLAN_CATALOG[s.planKey as PlanKey];
+    const majorAmount = planDef ? Math.round(planDef.priceMinor / 100) : 0;
     if (s.planKey.startsWith('IN_')) {
-      if (s.planKey === 'IN_STARTER') inrMrr += 799;
-      if (s.planKey === 'IN_GROWTH') inrMrr += 1499;
-      if (s.planKey === 'IN_PRO') inrMrr += 3999;
+      inrMrr += majorAmount || (s.planKey === 'IN_STARTER' ? 999 : s.planKey === 'IN_GROWTH' ? 1799 : s.planKey === 'IN_PRO' ? 2699 : 0);
     } else {
-      if (s.planKey === 'US_STARTER') usdMrr += 29;
-      if (s.planKey === 'US_GROWTH') usdMrr += 59;
-      if (s.planKey === 'US_PRO') usdMrr += 119;
+      usdMrr += majorAmount || (s.planKey === 'US_STARTER' ? 29 : s.planKey === 'US_GROWTH' ? 59 : s.planKey === 'US_PRO' ? 119 : 0);
     }
   }
 

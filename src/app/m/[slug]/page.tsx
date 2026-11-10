@@ -1,14 +1,43 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Search, Sparkles, MessageSquare, UtensilsCrossed, ShieldAlert } from 'lucide-react';
+import {
+  Search,
+  Sparkles,
+  MessageSquare,
+  UtensilsCrossed,
+  ShieldAlert,
+  ShoppingBag,
+  ArrowRight,
+  CheckCircle2,
+  BookOpen,
+  Star,
+  Wifi,
+  Gamepad2,
+  Bell,
+  ChevronRight,
+  ChevronLeft,
+  QrCode,
+  Clock,
+} from 'lucide-react';
 import { DishCard } from '@/components/diner/DishCard';
 import { DishDetailSheet } from '@/components/diner/DishDetailSheet';
 import { AIChatSheet } from '@/components/diner/AIChatSheet';
+import { CartSheet } from '@/components/diner/CartSheet';
+import { OrderConfirmationSheet } from '@/components/diner/OrderConfirmationSheet';
+import { DinerGamesModal } from '@/components/diner/DinerGamesModal';
+import { WifiConnectModal } from '@/components/diner/WifiConnectModal';
+import { CallWaiterModal } from '@/components/diner/CallWaiterModal';
+import { RescanTableModal } from '@/components/diner/RescanTableModal';
+import { CartProvider, useCart } from '@/lib/diner/cart-context';
 import { generateThemeVariables, THEME_PRESETS } from '@/lib/theme/theme-presets';
+import { formatCurrencyMinor } from '@/lib/payments/plans';
 
 export default function DinerMenuPage() {
+  const params = useParams();
+  const slug = params?.slug as string;
+
   return (
     <React.Suspense
       fallback={
@@ -17,7 +46,9 @@ export default function DinerMenuPage() {
         </div>
       }
     >
-      <DinerMenuContent />
+      <CartProvider restaurantSlug={slug}>
+        <DinerMenuContent />
+      </CartProvider>
     </React.Suspense>
   );
 }
@@ -26,13 +57,31 @@ function DinerMenuContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const slug = params?.slug as string;
-  const tableToken = searchParams.get('table');
+  const tableToken = searchParams.get('t') || searchParams.get('table');
+  const tableIdParam = searchParams.get('tableId');
+  const incomingTableToken = tableToken || null;
+  const incomingQueryKey = tableToken || tableIdParam || null;
+
+  const {
+    tableInfo,
+    setTableInfo,
+    tableSessionExpired,
+    expiredTableName,
+    extendTableSession,
+    expireTableSession,
+    items,
+    itemCount,
+    subtotalMinor,
+    setIsCartOpen,
+  } = useCart();
 
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [sessionToken, setSessionToken] = useState<string>('');
+  const [sessionId, setSessionId] = useState<string>('');
+  const [sessionInitialized, setSessionInitialized] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDietaryFilter, setSelectedDietaryFilter] = useState<string>('ALL');
@@ -45,39 +94,219 @@ function DinerMenuContent() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [focusedDishForChat, setFocusedDishForChat] = useState<any | null>(null);
 
-  // 1. Fetch menu & initialize session
+  // View & Interactive Modals
+  const initialView = searchParams.get('view') === 'menu' ? 'menu' : 'landing';
+  const [viewMode, setViewMode] = useState<'landing' | 'menu'>(initialView);
+  const [isGamesOpen, setIsGamesOpen] = useState(false);
+  const [isWifiOpen, setIsWifiOpen] = useState(false);
+  const [isCallWaiterOpen, setIsCallWaiterOpen] = useState(false);
+  const [isRescanOpen, setIsRescanOpen] = useState(false);
+  const [rescanReason, setRescanReason] = useState<'EXPIRED' | 'REQUIRED' | 'INVALID_TOKEN'>('EXPIRED');
+  const [bannerError, setBannerError] = useState(false);
+
+  // Order Confirmation sheet
+  const [placedOrder, setPlacedOrder] = useState<any | null>(null);
+  const [isOrderConfirmationOpen, setIsOrderConfirmationOpen] = useState(false);
+
+  // Refs to prevent redundant reloads when history.replaceState strips ?t=...
+  const initializedMenuSlugRef = useRef<string | null>(null);
+  const processedScanTokenRef = useRef<string | null>(null);
+  const autoPromptedExpiredRef = useRef<boolean>(false);
+
+  const openRescanPrompt = useCallback((reason: 'EXPIRED' | 'REQUIRED' | 'INVALID_TOKEN') => {
+    setRescanReason(reason);
+    setIsRescanOpen(true);
+  }, []);
+
+  useEffect(() => {
+    setBannerError(false);
+  }, [data?.restaurant?.coverUrl]);
+
+  // 1. Fetch menu & initialize table session
   useEffect(() => {
     if (!slug) return;
 
+    const alreadyLoadedForSlug = initializedMenuSlugRef.current === slug;
+    if (alreadyLoadedForSlug && !incomingQueryKey) {
+      return;
+    }
+    if (alreadyLoadedForSlug && incomingQueryKey && processedScanTokenRef.current === incomingQueryKey) {
+      return;
+    }
+
+    let cancelled = false;
+
     async function loadMenu() {
       try {
-        setLoading(true);
-        const res = await fetch(`/api/diner/menu?slug=${slug}`);
-        if (!res.ok) {
-          throw new Error('Menu not found');
+        if (!alreadyLoadedForSlug) {
+          setLoading(true);
         }
-        const menuData = await res.json();
-        setData(menuData);
 
-        // Init anonymous diner session & track scan
+        if (!alreadyLoadedForSlug) {
+          const res = await fetch(`/api/diner/menu?slug=${slug}`);
+          if (!res.ok) {
+            throw new Error('Menu not found');
+          }
+          const menuData = await res.json();
+          if (cancelled) return;
+          setData(menuData);
+          initializedMenuSlugRef.current = slug;
+        }
+
+        const storedSessionToken = (() => {
+          try {
+            return localStorage.getItem(`dishora_session_${slug}`) || undefined;
+          } catch {
+            return undefined;
+          }
+        })();
+
+        // Init anonymous diner session & verify/associate table
         const sessRes = await fetch('/api/diner/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ restaurantSlug: slug, tableToken }),
+          body: JSON.stringify({
+            restaurantSlug: slug,
+            tableToken: incomingTableToken || undefined,
+            t: tableToken || undefined,
+            tableId: !tableToken && tableIdParam ? tableIdParam : undefined,
+            sessionToken: storedSessionToken,
+          }),
         });
+
+        if (cancelled) return;
+
         if (sessRes.ok) {
           const sessData = await sessRes.json();
-          setSessionToken(sessData.sessionToken);
+          if (cancelled) return;
+
+          if (sessData.sessionToken) {
+            setSessionToken(sessData.sessionToken);
+            try {
+              localStorage.setItem(`dishora_session_${slug}`, sessData.sessionToken);
+            } catch {}
+          }
+          if (sessData.sessionId) {
+            setSessionId(sessData.sessionId);
+          }
+
+          if (incomingQueryKey) {
+            processedScanTokenRef.current = incomingQueryKey;
+          }
+
+          if (sessData.invalidTableToken) {
+            setTableInfo(null);
+            openRescanPrompt('INVALID_TOKEN');
+          } else if (sessData.tableId && sessData.tableName) {
+            autoPromptedExpiredRef.current = false;
+            setTableInfo({
+              tableId: sessData.tableId,
+              tableName: sessData.tableName,
+              tableSection: sessData.tableSection,
+              tableCapacity: sessData.tableCapacity,
+              verifiedAt: sessData.tableVerifiedAt || undefined,
+              lastOrderAt: sessData.lastOrderAt ?? null,
+              expiresAt: sessData.expiresAt || undefined,
+            });
+          } else if (sessData.sessionExpired) {
+            expireTableSession(sessData.expiredTableName || null);
+            autoPromptedExpiredRef.current = true;
+            openRescanPrompt('EXPIRED');
+          } else {
+            // Passive reload with no active server session; keep clean unless localStorage already expired
+            setTableInfo(null);
+          }
+
+          // Strip single-scan QR query params from URL so browser reloads or bookmarks
+          // never extend or spoof a table scan without physically rescanning the QR.
+          if (incomingQueryKey && typeof window !== 'undefined') {
+            const currentUrl = new URL(window.location.href);
+            if (
+              currentUrl.searchParams.has('t') ||
+              currentUrl.searchParams.has('table') ||
+              currentUrl.searchParams.has('tableId')
+            ) {
+              currentUrl.searchParams.delete('t');
+              currentUrl.searchParams.delete('table');
+              currentUrl.searchParams.delete('tableId');
+              const remainingSearch = currentUrl.searchParams.toString();
+              const cleanPath = `${currentUrl.pathname}${remainingSearch ? `?${remainingSearch}` : ''}${currentUrl.hash}`;
+              window.history.replaceState(null, '', cleanPath);
+            }
+          }
+
+          setSessionInitialized(true);
         }
       } catch (err: any) {
-        setError(err.message || 'Failed to load menu');
+        if (!cancelled) {
+          setError(err.message || 'Failed to load menu');
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
 
     loadMenu();
-  }, [slug, tableToken]);
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, tableToken, tableIdParam, incomingTableToken, incomingQueryKey, setTableInfo, expireTableSession, openRescanPrompt]);
+
+  // 2. Enforce 30-minute idle timeout in real time across timers, focus & visibility changes
+  useEffect(() => {
+    if (!tableInfo?.expiresAt) return;
+
+    const checkTimeout = () => {
+      const expiresMs = Date.parse(tableInfo.expiresAt!);
+      if (!Number.isNaN(expiresMs) && Date.now() > expiresMs) {
+        expireTableSession(tableInfo.tableName);
+        autoPromptedExpiredRef.current = true;
+        openRescanPrompt('EXPIRED');
+        return true;
+      }
+      return false;
+    };
+
+    if (checkTimeout()) return;
+
+    const expiresMs = Date.parse(tableInfo.expiresAt);
+    const delayMs = Math.max(0, expiresMs - Date.now()) + 150;
+    const timeoutId = window.setTimeout(checkTimeout, Math.min(delayMs, 2_147_483_647));
+    const intervalId = window.setInterval(checkTimeout, 15_000);
+
+    const handleWakeUp = () => {
+      if (document.visibilityState !== 'hidden') {
+        checkTimeout();
+      }
+    };
+
+    window.addEventListener('focus', handleWakeUp);
+    document.addEventListener('visibilitychange', handleWakeUp);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleWakeUp);
+      document.removeEventListener('visibilitychange', handleWakeUp);
+    };
+  }, [tableInfo?.expiresAt, tableInfo?.tableName, expireTableSession, openRescanPrompt]);
+
+  // Prompt once on reload if localStorage already flagged an expired table session
+  useEffect(() => {
+    if (
+      !sessionInitialized ||
+      tableInfo ||
+      !tableSessionExpired ||
+      incomingQueryKey ||
+      autoPromptedExpiredRef.current
+    ) {
+      return;
+    }
+    autoPromptedExpiredRef.current = true;
+    openRescanPrompt('EXPIRED');
+  }, [sessionInitialized, tableInfo, tableSessionExpired, incomingQueryKey, openRescanPrompt]);
 
   // Extract all categories & items
   const { categories, allItems } = useMemo(() => {
@@ -98,75 +327,37 @@ function DinerMenuContent() {
 
   const isIndianRestaurant = data?.restaurant?.country === 'IN' || data?.restaurant?.currency === 'INR';
 
-  // Dietary filter options by region
-  const dietaryFilterOptions = useMemo(() => {
-    if (isIndianRestaurant) {
-      return [
-        { key: 'ALL', label: 'All Dishes' },
-        { key: 'POPULAR', label: '🔥 Bestsellers' },
-        { key: 'VEG', label: '🟢 Pure Veg' },
-        { key: 'NON_VEG', label: '🔺 Non-Veg' },
-        { key: 'EGG', label: '🟡 Contains Egg' },
-        { key: 'JAIN', label: 'Jain Safe' },
-        { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
-      ];
-    }
-    return [
-      { key: 'ALL', label: 'All Dishes' },
-      { key: 'POPULAR', label: '🔥 Bestsellers' },
-      { key: 'VEGETARIAN', label: 'Vegetarian' },
-      { key: 'VEGAN', label: 'Vegan' },
-      { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
-      { key: 'DAIRY_FREE', label: 'Dairy-Free' },
-      { key: 'HALAL', label: 'Halal' },
-    ];
-  }, [isIndianRestaurant]);
-
-  // Filtered dishes
+  // Filter items
   const filteredDishes = useMemo(() => {
     return allItems.filter((item) => {
       // Category filter
       if (activeCategory !== 'ALL' && item.categoryId !== activeCategory) {
         return false;
       }
-      // Text search
+
+      // Dietary filter
+      if (selectedDietaryFilter !== 'ALL') {
+        const itemLabels = (item.dietaryStatus as string[]) || [];
+        const matches = itemLabels.some(
+          (l) => l.toUpperCase() === selectedDietaryFilter.toUpperCase()
+        );
+        if (!matches) return false;
+      }
+
+      // Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchesName = item.customName.toLowerCase().includes(q);
-        const matchesDesc = item.restaurantDescription?.toLowerCase().includes(q);
-        if (!matchesName && !matchesDesc) return false;
+        const nameMatch = item.customName?.toLowerCase().includes(q);
+        const descMatch = item.restaurantDescription?.toLowerCase().includes(q);
+        const ingMatch = Array.isArray(item.ingredients) && item.ingredients.some((ing: string) => ing.toLowerCase().includes(q));
+        if (!nameMatch && !descMatch && !ingMatch) return false;
       }
-      // Dietary filter
-      if (selectedDietaryFilter === 'POPULAR') {
-        if (!item.isPopular && !item.chefRecommended) return false;
-      } else if (selectedDietaryFilter !== 'ALL') {
-        const labels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase().trim().replace(/\s+/g, '_'));
-        if (selectedDietaryFilter === 'VEG') {
-          if (!labels.includes('VEG') && !labels.includes('VEGETARIAN') && !labels.includes('PURE_VEG')) return false;
-        } else if (selectedDietaryFilter === 'NON_VEG') {
-          if (!labels.includes('NON_VEG') && !labels.includes('NON-VEG') && !labels.includes('NONVEG')) return false;
-        } else if (selectedDietaryFilter === 'EGG') {
-          if (!labels.includes('EGG') && !labels.includes('CONTAINS_EGG') && !labels.includes('EGGETARIAN')) return false;
-        } else if (selectedDietaryFilter === 'JAIN') {
-          if (!labels.includes('JAIN') && !labels.includes('JAIN_FRIENDLY')) return false;
-        } else if (selectedDietaryFilter === 'VEGETARIAN') {
-          if (!labels.includes('VEGETARIAN') && !labels.includes('VEG') && !labels.includes('PURE_VEG')) return false;
-        } else {
-          if (!labels.includes(selectedDietaryFilter)) return false;
-        }
-      }
+
       return true;
     });
-  }, [allItems, activeCategory, searchQuery, selectedDietaryFilter]);
+  }, [allItems, activeCategory, selectedDietaryFilter, searchQuery]);
 
-  // Apply theme variables
-  const themeVars = useMemo(() => {
-    if (!data?.theme) return generateThemeVariables(THEME_PRESETS.WARM_EDITORIAL);
-    return generateThemeVariables(data.theme);
-  }, [data?.theme]);
-
-  const layoutMode = data?.theme?.layoutMode || 'GRID';
-
+  // Handle open dish details
   const handleOpenDetail = (dish: any) => {
     setSelectedDish(dish);
     setIsDetailOpen(true);
@@ -178,12 +369,23 @@ function DinerMenuContent() {
     setIsChatOpen(true);
   };
 
+  const handleOrderPlaced = (
+    order: any,
+    tableSession?: { lastOrderAt: string; expiresAt: string }
+  ) => {
+    if (tableSession?.lastOrderAt && tableSession?.expiresAt) {
+      extendTableSession(tableSession.lastOrderAt, tableSession.expiresAt);
+    }
+    setPlacedOrder(order);
+    setIsOrderConfirmationOpen(true);
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F7F3EC]">
+      <div className="min-h-screen flex items-center justify-center bg-[#F7F3EC] text-[#35271F] font-sans">
         <div className="flex flex-col items-center gap-3">
           <div className="w-10 h-10 border-4 border-terracotta border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm font-serif text-espresso-700 tracking-wide">Crafting your menu experience...</p>
+          <p className="font-serif text-sm">Preparing visual menu...</p>
         </div>
       </div>
     );
@@ -192,110 +394,492 @@ function DinerMenuContent() {
   if (error || !data) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F7F3EC] p-6 text-center">
-        <div className="max-w-md bg-white p-8 rounded-3xl border border-cream-300 shadow-soft">
-          <UtensilsCrossed className="w-12 h-12 text-terracotta mx-auto mb-4" />
-          <h1 className="text-2xl font-serif text-espresso-800 mb-2">Menu Unavailable</h1>
-          <p className="text-sm text-taupe-600 mb-6">
-            We couldn't load the menu for this venue. Please verify the URL or ask the restaurant team.
+        <div className="max-w-md bg-white p-8 rounded-3xl border border-cream-300 shadow-lifted space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <h1 className="font-serif text-2xl font-bold text-espresso-900">Menu Unavailable</h1>
+          <p className="text-sm text-taupe-500">
+            {error || 'The requested restaurant menu could not be loaded. Please check the QR code or link.'}
           </p>
         </div>
       </div>
     );
   }
 
-  const { restaurant, settings } = data;
+  const { restaurant } = data;
+  const theme = data.theme || restaurant?.theme;
+  const wifiConfig = data.wifi;
+
+  // Generate dynamic CSS variables
+  const themeVars = theme
+    ? generateThemeVariables({
+        presetKey: theme.presetKey,
+        backgroundColor: theme.backgroundColor,
+        surfaceColor: theme.surfaceColor,
+        primaryTextColor: theme.primaryTextColor,
+        secondaryTextColor: theme.secondaryTextColor,
+        accentColor: theme.accentColor,
+        secondaryAccentColor: theme.secondaryAccentColor,
+        headingFont: theme.headingFont,
+        bodyFont: theme.bodyFont,
+        layoutMode: theme.layoutMode,
+        cardRadius: theme.cardRadius,
+        buttonStyle: theme.buttonStyle,
+        imageProportions: theme.imageProportions,
+        texture: theme.texture,
+      })
+    : generateThemeVariables(THEME_PRESETS.WARM_EDITORIAL);
+
+  const layoutMode = theme?.layoutMode || 'GRID';
+
+  // Review Target URL (configured Google Business link or direct Google Maps lookup fallback)
+  const reviewUrl =
+    restaurant.googleReviewUrl?.trim() ||
+    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+      `${restaurant.displayName} ${restaurant.city || ''} review`.trim()
+    )}`;
+
+  // Sample showcase dish image for hero emblem if logo is absent
+  const heroArtUrl =
+    restaurant.logoUrl ||
+    allItems.find((i) => i.imageOverride?.publicUrl || i.canonical?.imageAsset?.publicUrl)
+      ?.imageOverride?.publicUrl ||
+    allItems.find((i) => i.canonical?.imageAsset?.publicUrl)?.canonical?.imageAsset?.publicUrl ||
+    '/placeholder-dish.svg';
 
   return (
     <div
-      style={{ fontFamily: 'var(--font-body)', ...themeVars }}
-      className="min-h-screen bg-[var(--dishora-bg)] text-[var(--dishora-text)] pb-28"
+      style={themeVars as React.CSSProperties}
+      className="min-h-screen bg-[var(--dishora-bg)] text-[var(--dishora-text)] selection:bg-[var(--dishora-accent)] selection:text-white transition-colors duration-200 font-sans"
     >
-      {/* Brand Header */}
-      <header className="relative w-full bg-[var(--dishora-surface)] border-b border-[var(--dishora-border)] shadow-sm">
-        {restaurant.coverUrl && (
-          <div className="relative h-44 sm:h-56 w-full overflow-hidden bg-cream-200">
-            <img
-              src={restaurant.coverUrl}
-              alt={restaurant.displayName}
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-[var(--dishora-surface)] via-transparent to-black/20" />
-          </div>
-        )}
+      {/* =========================================================================
+          VIEW 1: HOSPITALITY LANDING HUB (QR SCAN FIRST SCREEN)
+      ========================================================================= */}
+      {viewMode === 'landing' && (
+        <main className="min-h-screen max-w-md mx-auto px-4 py-6 sm:py-10 flex flex-col justify-between">
+          <div className="space-y-4 animate-fade-in">
+            {/* Hero Branded Card */}
+            {restaurant.coverUrl && !bannerError ? (
+              <article className="rounded-3xl overflow-hidden shadow-lifted border border-[var(--dishora-border)] bg-[var(--dishora-surface)]">
+                <img
+                  src={restaurant.coverUrl}
+                  alt={`${restaurant.displayName} banner`}
+                  fetchPriority="high"
+                  onError={() => setBannerError(true)}
+                  className="w-full aspect-[2/1] object-cover block bg-black/5"
+                />
+                <header className="p-5 sm:p-6 space-y-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-full bg-[var(--dishora-accent)] text-white font-serif font-bold text-lg flex items-center justify-center shadow-sm shrink-0">
+                      {restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'}
+                    </div>
+                    <div className="min-w-0">
+                      <h1 className="font-serif text-2xl sm:text-3xl font-bold text-[var(--dishora-text)] tracking-tight leading-none truncate">
+                        {restaurant.displayName}
+                      </h1>
+                      <p className="text-xs text-[var(--dishora-muted-text)] italic mt-1 truncate">
+                        {restaurant.description || 'Scan. Explore. Enjoy.'}
+                      </p>
+                    </div>
+                  </div>
 
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-4 pb-6">
-          <div className="flex items-center gap-4">
-            {restaurant.logoUrl && (
-              <img
-                src={restaurant.logoUrl}
-                alt={restaurant.displayName}
-                className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover border-2 border-[var(--dishora-border)] shadow-sm bg-white shrink-0"
-              />
+                  <div className="pt-1 flex items-center gap-2 flex-wrap">
+                    {tableInfo ? (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-[var(--dishora-bg)] text-[var(--dishora-text)] border border-[var(--dishora-border)] shadow-2xs">
+                        📍 {tableInfo.tableName}
+                        {tableInfo.tableSection ? ` • ${tableInfo.tableSection}` : ''}
+                      </span>
+                    ) : tableSessionExpired ? (
+                      <button
+                        type="button"
+                        onClick={() => openRescanPrompt('EXPIRED')}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200/80 transition-colors"
+                      >
+                        <Clock className="w-3 h-3" />
+                        Session Timed Out • Rescan QR
+                      </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-[var(--dishora-bg)] text-[var(--dishora-muted-text)] border border-[var(--dishora-border)]">
+                        DINER PORTAL
+                      </span>
+                    )}
+                    {itemCount > 0 && (
+                      <button
+                        onClick={() => setIsCartOpen(true)}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold px-3 py-1 rounded-full bg-[var(--dishora-accent)] text-white shadow-xs"
+                      >
+                        <ShoppingBag className="w-3 h-3" /> {itemCount} in Cart
+                      </button>
+                    )}
+                  </div>
+                </header>
+              </article>
+            ) : (
+              <article
+                className="relative rounded-3xl overflow-hidden shadow-lifted border border-[var(--dishora-border)] p-5 sm:p-6 flex flex-col justify-end min-h-[180px]"
+                style={{
+                  background: `linear-gradient(135deg, ${theme?.accentColor || '#B86D52'}20 0%, ${theme?.surfaceColor || '#FFFFFF'} 100%)`,
+                  backgroundColor: 'var(--dishora-surface)',
+                }}
+              >
+                {/* Decorative Floating Food Art */}
+                <div className="flex justify-end mb-2">
+                  <div className="w-24 h-24 rounded-2xl overflow-hidden bg-black/5 border border-[var(--dishora-border)] shadow-md">
+                    <img
+                      src={heroArtUrl}
+                      alt={restaurant.displayName}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.src = '/placeholder-dish.svg';
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <header className="space-y-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-full bg-[var(--dishora-accent)] text-white font-serif font-bold text-lg flex items-center justify-center shadow-sm shrink-0">
+                      {restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'}
+                    </div>
+                    <div className="min-w-0">
+                      <h1 className="font-serif text-2xl sm:text-3xl font-bold text-[var(--dishora-text)] tracking-tight leading-none truncate">
+                        {restaurant.displayName}
+                      </h1>
+                      <p className="text-xs text-[var(--dishora-muted-text)] italic mt-1 truncate">
+                        {restaurant.description || 'Scan. Explore. Enjoy.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-1 flex items-center gap-2 flex-wrap">
+                    {tableInfo ? (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-[var(--dishora-bg)] text-[var(--dishora-text)] border border-[var(--dishora-border)] shadow-2xs">
+                        📍 {tableInfo.tableName}
+                        {tableInfo.tableSection ? ` • ${tableInfo.tableSection}` : ''}
+                      </span>
+                    ) : tableSessionExpired ? (
+                      <button
+                        type="button"
+                        onClick={() => openRescanPrompt('EXPIRED')}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200/80 transition-colors"
+                      >
+                        <Clock className="w-3 h-3" />
+                        Session Timed Out • Rescan QR
+                      </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-[var(--dishora-bg)] text-[var(--dishora-muted-text)] border border-[var(--dishora-border)]">
+                        DINER PORTAL
+                      </span>
+                    )}
+                    {itemCount > 0 && (
+                      <button
+                        onClick={() => setIsCartOpen(true)}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold px-3 py-1 rounded-full bg-[var(--dishora-accent)] text-white shadow-xs"
+                      >
+                        <ShoppingBag className="w-3 h-3" /> {itemCount} in Cart
+                      </button>
+                    )}
+                  </div>
+                </header>
+              </article>
             )}
-            <div className="flex-1 min-w-0">
-              <h1 className="text-2xl sm:text-4xl font-serif text-[var(--dishora-text)] truncate">
+
+            {!tableInfo && tableSessionExpired && (
+              <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-950 leading-snug">
+                    No order placed in the last 30 min{expiredTableName ? ` (${expiredTableName})` : ''}. Rescan QR to order.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openRescanPrompt('EXPIRED')}
+                  className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs transition-colors"
+                >
+                  <QrCode className="w-3.5 h-3.5" />
+                  <span>Rescan</span>
+                </button>
+              </div>
+            )}
+
+            {/* Action Menu Stack */}
+            <div className="space-y-2.5">
+              {/* 1. View Menu */}
+              <button
+                onClick={() => setViewMode('menu')}
+                className="w-full p-4 rounded-2xl bg-[var(--dishora-surface)] border border-[var(--dishora-border)] hover:border-[var(--dishora-accent)] shadow-soft hover:shadow-lifted transition-all flex items-center justify-between text-left group active:scale-[0.99]"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-blue-500/10 text-blue-600 border border-blue-500/20 flex items-center justify-center shrink-0">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-serif font-bold text-base text-[var(--dishora-text)] group-hover:text-[var(--dishora-accent)] transition-colors">
+                      View Menu
+                    </div>
+                    <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dishora-muted-text)] mt-0.5">
+                      ORDER TO YOUR TABLE • {allItems.length} DISHES
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-[var(--dishora-muted-text)] group-hover:translate-x-0.5 transition-transform" />
+              </button>
+
+              {/* 2. Leave a Review */}
+              <a
+                href={reviewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full p-4 rounded-2xl bg-[var(--dishora-surface)] border border-[var(--dishora-border)] hover:border-[var(--dishora-accent)] shadow-soft hover:shadow-lifted transition-all flex items-center justify-between text-left group active:scale-[0.99]"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-500 border border-amber-500/20 flex items-center justify-center shrink-0">
+                    <Star className="w-5 h-5 fill-amber-400 text-amber-500" />
+                  </div>
+                  <div>
+                    <div className="font-serif font-bold text-base text-[var(--dishora-text)] group-hover:text-[var(--dishora-accent)] transition-colors">
+                      Leave a Review
+                    </div>
+                    <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dishora-muted-text)] mt-0.5">
+                      TELL US HOW WE DID ON GOOGLE
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-[var(--dishora-muted-text)] group-hover:translate-x-0.5 transition-transform" />
+              </a>
+
+              {/* 3. Connect to Wi-Fi (shown only when owner enables Free Wi-Fi) */}
+              {wifiConfig?.enabled && (
+                <button
+                  onClick={() => setIsWifiOpen(true)}
+                  className="w-full p-4 rounded-2xl bg-[var(--dishora-surface)] border border-[var(--dishora-border)] hover:border-emerald-500/60 shadow-soft hover:shadow-lifted transition-all flex items-center justify-between text-left group active:scale-[0.99]"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                      <Wifi className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="font-serif font-bold text-base text-[var(--dishora-text)] group-hover:text-emerald-600 transition-colors">
+                        Connect to Wi-Fi
+                      </div>
+                      <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dishora-muted-text)] mt-0.5">
+                        TAP FOR THE PASSWORD & QR JOIN
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-[var(--dishora-muted-text)] group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              )}
+
+              {/* 4. Play Games (2-5 Players Multiplayer Suite) */}
+              <button
+                onClick={() => setIsGamesOpen(true)}
+                className="w-full p-4 rounded-2xl bg-[var(--dishora-surface)] border border-[var(--dishora-border)] hover:border-purple-500/60 shadow-soft hover:shadow-lifted transition-all flex items-center justify-between text-left group active:scale-[0.99]"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-purple-500/10 text-purple-600 border border-purple-500/20 flex items-center justify-center shrink-0">
+                    <Gamepad2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-serif font-bold text-base text-[var(--dishora-text)] group-hover:text-purple-600 transition-colors">
+                      Play Games
+                    </div>
+                    <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dishora-muted-text)] mt-0.5">
+                      WHILE YOU WAIT • 2–5 PLAYERS
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-[var(--dishora-muted-text)] group-hover:translate-x-0.5 transition-transform" />
+              </button>
+
+              {/* 5. Call Waiter / Table Assistance */}
+              <button
+                onClick={() => setIsCallWaiterOpen(true)}
+                className="w-full p-4 rounded-2xl bg-[var(--dishora-surface)] border border-[var(--dishora-border)] hover:border-[var(--dishora-accent)] shadow-soft hover:shadow-lifted transition-all flex items-center justify-between text-left group active:scale-[0.99]"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-terracotta/10 text-[var(--dishora-accent)] border border-[var(--dishora-accent)]/25 flex items-center justify-center shrink-0">
+                    <Bell className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-serif font-bold text-base text-[var(--dishora-text)] group-hover:text-[var(--dishora-accent)] transition-colors">
+                      Call Waiter
+                    </div>
+                    <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dishora-muted-text)] mt-0.5">
+                      WATER, CUTLERY, BILL OR ASSISTANCE
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-[var(--dishora-muted-text)] group-hover:translate-x-0.5 transition-transform" />
+              </button>
+            </div>
+          </div>
+
+          {/* Hub Footer */}
+          <footer className="pt-8 pb-4 text-center space-y-3">
+            <button
+              onClick={() => {
+                setFocusedDishForChat(null);
+                setIsChatOpen(true);
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[var(--dishora-surface)] border border-[var(--dishora-border)] text-xs font-semibold text-[var(--dishora-text)] shadow-xs hover:border-[var(--dishora-accent)] transition-colors"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[var(--dishora-accent)]" />
+              Ask AI Menu Concierge
+            </button>
+            <p className="text-[10px] font-mono uppercase tracking-widest text-[var(--dishora-muted-text)]">
+              {restaurant.displayName} • POWERED BY MENZY
+            </p>
+          </footer>
+        </main>
+      )}
+
+      {/* =========================================================================
+          VIEW 2: FULL VISUAL MENU & TABLE ORDERING
+      ========================================================================= */}
+      {viewMode === 'menu' && (
+        <div className="pb-32">
+      {/* Sticky Quick Top Navigation Bar */}
+      <nav className="sticky top-0 z-30 bg-[var(--dishora-surface)]/95 backdrop-blur-md border-b border-[var(--dishora-border)] shadow-2xs">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-12 flex items-center justify-between gap-2">
+          <button
+            onClick={() => setViewMode('landing')}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--dishora-muted-text)] hover:text-[var(--dishora-text)] transition-colors py-1 shrink-0"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            <span>Table Hub</span>
+          </button>
+
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {wifiConfig?.enabled && (
+              <button
+                onClick={() => setIsWifiOpen(true)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-700 border border-emerald-500/20 text-[11px] font-semibold hover:bg-emerald-500/20 transition-colors"
+                title="Free Wi-Fi"
+              >
+                <Wifi className="w-3 h-3" />
+                <span className="hidden sm:inline">Wi-Fi</span>
+              </button>
+            )}
+            <button
+              onClick={() => setIsGamesOpen(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-500/10 text-purple-700 border border-purple-500/20 text-[11px] font-semibold hover:bg-purple-500/20 transition-colors"
+              title="Play Table Games"
+            >
+              <Gamepad2 className="w-3 h-3" />
+              <span className="hidden sm:inline">Games</span>
+            </button>
+            <button
+              onClick={() => setIsCallWaiterOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--dishora-accent)]/15 text-[var(--dishora-accent)] border border-[var(--dishora-accent)]/30 text-[11px] font-bold hover:bg-[var(--dishora-accent)] hover:text-white transition-all shadow-2xs"
+            >
+              <Bell className="w-3 h-3" />
+              <span>Call Waiter</span>
+            </button>
+            <button
+              onClick={() => setIsCartOpen(true)}
+              className="relative p-1.5 rounded-full bg-[var(--dishora-bg)] hover:opacity-90 text-[var(--dishora-text)] border border-[var(--dishora-border)] transition-colors shadow-2xs shrink-0"
+              title="View Table Order"
+            >
+              <ShoppingBag className="w-4 h-4 text-[var(--dishora-accent)]" />
+              {itemCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[var(--dishora-accent)] text-white text-[10px] font-bold flex items-center justify-center font-mono shadow">
+                  {itemCount}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Hero Header & Brand Banner */}
+      <header className="relative bg-[var(--dishora-surface)] border-b border-[var(--dishora-border)] shadow-soft">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 sm:py-7 space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1.5 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--dishora-accent)] font-semibold">
+                  Visual Menu & Table Ordering
+                </span>
+                {tableInfo ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                    📍 Dining at {tableInfo.tableName}
+                  </span>
+                ) : tableSessionExpired ? (
+                  <button
+                    type="button"
+                    onClick={() => openRescanPrompt('EXPIRED')}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200/80 px-2.5 py-0.5 rounded-full border border-amber-300 transition-colors"
+                  >
+                    <QrCode className="w-3 h-3" />
+                    <span>Session Expired • Rescan QR</span>
+                  </button>
+                ) : null}
+              </div>
+              <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold text-[var(--dishora-text)] tracking-tight">
                 {restaurant.displayName}
               </h1>
               {restaurant.description && (
-                <p className="text-xs sm:text-sm text-[var(--dishora-muted-text)] line-clamp-2 mt-1">
+                <p className="text-xs sm:text-sm text-[var(--dishora-muted-text)] max-w-2xl leading-relaxed">
                   {restaurant.description}
                 </p>
               )}
             </div>
           </div>
 
-          {settings?.welcomeMessage && (
-            <div className="mt-4 p-3 bg-cream-50 rounded-xl border border-cream-200 text-xs sm:text-sm text-espresso-700 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-[var(--dishora-accent)] shrink-0" />
-              <span>{settings.welcomeMessage}</span>
+          {/* Search & Dietary Filters Bar */}
+          <div className="pt-2 flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-taupe-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search dishes, ingredients, beverages..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[var(--dishora-surface)] border border-[var(--dishora-border)] text-xs sm:text-sm text-[var(--dishora-text)] placeholder:text-taupe-400 focus:outline-none focus:ring-1 focus:ring-[var(--dishora-accent)] transition-all shadow-xs"
+              />
             </div>
-          )}
+
+            {/* Dietary Filter Chips */}
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+              {(isIndianRestaurant
+                ? [
+                    { id: 'ALL', label: 'All Dishes' },
+                    { id: 'VEG', label: '🟢 Veg' },
+                    { id: 'NON_VEG', label: '🔴 Non-Veg' },
+                    { id: 'EGG', label: '🟡 Egg' },
+                  ]
+                : [
+                    { id: 'ALL', label: 'All Dishes' },
+                    { id: 'VEGAN', label: 'Vegan' },
+                    { id: 'VEGETARIAN', label: 'Vegetarian' },
+                    { id: 'GLUTEN_FREE', label: 'Gluten-Free' },
+                    { id: 'DAIRY_FREE', label: 'Dairy-Free' },
+                  ]
+              ).map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setSelectedDietaryFilter(f.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border shrink-0 ${
+                    selectedDietaryFilter === f.id
+                      ? 'bg-[var(--dishora-accent)] border-[var(--dishora-accent)] text-white shadow-xs'
+                      : 'bg-[var(--dishora-surface)] border-[var(--dishora-border)] text-[var(--dishora-muted-text)] hover:text-[var(--dishora-text)]'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </header>
 
-      {/* Main Browse Container */}
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 pt-6">
-        {/* Search Bar & Dietary Filters */}
-        <div className="space-y-3 mb-6">
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-taupe-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search dishes, drinks, ingredients..."
-              className="w-full pl-11 pr-4 py-3 bg-[var(--dishora-surface)] rounded-2xl border border-[var(--dishora-border)] text-sm text-[var(--dishora-text)] placeholder:text-taupe-400 focus:outline-none focus:ring-2 focus:ring-[var(--dishora-accent)] transition-all shadow-soft"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-taupe-400 hover:text-espresso-700"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-
-          {/* Dietary Filter Pills */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-            {dietaryFilterOptions.map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => setSelectedDietaryFilter(opt.key)}
-                className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold transition-all shrink-0 ${
-                  selectedDietaryFilter === opt.key
-                    ? 'bg-[var(--dishora-text)] text-[var(--dishora-surface)] shadow-sm'
-                    : 'bg-[var(--dishora-surface)] text-[var(--dishora-muted-text)] border border-[var(--dishora-border)] hover:bg-cream-100'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Scrollable Category Navigation Tabs */}
-        <div className="sticky top-0 z-20 py-3 -mx-4 sm:-mx-6 px-4 sm:px-6 bg-[var(--dishora-bg)]/95 backdrop-blur-md border-b border-[var(--dishora-border)] mb-6 overflow-x-auto flex items-center gap-2 no-scrollbar">
+      {/* Main Menu Viewport */}
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+        {/* Category Navigation Pills */}
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2 sticky top-[49px] z-20 bg-[var(--dishora-bg)]/95 backdrop-blur-sm -mx-4 px-4 sm:mx-0 sm:px-0">
           <button
             onClick={() => setActiveCategory('ALL')}
             className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all shrink-0 ${
@@ -360,21 +944,47 @@ function DinerMenuContent() {
         )}
       </main>
 
-      {/* Floating Sticky "Ask about our dishes" Companion Button */}
+      {/* Floating Bottom Navigation / Cart Companion */}
       <div className="fixed bottom-6 inset-x-0 z-30 flex justify-center px-4 pointer-events-none">
-        <button
-          onClick={() => {
-            setFocusedDishForChat(null);
-            setIsChatOpen(true);
-          }}
-          className="pointer-events-auto flex items-center gap-2.5 py-3.5 px-6 rounded-full bg-[var(--dishora-text)] text-[var(--dishora-surface)] font-medium text-sm shadow-lifted hover:scale-[1.02] active:scale-[0.98] transition-all border border-white/20"
-        >
-          <Sparkles className="w-4 h-4 text-[var(--dishora-accent)]" />
-          <span>Ask about our dishes</span>
-        </button>
-      </div>
+        {itemCount > 0 ? (
+          <div className="pointer-events-auto flex items-center gap-3 bg-[var(--dishora-text)] text-[var(--dishora-surface)] p-2 pr-3 pl-4 rounded-full shadow-2xl border border-white/20 animate-fade-in max-w-md w-full justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-full bg-[var(--dishora-accent)] text-white font-mono text-xs font-bold flex items-center justify-center">
+                {itemCount}
+              </div>
+              <div className="text-xs">
+                <div className="font-semibold">{tableInfo?.tableName || 'Table Order'}</div>
+                <div className="font-mono text-taupe-300">
+                  {formatCurrencyMinor(subtotalMinor, restaurant.currency)}
+                </div>
+              </div>
+            </div>
 
-      {/* Dish Detail Bottom Sheet / Modal */}
+            <button
+              onClick={() => setIsCartOpen(true)}
+              className="py-2 px-4 rounded-full bg-[var(--dishora-accent)] hover:opacity-95 text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+            >
+              <span>View Order</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => {
+              setFocusedDishForChat(null);
+              setIsChatOpen(true);
+            }}
+            className="pointer-events-auto flex items-center gap-2.5 py-3.5 px-6 rounded-full bg-[var(--dishora-text)] text-[var(--dishora-surface)] font-medium text-sm shadow-lifted hover:scale-[1.02] active:scale-[0.98] transition-all border border-white/20"
+          >
+            <Sparkles className="w-4 h-4 text-[var(--dishora-accent)]" />
+            <span>Ask about our dishes</span>
+          </button>
+        )}
+      </div>
+      </div>
+      )}
+
+      {/* Dish Detail Bottom Sheet / Customization Modal */}
       <DishDetailSheet
         item={selectedDish}
         isOpen={isDetailOpen}
@@ -393,6 +1003,77 @@ function DinerMenuContent() {
         onClearFocusedDish={() => setFocusedDishForChat(null)}
         onSelectDish={handleOpenDetail}
         publishedItems={allItems}
+      />
+
+      {/* Cart Bottom Sheet */}
+      <CartSheet
+        restaurantId={restaurant.id}
+        restaurantName={restaurant.displayName}
+        currency={restaurant.currency}
+        sessionId={sessionId}
+        sessionToken={sessionToken}
+        onOrderPlaced={handleOrderPlaced}
+        onRequestRescan={(reason) => {
+          setIsCartOpen(false);
+          openRescanPrompt(reason);
+        }}
+      />
+
+      {/* Order Confirmation Bottom Sheet */}
+      <OrderConfirmationSheet
+        order={placedOrder}
+        isOpen={isOrderConfirmationOpen}
+        onClose={() => setIsOrderConfirmationOpen(false)}
+        onAddMoreItems={() => {
+          setIsOrderConfirmationOpen(false);
+        }}
+      />
+
+      {/* Guest Free Wi-Fi Modal */}
+      {wifiConfig && (
+        <WifiConnectModal
+          isOpen={isWifiOpen}
+          onClose={() => setIsWifiOpen(false)}
+          restaurantName={restaurant.displayName}
+          wifi={wifiConfig}
+        />
+      )}
+
+      {/* Table Minigames (2 to 5 Players) */}
+      <DinerGamesModal
+        isOpen={isGamesOpen}
+        onClose={() => setIsGamesOpen(false)}
+        restaurantName={restaurant.displayName}
+      />
+
+      {/* Call Waiter to Table Modal */}
+      <CallWaiterModal
+        isOpen={isCallWaiterOpen}
+        onClose={() => setIsCallWaiterOpen(false)}
+        restaurantId={restaurant.id}
+        tableName={tableInfo?.tableName}
+        tableId={tableInfo?.tableId}
+        sessionId={sessionId}
+        sessionToken={sessionToken}
+        tableExpiresAt={tableInfo?.expiresAt}
+        isSessionExpired={tableSessionExpired}
+        expiredTableName={expiredTableName}
+        onSessionExpired={expireTableSession}
+        onSyncTable={setTableInfo}
+        onRequestRescan={(reason) => {
+          setIsCallWaiterOpen(false);
+          openRescanPrompt(reason);
+        }}
+      />
+
+      {/* Table Session Rescan Prompt Modal */}
+      <RescanTableModal
+        isOpen={isRescanOpen}
+        onClose={() => setIsRescanOpen(false)}
+        restaurantSlug={slug}
+        restaurantName={restaurant.displayName}
+        reason={rescanReason}
+        expiredTableName={expiredTableName}
       />
     </div>
   );

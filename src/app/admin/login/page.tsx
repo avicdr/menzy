@@ -62,7 +62,7 @@ export default function AdminLoginPage() {
             <Lock className="w-6 h-6" />
           </div>
           <h1 className="font-serif text-2xl sm:text-3xl font-bold tracking-tight text-cream-50">
-            Dishora Founder Portal
+            Menzy Founder Portal
           </h1>
           <p className="text-xs text-taupe-400 max-w-xs mx-auto">
             Environment-authenticated single administrator operations console
@@ -89,7 +89,7 @@ export default function AdminLoginPage() {
               autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="founder@dishora.app"
+              placeholder="founder@menzy.app"
               style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
               className="w-full px-4 py-2.5 rounded-xl bg-[#140E0A] border border-espresso-700 text-sm text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:ring-2 focus:ring-terracotta/50 focus:border-terracotta transition-all shadow-inner dark-input"
             />

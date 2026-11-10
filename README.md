@@ -1,6 +1,6 @@
-# Dishora — See it. Ask it. Crave it.
+# Menzy — See it. Ask it. Crave it.
 
-**Dishora** is a production-ready, multi-tenant SaaS application that converts physical restaurant menus and PDFs into interactive AI-powered visual dining menus featuring 3D-styled food illustrations and an intelligent conversational AI waiter.
+**Menzy** is a production-ready, multi-tenant SaaS application that converts physical restaurant menus and PDFs into interactive AI-powered visual dining menus featuring 3D-styled food illustrations and an intelligent conversational AI waiter.
 
 Designed for hospitality venues across **India (INR ₹)** and the **United States (USD $)**.
 
@@ -68,7 +68,7 @@ npm run worker
 
 ## 🧪 Testing
 
-Dishora includes automated unit and integration tests covering rate limiting, canonical matching, HMAC webhook verification, and tenant auth:
+Menzy includes automated unit and integration tests covering rate limiting, canonical matching, HMAC webhook verification, and tenant auth:
 
 ```bash
 npm run test
@@ -84,7 +84,7 @@ npm run test
 | **US Bistro (USD)** | `/m/the-gilded-fork` | Owner: `elena@gildedbistro.com` / `dishora2026!` |
 | **Founder Demo** | `/m/bakehouse-72-demo` | Claim Token: `demo-claim-bakehouse72-secret2026` |
 | **Owner Dashboard** | `/dashboard` | Login at `/login` with either owner account |
-| **Founder Admin** | `/admin` | Login at `/admin/login`: `founder@dishora.app` / `dishora2026!` |
+| **Founder Admin** | `/admin` | Login at `/admin/login`: `founder@menzy.app` / `dishora2026!` |
 
 ---
 

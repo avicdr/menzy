@@ -1,60 +1,62 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import crypto from 'crypto';
 import { getOwnerSession } from '@/lib/auth/owner-auth';
-import { ClaimStatus } from '@prisma/client';
+import { getCache } from '@/lib/cache/redis';
+import { ClaimRedeemError, redeemClaimWithinTransaction } from '@/lib/claims/claim-service';
 
 export async function POST(req: Request) {
   try {
-    const { rawClaimToken, verificationNotes } = await req.json();
+    let body: any;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
 
-    if (!rawClaimToken) {
+    const { rawClaimToken, verificationNotes } = body || {};
+    if (!rawClaimToken || typeof rawClaimToken !== 'string' || !rawClaimToken.trim()) {
       return NextResponse.json({ error: 'Claim token is required' }, { status: 400 });
     }
 
     const session = await getOwnerSession();
     if (!session) {
-      return NextResponse.json({ error: 'Please sign in or register to claim this menu' }, { status: 401 });
+      return NextResponse.json(
+        { error: 'Please sign in or register to claim this menu' },
+        { status: 401 }
+      );
     }
 
-    const claimTokenHash = crypto.createHash('sha256').update(rawClaimToken).digest('hex');
+    const result = await prisma.$transaction((tx) =>
+      redeemClaimWithinTransaction(tx, {
+        rawClaimToken: rawClaimToken.trim(),
+        userId: session.userId,
+        email: session.email,
+        verificationNotes: typeof verificationNotes === 'string' ? verificationNotes : undefined,
+      })
+    );
 
-    const claim = await prisma.claimRequest.findUnique({
-      where: { claimTokenHash },
-      include: { restaurant: true },
-    });
-
-    if (!claim) {
-      return NextResponse.json({ error: 'Invalid or unrecognized claim link' }, { status: 404 });
-    }
-
-    if (claim.status === ClaimStatus.APPROVED) {
-      return NextResponse.json({ error: 'This restaurant menu has already been claimed.' }, { status: 409 });
-    }
-
-    if (claim.expiresAt < new Date()) {
-      return NextResponse.json({ error: 'This claim invitation link has expired.' }, { status: 410 });
-    }
-
-    // Set claimant to current user & mark status PENDING_VERIFICATION or RESERVED
-    await prisma.claimRequest.update({
-      where: { id: claim.id },
-      data: {
-        claimantUserId: session.userId,
-        claimantEmail: session.email,
-        status: ClaimStatus.PENDING_VERIFICATION,
-        verificationNotes: verificationNotes || 'Owner initiated claim from private invitation link.',
-      },
-    });
+    const cache = getCache();
+    await cache.del(`menu:slug:${result.restaurant.slug}`);
 
     return NextResponse.json({
       success: true,
-      message: 'Claim submitted for verification. You can preview the menu in your dashboard.',
-      restaurant: claim.restaurant,
+      alreadyClaimedByUser: result.alreadyClaimedByUser,
+      message: result.alreadyClaimedByUser
+        ? 'You already own this restaurant menu. Opening your workspace...'
+        : 'Ownership claimed! Full menu editing and billing controls are now unlocked.',
+      restaurant: {
+        id: result.restaurant.id,
+        slug: result.restaurant.slug,
+        displayName: result.restaurant.displayName,
+        isClaimed: result.restaurant.isClaimed,
+        organizationId: result.organizationId,
+      },
     });
   } catch (error: any) {
+    if (error instanceof ClaimRedeemError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Redeem claim error:', error);
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
-

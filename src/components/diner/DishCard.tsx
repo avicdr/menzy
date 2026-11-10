@@ -65,6 +65,9 @@ export function DishCard({ item, layoutMode = 'GRID', onSelect }: DishCardProps)
           <img
             src={imageUrl}
             alt={item.customName}
+            onError={(e) => {
+              e.currentTarget.src = '/placeholder-dish.svg';
+            }}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
           />
@@ -91,6 +94,9 @@ export function DishCard({ item, layoutMode = 'GRID', onSelect }: DishCardProps)
         <img
           src={imageUrl}
           alt={item.customName}
+          onError={(e) => {
+            e.currentTarget.src = '/placeholder-dish.svg';
+          }}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           loading="lazy"
         />

@@ -1,8 +1,8 @@
 {
-  "name": "dishora",
+  "name": "menzy",
   "version": "1.0.0",
   "private": true,
-  "description": "Dishora - Premium AI-powered interactive menus for restaurants. See it. Ask it. Crave it.",
+  "description": "Menzy - Premium AI-powered interactive menus for restaurants. See it. Ask it. Crave it.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

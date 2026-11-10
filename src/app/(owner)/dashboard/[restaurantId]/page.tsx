@@ -32,10 +32,26 @@ import {
   Utensils,
   Save,
   HelpCircle,
+  Search,
+  Image as ImageIcon,
+  Wifi,
 } from 'lucide-react';
+import { Portal } from '@/components/ui/Portal';
 import { formatCurrencyMinor, PLAN_CATALOG, PlanKey } from '@/lib/payments/plans';
-import { THEME_PRESETS, ThemeConfig, validateThemeAccessibility, generateThemeVariables } from '@/lib/theme/theme-presets';
+import {
+  THEME_PRESETS,
+  ThemeConfig,
+  validateThemeAccessibility,
+  generateThemeVariables,
+  normalizeThemeFont,
+  HEADING_FONT_OPTIONS,
+  BODY_FONT_OPTIONS,
+} from '@/lib/theme/theme-presets';
 import { DietaryBadge, FssaiMarker } from '@/components/diner/DietaryBadge';
+import { TablesManagementView } from '@/components/dashboard/TablesManagementView';
+import { OrdersManagementView } from '@/components/dashboard/OrdersManagementView';
+import { StaffManagementView } from '@/components/dashboard/StaffManagementView';
+import { GooglePlacesModal } from '@/components/dashboard/GooglePlacesModal';
 
 export default function RestaurantDashboardPage() {
   return (
@@ -112,6 +128,7 @@ function RestaurantDashboardContent() {
   } | null>(null);
   const [isApplyingCandidate, setIsApplyingCandidate] = useState(false);
   const [candidatePromptTweak, setCandidatePromptTweak] = useState('');
+  const [isPlacesModalOpen, setIsPlacesModalOpen] = useState(false);
 
   // Theme Studio State
   const [themeState, setThemeState] = useState<ThemeConfig>(THEME_PRESETS.WARM_EDITORIAL);
@@ -149,9 +166,26 @@ function RestaurantDashboardContent() {
     phone: '',
     email: '',
     googleReviewUrl: '',
+    coverUrl: '',
   });
+  const [wifiForm, setWifiForm] = useState<{
+    enabled: boolean;
+    ssid: string;
+    password: string;
+    security: 'WPA' | 'WEP' | 'nopass';
+  }>({
+    enabled: false,
+    ssid: '',
+    password: '',
+    security: 'WPA',
+  });
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSavedToast, setSettingsSavedToast] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
+  const [bannerError, setBannerError] = useState<string | null>(null);
+  const [bannerToast, setBannerToast] = useState<string | null>(null);
+  const [bannerDimensions, setBannerDimensions] = useState<{ width: number; height: number } | null>(null);
 
   // QR Studio State
   const [qrData, setQrData] = useState<{ qrDataUrl: string; targetUrl: string } | null>(null);
@@ -197,6 +231,7 @@ function RestaurantDashboardContent() {
             phone: targetRest.phone || '',
             email: targetRest.email || '',
             googleReviewUrl: targetRest.googleReviewUrl || '',
+            coverUrl: targetRest.coverUrl || '',
           });
 
           // Load items
@@ -232,8 +267,8 @@ function RestaurantDashboardContent() {
                 secondaryTextColor: dinerData.theme.secondaryTextColor || '#7C695C',
                 accentColor: dinerData.theme.accentColor || '#B86D52',
                 secondaryAccentColor: dinerData.theme.secondaryAccentColor || '#70816B',
-                headingFont: dinerData.theme.headingFont || 'Instrument Serif',
-                bodyFont: dinerData.theme.bodyFont || 'DM Sans',
+                headingFont: normalizeThemeFont(dinerData.theme.headingFont, 'Plus Jakarta Sans'),
+                bodyFont: normalizeThemeFont(dinerData.theme.bodyFont, 'Inter'),
                 layoutMode: dinerData.theme.layoutMode || 'GRID',
                 cardRadius: dinerData.theme.cardRadius || '16px',
                 buttonStyle: dinerData.theme.buttonStyle || 'rounded',
@@ -247,6 +282,36 @@ function RestaurantDashboardContent() {
               setAllowDinerChat(dinerData.settings.allowDinerChat ?? true);
               setAllowPairings(dinerData.settings.allowPairings ?? true);
               setMaxDinerChat(dinerData.settings.maxDinerChatPerSession ?? 25);
+            }
+          }
+
+          // Load restaurant profile & Wi-Fi settings
+          const restSettingsRes = await fetch(`/api/restaurant/settings?restaurantId=${targetRest.id}`);
+          if (restSettingsRes.ok) {
+            const rsData = await restSettingsRes.json();
+            if (rsData.wifi) {
+              setWifiForm({
+                enabled: Boolean(rsData.wifi.enabled),
+                ssid: rsData.wifi.ssid || '',
+                password: rsData.wifi.password || '',
+                security: ['WPA', 'WEP', 'nopass'].includes(rsData.wifi.security) ? rsData.wifi.security : 'WPA',
+              });
+            }
+            if (rsData.restaurant) {
+              setRestaurant(rsData.restaurant);
+              setSettingsForm({
+                displayName: rsData.restaurant.displayName || '',
+                description: rsData.restaurant.description || '',
+                address: rsData.restaurant.address || '',
+                city: rsData.restaurant.city || '',
+                country: rsData.restaurant.country || 'IN',
+                currency: rsData.restaurant.currency || 'INR',
+                timezone: rsData.restaurant.timezone || 'Asia/Kolkata',
+                phone: rsData.restaurant.phone || '',
+                email: rsData.restaurant.email || '',
+                googleReviewUrl: rsData.restaurant.googleReviewUrl || '',
+                coverUrl: rsData.restaurant.coverUrl || '',
+              });
             }
           }
 
@@ -280,6 +345,42 @@ function RestaurantDashboardContent() {
         .finally(() => setAnalyticsLoading(false));
     }
   }, [currentTab, restaurant?.id, analyticsData]);
+
+  // Keep Wi-Fi & profile settings fresh whenever owner navigates to Settings tab
+  useEffect(() => {
+    if (currentTab === 'settings' && restaurant?.id) {
+      fetch(`/api/restaurant/settings?restaurantId=${restaurant.id}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((rsData) => {
+          if (!rsData) return;
+          if (rsData.wifi) {
+            setWifiForm({
+              enabled: Boolean(rsData.wifi.enabled),
+              ssid: rsData.wifi.ssid || '',
+              password: rsData.wifi.password || '',
+              security: ['WPA', 'WEP', 'nopass'].includes(rsData.wifi.security) ? rsData.wifi.security : 'WPA',
+            });
+          }
+          if (rsData.restaurant) {
+            setRestaurant(rsData.restaurant);
+            setSettingsForm({
+              displayName: rsData.restaurant.displayName || '',
+              description: rsData.restaurant.description || '',
+              address: rsData.restaurant.address || '',
+              city: rsData.restaurant.city || '',
+              country: rsData.restaurant.country || 'IN',
+              currency: rsData.restaurant.currency || 'INR',
+              timezone: rsData.restaurant.timezone || 'Asia/Kolkata',
+              phone: rsData.restaurant.phone || '',
+              email: rsData.restaurant.email || '',
+              googleReviewUrl: rsData.restaurant.googleReviewUrl || '',
+              coverUrl: rsData.restaurant.coverUrl || '',
+            });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [currentTab, restaurant?.id]);
 
   // Toggle dish availability
   const handleToggleAvailability = async (item: any) => {
@@ -704,10 +805,14 @@ function RestaurantDashboardContent() {
     setAiTestLoading(true);
     setAiTestResponse(null);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
       const res = await fetch('/api/diner/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           restaurantId: restaurant.id,
           sessionToken: 'owner-test-session',
@@ -719,18 +824,145 @@ function RestaurantDashboardContent() {
       if (res.ok) {
         setAiTestResponse(data);
       } else {
-        alert(data.message || 'AI query failed');
+        alert(data.error || data.message || 'AI query failed');
       }
-    } catch (err) {
-      alert('Error querying AI');
+    } catch (err: any) {
+      alert(err?.name === 'AbortError' ? 'AI query timed out after 15 seconds. Please try again.' : 'Error querying AI');
     } finally {
+      clearTimeout(timeoutId);
       setAiTestLoading(false);
     }
   };
 
-  // Save Restaurant Profile Settings
+  // Read image natural pixel dimensions in the browser before uploading
+  const readBannerDimensions = (file: File): Promise<{ width: number; height: number } | null> =>
+    new Promise((resolve) => {
+      const objectUrl = URL.createObjectURL(file);
+      const img = new window.Image();
+      img.onload = () => {
+        const dims = { width: img.naturalWidth, height: img.naturalHeight };
+        URL.revokeObjectURL(objectUrl);
+        resolve(dims);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(null);
+      };
+      img.src = objectUrl;
+    });
+
+  // Upload and immediately save QR Landing Banner Image
+  const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !restaurant?.id) return;
+
+    setBannerError(null);
+    setBannerToast(null);
+
+    const normalizedType = file.type === 'image/jpg' ? 'image/jpeg' : file.type;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(normalizedType)) {
+      setBannerError('Unsupported format. Please upload a JPG, PNG, or WebP image (1200 × 600 px recommended).');
+      e.target.value = '';
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setBannerError('Banner file size must be 5 MB or smaller.');
+      e.target.value = '';
+      return;
+    }
+
+    setIsUploadingBanner(true);
+    try {
+      const dims = await readBannerDimensions(file);
+      const formData = new FormData();
+      formData.append('restaurantId', restaurant.id);
+      formData.append('folder', 'banners');
+      formData.append('file', file);
+      if (dims?.width) formData.append('width', String(dims.width));
+      if (dims?.height) formData.append('height', String(dims.height));
+
+      const uploadRes = await fetch('/api/images/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok || !uploadData?.asset?.publicUrl) {
+        throw new Error(uploadData?.error || 'Failed to upload banner image');
+      }
+
+      const uploadedUrl = uploadData.asset.publicUrl as string;
+      const saveRes = await fetch('/api/restaurant/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+          coverUrl: uploadedUrl,
+        }),
+      });
+      const saveData = await saveRes.json();
+      if (!saveRes.ok) {
+        throw new Error(saveData?.error || 'Banner uploaded but failed to save to restaurant profile');
+      }
+
+      setSettingsForm((prev) => ({ ...prev, coverUrl: uploadedUrl }));
+      setRestaurant(saveData.restaurant || { ...restaurant, coverUrl: uploadedUrl });
+      setBannerDimensions(dims);
+      setBannerToast(
+        dims
+          ? `Banner updated live (${dims.width} × ${dims.height} px)!`
+          : 'Banner image uploaded and published to your QR landing hub!'
+      );
+      setTimeout(() => setBannerToast(null), 4000);
+    } catch (err: any) {
+      setBannerError(err?.message || 'Error uploading banner image.');
+    } finally {
+      setIsUploadingBanner(false);
+      e.target.value = '';
+    }
+  };
+
+  // Clear QR Landing Banner Image
+  const handleRemoveBanner = async () => {
+    if (!restaurant?.id) return;
+    setIsUploadingBanner(true);
+    setBannerError(null);
+    setBannerToast(null);
+    try {
+      const res = await fetch('/api/restaurant/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+          coverUrl: null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to remove banner image');
+      }
+      setSettingsForm((prev) => ({ ...prev, coverUrl: '' }));
+      setRestaurant(data.restaurant || { ...restaurant, coverUrl: null });
+      setBannerDimensions(null);
+      setBannerToast('Banner image removed.');
+      setTimeout(() => setBannerToast(null), 3000);
+    } catch (err: any) {
+      setBannerError(err?.message || 'Error removing banner image');
+    } finally {
+      setIsUploadingBanner(false);
+    }
+  };
+
+  // Save Restaurant Profile & Guest Wi-Fi Settings
   const handleSaveRestaurantSettings = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSettingsError(null);
+
+    if (wifiForm.enabled && !wifiForm.ssid.trim()) {
+      setSettingsError('Please enter your Wi-Fi Network Name (SSID) or disable Guest Free Wi-Fi.');
+      return;
+    }
+
     setIsSavingSettings(true);
     try {
       const res = await fetch('/api/restaurant/settings', {
@@ -739,23 +971,62 @@ function RestaurantDashboardContent() {
         body: JSON.stringify({
           restaurantId: restaurant.id,
           ...settingsForm,
+          wifi: {
+            enabled: wifiForm.enabled,
+            ssid: wifiForm.ssid.trim(),
+            password: wifiForm.security === 'nopass' ? '' : wifiForm.password,
+            security: wifiForm.security,
+          },
         }),
       });
 
       if (res.ok) {
         const data = await res.json();
         setRestaurant(data.restaurant);
+        if (data.wifi) {
+          setWifiForm({
+            enabled: Boolean(data.wifi.enabled),
+            ssid: data.wifi.ssid || '',
+            password: data.wifi.password || '',
+            security: ['WPA', 'WEP', 'nopass'].includes(data.wifi.security) ? data.wifi.security : 'WPA',
+          });
+        }
         setSettingsSavedToast(true);
         setTimeout(() => setSettingsSavedToast(false), 3000);
       } else {
-        alert('Failed to update restaurant settings');
+        const errData = await res.json().catch(() => ({}));
+        setSettingsError(errData.error || 'Failed to update restaurant settings');
       }
     } catch (err) {
-      alert('Error updating restaurant settings');
+      setSettingsError('Error updating restaurant settings');
     } finally {
       setIsSavingSettings(false);
     }
   };
+
+  // Lock body scroll and listen for Escape key when any dashboard modal is open
+  useEffect(() => {
+    const isAnyModalOpen = isEditDishOpen || isAddDishOpen || isDeleteDialogOpen || Boolean(candidateReview);
+    if (!isAnyModalOpen) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsEditDishOpen(false);
+        setIsAddDishOpen(false);
+        setIsDeleteDialogOpen(false);
+        setCandidateReview(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isEditDishOpen, isAddDishOpen, isDeleteDialogOpen, candidateReview]);
 
   if (loading || !restaurant) {
     return (
@@ -772,7 +1043,7 @@ function RestaurantDashboardContent() {
   const planName = billingUsage?.plan?.name || 'Growth';
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-cream-100/40 w-full min-w-0 overflow-x-hidden">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-cream-100/40 w-full min-w-0 overflow-x-clip">
       {/* Sidebar Nav */}
       <DashboardNav
         currentRestaurant={restaurant}
@@ -783,7 +1054,7 @@ function RestaurantDashboardContent() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full min-w-0 overflow-y-auto p-4 sm:p-6 lg:p-10 max-w-7xl mx-auto">
+      <main className="flex-1 w-full min-w-0 p-4 sm:p-6 lg:p-10 max-w-7xl mx-auto">
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 pb-6 border-b border-cream-300">
           <div>
@@ -1251,11 +1522,17 @@ function RestaurantDashboardContent() {
                 MODAL A: EDIT DISH DETAILS (NAME, PRICE, RECIPE, SPOTLIGHTS)
             ========================================================================= */}
             {isEditDishOpen && editingDish && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-espresso-900/60 backdrop-blur-sm animate-fade-in">
-                <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-sheet space-y-4 max-h-[90vh] overflow-y-auto">
-                  <div className="flex items-center justify-between border-b border-cream-200 pb-3">
-                    <div>
-                      <h3 className="font-serif text-xl font-bold text-espresso-900">Edit Dish Details</h3>
+              <Portal>
+                <div
+                  className="fixed inset-0 z-[100] w-screen h-screen min-h-screen flex items-center justify-center p-4 bg-espresso-950/75 backdrop-blur-sm animate-modal-backdrop"
+                  onClick={(e) => {
+                    if (e.target === e.currentTarget) setIsEditDishOpen(false);
+                  }}
+                >
+                  <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-xl w-full shadow-lifted space-y-4 max-h-[92vh] overflow-y-auto animate-modal-content border border-cream-300">
+                    <div className="flex items-center justify-between border-b border-cream-200 pb-3">
+                      <div>
+                        <h3 className="font-serif text-xl font-bold text-espresso-900">Edit Dish Details</h3>
                       <p className="text-xs text-taupe-500">
                         Update name, pricing, dietary tags, and description for {editingDish.customName}
                       </p>
@@ -1499,14 +1776,21 @@ function RestaurantDashboardContent() {
                   </form>
                 </div>
               </div>
-            )}
+            </Portal>
+          )}
 
-            {/* =========================================================================
-                MODAL B: ADD NEW DISH
-            ========================================================================= */}
-            {isAddDishOpen && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-espresso-900/60 backdrop-blur-sm animate-fade-in">
-                <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-sheet space-y-4 max-h-[90vh] overflow-y-auto">
+          {/* =========================================================================
+              MODAL B: ADD NEW DISH
+          ========================================================================= */}
+          {isAddDishOpen && (
+            <Portal>
+              <div
+                className="fixed inset-0 z-[100] w-screen h-screen min-h-screen flex items-center justify-center p-4 bg-espresso-950/75 backdrop-blur-sm animate-modal-backdrop"
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) setIsAddDishOpen(false);
+                }}
+              >
+                <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-xl w-full shadow-lifted space-y-4 max-h-[92vh] overflow-y-auto animate-modal-content border border-cream-300">
                   <div className="flex items-center justify-between border-b border-cream-200 pb-3">
                     <div>
                       <h3 className="font-serif text-xl font-bold text-espresso-900">Add New Dish</h3>
@@ -1747,14 +2031,24 @@ function RestaurantDashboardContent() {
                   </form>
                 </div>
               </div>
-            )}
+            </Portal>
+          )}
 
-            {/* =========================================================================
-                MODAL: ON-SCREEN DELETE DISH CONFIRMATION
-            ========================================================================= */}
-            {isDeleteDialogOpen && dishToDelete && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-espresso-900/60 backdrop-blur-sm animate-fade-in">
-                <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-sheet space-y-4 text-center">
+          {/* =========================================================================
+              MODAL: ON-SCREEN DELETE DISH CONFIRMATION
+          ========================================================================= */}
+          {isDeleteDialogOpen && dishToDelete && (
+            <Portal>
+              <div
+                className="fixed inset-0 z-[100] w-screen h-screen min-h-screen flex items-center justify-center p-4 bg-espresso-950/75 backdrop-blur-sm animate-modal-backdrop"
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) {
+                    setIsDeleteDialogOpen(false);
+                    setDishToDelete(null);
+                  }
+                }}
+              >
+                <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-lifted space-y-4 text-center animate-modal-content border border-cream-300">
                   <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto border border-red-200">
                     <Trash2 className="w-7 h-7" />
                   </div>
@@ -1797,7 +2091,8 @@ function RestaurantDashboardContent() {
                   </div>
                 </div>
               </div>
-            )}
+            </Portal>
+          )}
           </div>
         )}
 
@@ -1869,13 +2164,19 @@ function RestaurantDashboardContent() {
             MODAL C: CANDIDATE 3D IMAGE REVIEW (ACCEPT OR REJECT WORKFLOW)
         ========================================================================= */}
         {candidateReview && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-espresso-900/60 backdrop-blur-sm animate-fade-in">
-            <div className="bg-white rounded-3xl p-6 max-w-2xl w-full shadow-sheet space-y-5 max-h-[90vh] overflow-y-auto">
-              <div className="flex items-center justify-between border-b border-cream-200 pb-3">
-                <div>
-                  <h3 className="font-serif text-xl font-bold text-espresso-900">
-                    Review 3D Clay Illustration
-                  </h3>
+          <Portal>
+            <div
+              className="fixed inset-0 z-[100] w-screen h-screen min-h-screen flex items-center justify-center p-4 bg-espresso-950/75 backdrop-blur-sm animate-modal-backdrop"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setCandidateReview(null);
+              }}
+            >
+              <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-2xl w-full shadow-2xl flex flex-col max-h-[88vh] border border-cream-300 overflow-hidden animate-modal-content">
+                <div className="flex items-center justify-between border-b border-cream-200 pb-3 shrink-0">
+                  <div>
+                    <h3 className="font-serif text-xl font-bold text-espresso-900">
+                      Review 3D Clay Illustration
+                    </h3>
                   <p className="text-xs text-taupe-500">
                     Preview newly generated visual for "{candidateReview.item.customName}". You can accept or reject this generation.
                   </p>
@@ -1978,7 +2279,8 @@ function RestaurantDashboardContent() {
               </div>
             </div>
           </div>
-        )}
+        </Portal>
+      )}
 
         {/* =========================================================================
             TAB 4: THEME STUDIO (REACTIVE PHONE PREVIEW + GRID/LIST CARD MODES)
@@ -2148,10 +2450,11 @@ function RestaurantDashboardContent() {
                         onChange={(e) => setThemeState({ ...themeState, headingFont: e.target.value })}
                         className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
                       >
-                        <option value="Instrument Serif">Instrument Serif (Warm Editorial)</option>
-                        <option value="DM Serif Display">DM Serif Display (Modern Elegance)</option>
-                        <option value="Playfair Display">Playfair Display (Botanical Classic)</option>
-                        <option value="DM Sans">DM Sans (Clean Contemporary)</option>
+                        {HEADING_FONT_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
@@ -2162,9 +2465,11 @@ function RestaurantDashboardContent() {
                         onChange={(e) => setThemeState({ ...themeState, bodyFont: e.target.value })}
                         className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
                       >
-                        <option value="DM Sans">DM Sans (Balanced Modern)</option>
-                        <option value="Manrope">Manrope (Clean Geometric)</option>
-                        <option value="Plus Jakarta Sans">Plus Jakarta Sans (Contemporary)</option>
+                        {BODY_FONT_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
@@ -2182,10 +2487,96 @@ function RestaurantDashboardContent() {
                     </div>
                   </div>
                 </div>
+
+                {/* QR Landing Hero Banner */}
+                <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
+                        QR Landing Banner Image
+                      </label>
+                      <p className="text-[11px] text-taupe-600 mt-1">
+                        Required size: <strong className="text-espresso-900">1200 × 600 px (2:1 landscape)</strong> • Min 800 × 400 px • JPG, PNG, WebP (max 5 MB)
+                      </p>
+                    </div>
+                  </div>
+
+                  {bannerError && (
+                    <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{bannerError}</span>
+                    </div>
+                  )}
+                  {bannerToast && (
+                    <div className="p-2.5 rounded-xl bg-sage-50 border border-sage-200 text-xs text-sage-800 flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-sage-600" />
+                      <span>{bannerToast}</span>
+                    </div>
+                  )}
+
+                  {settingsForm.coverUrl ? (
+                    <div className="space-y-2.5">
+                      <div className="rounded-2xl overflow-hidden border border-cream-300 bg-cream-100">
+                        <img
+                          src={settingsForm.coverUrl}
+                          alt="QR Landing Banner"
+                          className="w-full aspect-[2/1] object-cover block"
+                        />
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] text-taupe-500 font-mono">
+                          {bannerDimensions
+                            ? `Uploaded: ${bannerDimensions.width} × ${bannerDimensions.height} px`
+                            : 'Ideal ratio: 1200 × 600 px (2:1)'}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <label className="cursor-pointer px-3 py-1.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors">
+                            {isUploadingBanner ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                            <span>{isUploadingBanner ? 'Uploading...' : 'Replace Banner'}</span>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              disabled={isUploadingBanner}
+                              onChange={handleBannerUpload}
+                              className="hidden"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            disabled={isUploadingBanner}
+                            onClick={handleRemoveBanner}
+                            className="px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-semibold transition-colors disabled:opacity-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="cursor-pointer flex flex-col items-center justify-center p-5 rounded-2xl border-2 border-dashed border-cream-300 hover:border-terracotta bg-cream-50/70 hover:bg-cream-50 transition-colors text-center gap-1.5">
+                      <div className="w-9 h-9 rounded-xl bg-white border border-cream-200 flex items-center justify-center text-terracotta shadow-2xs">
+                        {isUploadingBanner ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
+                      </div>
+                      <span className="text-xs font-semibold text-espresso-900">
+                        {isUploadingBanner ? 'Uploading Banner...' : 'Upload Hero Banner Image'}
+                      </span>
+                      <span className="text-[11px] text-taupe-500">
+                        Recommended 1200 × 600 px (2:1 wide) • Max 5 MB
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        disabled={isUploadingBanner}
+                        onChange={handleBannerUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
               </div>
 
               {/* Right Live Phone Preview (Fully Reactive) */}
-              <div className="lg:col-span-5 flex justify-center w-full sticky top-6">
+              <div className="lg:col-span-5 flex justify-center w-full sticky top-6 self-start">
                 <div
                   className="w-full max-w-[310px] sm:max-w-[340px] rounded-[36px] sm:rounded-[44px] border-[8px] sm:border-[10px] border-espresso-900 shadow-lifted overflow-hidden flex flex-col h-[580px] sm:h-[640px] relative mx-auto transition-colors duration-300"
                   style={{
@@ -2199,21 +2590,29 @@ function RestaurantDashboardContent() {
 
                   {/* Diner Header */}
                   <div
-                    className="p-4 border-b transition-colors duration-200"
+                    className="border-b transition-colors duration-200 overflow-hidden"
                     style={{
                       backgroundColor: themeState.surfaceColor,
                       borderColor: 'var(--dishora-border)',
                     }}
                   >
-                    <h3
-                      className="text-lg font-bold truncate"
-                      style={{
-                        fontFamily: `'${themeState.headingFont}', Georgia, serif`,
-                        color: themeState.primaryTextColor,
-                      }}
-                    >
-                      {restaurant.displayName}
-                    </h3>
+                    {settingsForm.coverUrl && (
+                      <img
+                        src={settingsForm.coverUrl}
+                        alt=""
+                        className="w-full aspect-[2/1] object-cover block"
+                      />
+                    )}
+                    <div className="p-4">
+                      <h3
+                        className="text-lg font-bold truncate"
+                        style={{
+                          fontFamily: `var(--font-serif)`,
+                          color: themeState.primaryTextColor,
+                        }}
+                      >
+                        {restaurant.displayName}
+                      </h3>
                     <div className="flex items-center gap-2 mt-1">
                       <span
                         className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
@@ -2234,6 +2633,7 @@ function RestaurantDashboardContent() {
                       >
                         {themeState.headingFont} • {themeState.bodyFont}
                       </span>
+                    </div>
                     </div>
                   </div>
 
@@ -2572,7 +2972,7 @@ function RestaurantDashboardContent() {
                     </button>
                   </div>
 
-                  {/* Test Response Display */}
+                      {/* Test Response Display */}
                   {aiTestResponse && (
                     <div className="p-4 bg-cream-50 rounded-2xl border border-cream-200 space-y-3 animate-fade-in">
                       <div className="flex items-center justify-between">
@@ -2582,15 +2982,15 @@ function RestaurantDashboardContent() {
                         <span className="text-[10px] text-taupe-400">Grounded in Menu</span>
                       </div>
                       <p className="text-xs sm:text-sm text-espresso-900 leading-relaxed whitespace-pre-wrap">
-                        {aiTestResponse.answer}
+                        {aiTestResponse.message || aiTestResponse.answer}
                       </p>
-                      {aiTestResponse.recommendedDishIds?.length > 0 && (
+                      {(aiTestResponse.dishIds || aiTestResponse.recommendedDishIds)?.length > 0 && (
                         <div className="pt-2 border-t border-cream-200">
                           <span className="text-[10px] font-semibold text-taupe-500 uppercase block mb-1.5">
                             Recommended Dishes Attached
                           </span>
                           <div className="space-y-1.5">
-                            {aiTestResponse.recommendedDishIds.map((dishId: string) => {
+                            {(aiTestResponse.dishIds || aiTestResponse.recommendedDishIds).map((dishId: string) => {
                               const dish = menuItems.find((m) => m.id === dishId);
                               if (!dish) return null;
                               return (
@@ -2636,7 +3036,7 @@ function RestaurantDashboardContent() {
               {/* 4x6" Table Tent Card Art */}
               <div className="p-8 bg-white rounded-3xl border border-cream-300 shadow-lifted flex flex-col items-center text-center space-y-4">
                 <div className="w-12 h-12 rounded-2xl bg-espresso-900 text-cream-100 flex items-center justify-center font-serif text-2xl font-bold">
-                  D
+                  {restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'}
                 </div>
                 <div>
                   <h3 className="font-serif text-2xl font-bold text-espresso-900">{restaurant.displayName}</h3>
@@ -2686,6 +3086,33 @@ function RestaurantDashboardContent() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* =========================================================================
+            TAB: TABLES & QR CODES HUB
+        ========================================================================= */}
+        {currentTab === 'tables' && restaurant && (
+          <div className="animate-fade-in">
+            <TablesManagementView restaurant={restaurant} />
+          </div>
+        )}
+
+        {/* =========================================================================
+            TAB: LIVE ORDERS & POS
+        ========================================================================= */}
+        {currentTab === 'orders' && restaurant && (
+          <div className="animate-fade-in">
+            <OrdersManagementView restaurant={restaurant} />
+          </div>
+        )}
+
+        {/* =========================================================================
+            TAB: STAFF & ACCESS
+        ========================================================================= */}
+        {currentTab === 'staff' && restaurant && (
+          <div className="animate-fade-in">
+            <StaffManagementView restaurant={restaurant} />
           </div>
         )}
 
@@ -2858,7 +3285,7 @@ function RestaurantDashboardContent() {
               <div>
                 <h2 className="font-serif text-xl font-bold text-espresso-900">Restaurant Settings</h2>
                 <p className="text-xs sm:text-sm text-taupe-500 mt-1">
-                  Manage restaurant profile, address, operating currency, and contact info.
+                  Manage restaurant profile, banner image, guest Wi-Fi credentials, address, currency, and review links.
                 </p>
               </div>
 
@@ -2872,6 +3299,13 @@ function RestaurantDashboardContent() {
                 {isSavingSettings ? 'Saving...' : 'Save Settings'}
               </button>
             </div>
+
+            {settingsError && (
+              <div className="p-4 bg-red-50 border border-red-200 text-red-800 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{settingsError}</span>
+              </div>
+            )}
 
             {settingsSavedToast && (
               <div className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in">
@@ -2956,6 +3390,238 @@ function RestaurantDashboardContent() {
                 </div>
               </div>
 
+              {/* QR Landing Banner Image */}
+              <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-serif text-lg font-bold text-espresso-900">QR Landing Banner Image</h3>
+                    <p className="text-xs text-taupe-500 mt-0.5">
+                      Displayed at the top of your restaurant&apos;s diner QR landing card above your menu and quick actions.
+                    </p>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-900 shrink-0">
+                    <ImageIcon className="w-3.5 h-3.5 text-amber-700" />
+                    Recommended: 1200 × 600 px (2:1 Landscape)
+                  </span>
+                </div>
+
+                {/* Explicit Dimension & Format Requirements Box */}
+                <div className="p-3.5 rounded-2xl bg-cream-50 border border-cream-200 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-espresso-800">
+                  <span>
+                    <strong className="text-espresso-900">Ideal Size:</strong> 1200 × 600 px (2:1 wide banner)
+                  </span>
+                  <span>
+                    <strong className="text-espresso-900">Minimum:</strong> 800 × 400 px
+                  </span>
+                  <span>
+                    <strong className="text-espresso-900">Formats:</strong> JPG, PNG, WebP (Max 5 MB)
+                  </span>
+                </div>
+
+                {bannerError && (
+                  <div className="p-3 rounded-2xl bg-red-50 border border-red-200 text-xs sm:text-sm text-red-700 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{bannerError}</span>
+                  </div>
+                )}
+
+                {bannerToast && (
+                  <div className="p-3 rounded-2xl bg-sage-50 border border-sage-200 text-xs sm:text-sm text-sage-900 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
+                    <span>{bannerToast}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
+                  {/* Live 2:1 Aspect Preview */}
+                  <div className="md:col-span-6">
+                    <div className="rounded-2xl overflow-hidden border border-cream-300 bg-cream-100 aspect-[2/1] flex items-center justify-center relative">
+                      {settingsForm.coverUrl ? (
+                        <img
+                          src={settingsForm.coverUrl}
+                          alt="Restaurant QR landing banner preview"
+                          className="w-full h-full object-cover block"
+                        />
+                      ) : (
+                        <div className="text-center p-4 space-y-1">
+                          <ImageIcon className="w-7 h-7 text-taupe-400 mx-auto" />
+                          <p className="text-xs font-semibold text-taupe-600">No banner uploaded yet</p>
+                          <p className="text-[11px] text-taupe-400">Preview canvas • 1200 × 600 px (2:1)</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Upload Controls & Dimension Check */}
+                  <div className="md:col-span-6 space-y-3">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <label className="cursor-pointer px-4 py-2.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors shadow-xs">
+                        {isUploadingBanner ? (
+                          <RefreshCw className="w-4 h-4 animate-spin text-terracotta" />
+                        ) : (
+                          <Upload className="w-4 h-4 text-terracotta" />
+                        )}
+                        <span>
+                          {isUploadingBanner
+                            ? 'Uploading Banner...'
+                            : settingsForm.coverUrl
+                            ? 'Upload New Banner'
+                            : 'Upload Banner Image'}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          disabled={isUploadingBanner}
+                          onChange={handleBannerUpload}
+                          className="hidden"
+                        />
+                      </label>
+
+                      {settingsForm.coverUrl && (
+                        <button
+                          type="button"
+                          disabled={isUploadingBanner}
+                          onClick={handleRemoveBanner}
+                          className="px-3.5 py-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Remove Banner
+                        </button>
+                      )}
+                    </div>
+
+                    {bannerDimensions && (
+                      <p
+                        className={`text-xs font-medium ${
+                          bannerDimensions.width < 800 ||
+                          bannerDimensions.height < 400 ||
+                          bannerDimensions.width <= bannerDimensions.height
+                            ? 'text-amber-700'
+                            : 'text-sage-700'
+                        }`}
+                      >
+                        Detected resolution: <strong>{bannerDimensions.width} × {bannerDimensions.height} px</strong>
+                        {(bannerDimensions.width < 800 ||
+                          bannerDimensions.height < 400 ||
+                          bannerDimensions.width <= bannerDimensions.height) &&
+                          ' — Tip: Use at least 800 × 400 px in wide 2:1 landscape (1200 × 600 px ideal) for best fit without cropping.'}
+                      </p>
+                    )}
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-taupe-500 mb-1">
+                        Or paste Banner Image URL (1200 × 600 px recommended)
+                      </label>
+                      <input
+                        type="text"
+                        value={settingsForm.coverUrl}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, coverUrl: e.target.value })}
+                        placeholder="/uploads/banners/... or https://..."
+                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-terracotta"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Guest Free Wi-Fi Access */}
+              <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                      <Wifi className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="font-serif text-lg font-bold text-espresso-900">Guest Free Wi-Fi Access</h3>
+                      <p className="text-xs text-taupe-500">
+                        Share Wi-Fi on your QR landing hub with 1-tap camera QR connect &amp; password copy.
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`px-3 py-1 rounded-full text-[11px] font-semibold shrink-0 self-start sm:self-center ${
+                      wifiForm.enabled && wifiForm.ssid.trim()
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        : 'bg-cream-100 text-taupe-600 border border-cream-200'
+                    }`}
+                  >
+                    {wifiForm.enabled && wifiForm.ssid.trim() ? 'Shown to Diners' : 'Hidden on QR Hub'}
+                  </span>
+                </div>
+
+                <label className="flex items-start gap-3 p-4 rounded-2xl border border-cream-300 bg-cream-50/60 cursor-pointer hover:border-emerald-400 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={wifiForm.enabled}
+                    onChange={(e) => {
+                      setSettingsError(null);
+                      setWifiForm({ ...wifiForm, enabled: e.target.checked });
+                    }}
+                    className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-cream-300 focus:ring-emerald-500"
+                  />
+                  <div>
+                    <div className="font-semibold text-xs sm:text-sm text-espresso-900">
+                      Offer Free Guest Wi-Fi on QR Landing Page
+                    </div>
+                    <div className="text-[11px] text-taupe-500 mt-0.5">
+                      Displays a &ldquo;Connect to Wi-Fi&rdquo; action card when diners scan any table QR code.
+                    </div>
+                  </div>
+                </label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                      Network Name (SSID) {wifiForm.enabled ? '*' : ''}
+                    </label>
+                    <input
+                      type="text"
+                      value={wifiForm.ssid}
+                      onChange={(e) => {
+                        setSettingsError(null);
+                        setWifiForm({ ...wifiForm, ssid: e.target.value });
+                      }}
+                      placeholder="e.g. SoilToSoul_Guest"
+                      className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm font-mono focus:outline-none focus:ring-1 focus:ring-terracotta"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                      Wi-Fi Password
+                    </label>
+                    <input
+                      type="text"
+                      disabled={wifiForm.security === 'nopass'}
+                      value={wifiForm.security === 'nopass' ? '' : wifiForm.password}
+                      onChange={(e) => setWifiForm({ ...wifiForm, password: e.target.value })}
+                      placeholder={wifiForm.security === 'nopass' ? 'Open network (no password)' : 'Enter guest Wi-Fi password'}
+                      className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm font-mono focus:outline-none focus:ring-1 focus:ring-terracotta disabled:bg-cream-100 disabled:text-taupe-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                      Security Type
+                    </label>
+                    <select
+                      value={wifiForm.security}
+                      onChange={(e) =>
+                        setWifiForm({
+                          ...wifiForm,
+                          security: (e.target.value as 'WPA' | 'WEP' | 'nopass') || 'WPA',
+                        })
+                      }
+                      className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
+                    >
+                      <option value="WPA">WPA / WPA2 / WPA3 (Standard)</option>
+                      <option value="WEP">WEP (Legacy)</option>
+                      <option value="nopass">None (Open Network)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               {/* Location & Contact */}
               <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
                 <h3 className="font-serif text-lg font-bold text-espresso-900">Location & Contact</h3>
@@ -2997,16 +3663,49 @@ function RestaurantDashboardContent() {
 
                 <div>
                   <label className="block text-xs font-semibold text-taupe-600 mb-1">Google Maps / Review Link</label>
-                  <input
-                    type="url"
-                    value={settingsForm.googleReviewUrl}
-                    onChange={(e) => setSettingsForm({ ...settingsForm, googleReviewUrl: e.target.value })}
-                    placeholder="https://g.page/r/your-restaurant/review"
-                    className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={settingsForm.googleReviewUrl}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, googleReviewUrl: e.target.value })}
+                      placeholder="https://search.google.com/local/writereview?placeid=... or g.page/..."
+                      className="flex-1 px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIsPlacesModalOpen(true)}
+                      className="px-3.5 py-2 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 shadow-xs"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      <span>Search Maps</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-taupe-500 mt-1">
+                    When diners tap "Leave a Review", this link opens directly. Search maps to auto-locate your place.
+                  </p>
                 </div>
               </div>
+
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={isSavingSettings}
+                  className="px-5 py-2.5 rounded-xl bg-espresso-900 text-white font-semibold text-xs sm:text-sm hover:bg-espresso-800 transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4 text-terracotta" />
+                  {isSavingSettings ? 'Saving Settings...' : 'Save Settings'}
+                </button>
+              </div>
             </form>
+
+            {/* Google Business Listing Search Modal */}
+            <GooglePlacesModal
+              isOpen={isPlacesModalOpen}
+              onClose={() => setIsPlacesModalOpen(false)}
+              restaurantId={restaurant.id}
+              initialQuery={`${settingsForm.displayName || restaurant.displayName} ${settingsForm.city || restaurant.city || ''}`.trim()}
+              onSelectReviewUrl={(url) => setSettingsForm({ ...settingsForm, googleReviewUrl: url })}
+            />
           </div>
         )}
 

@@ -1,0 +1,121 @@
+import { NextResponse } from 'next/server';
+import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
+import { getGenAIClient, getTextModelName } from '@/lib/gemini/client';
+
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const auth = await verifyRestaurantOwnerAccess(id);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const q = (searchParams.get('q') || '').trim();
+    if (!q || q.length < 2) {
+      return NextResponse.json({ places: [] });
+    }
+
+    const places: Array<{
+      id: string;
+      name: string;
+      address: string;
+      mapsUrl: string;
+      reviewUrl: string;
+      source: string;
+    }> = [];
+
+    // 1. Try Gemini Google Search Grounding to find Google Business listings
+    try {
+      const genai = getGenAIClient();
+      if (genai) {
+        const modelName = getTextModelName();
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 6000);
+        let resp: any;
+        try {
+          resp = await genai.models.generateContent({
+            model: modelName,
+            contents: `Find the Google Business / Google Maps listing(s) for restaurant/cafe query: "${q}". Return up to 4 real matching places with their exact name, street address/city, and any Google Maps URL or place info if known.`,
+            config: {
+              tools: [{ googleSearch: {} }],
+              abortSignal: controller.signal,
+              httpOptions: { timeout: 6000 },
+            },
+          });
+        } finally {
+          clearTimeout(timer);
+        }
+
+        const groundingChunks = (resp as any)?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+        for (const chunk of groundingChunks) {
+          if (chunk?.web?.uri && (chunk.web.uri.includes('google.com/maps') || chunk.web.uri.includes('goo.gl') || chunk.web.uri.includes('g.page'))) {
+            places.push({
+              id: `google_${places.length}`,
+              name: chunk.web.title || q,
+              address: 'Verified Google Listing',
+              mapsUrl: chunk.web.uri,
+              reviewUrl: chunk.web.uri,
+              source: 'Google Search',
+            });
+          }
+        }
+      }
+    } catch (geminiErr) {
+      console.warn('Gemini search grounding unavailable, falling back to Nominatim:', geminiErr);
+    }
+
+    // 2. Also query OpenStreetMap Nominatim for real location candidates
+    try {
+      const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5&addressdetails=1`;
+      const nomRes = await fetch(nomUrl, {
+        headers: {
+          'User-Agent': 'MenzyMenuSaaS/1.0',
+        },
+        signal: AbortSignal.timeout(6000),
+      });
+
+      if (nomRes.ok) {
+        const nomData = await nomRes.json();
+        for (const item of nomData) {
+          const displayName = item.display_name || q;
+          const shortName = item.name || displayName.split(',')[0] || q;
+          const queryParam = encodeURIComponent(`${shortName} ${item.address?.city || item.address?.town || ''}`.trim());
+          const mapsSearchUrl = `https://www.google.com/maps/search/?api=1&query=${queryParam}`;
+
+          places.push({
+            id: `osm_${item.place_id}`,
+            name: shortName,
+            address: displayName,
+            mapsUrl: mapsSearchUrl,
+            reviewUrl: mapsSearchUrl,
+            source: 'Maps Directory',
+          });
+        }
+      }
+    } catch (nomErr) {
+      console.warn('Nominatim search failed:', nomErr);
+    }
+
+    // Always include a direct Google Business Search action as fallback
+    const directMapsSearch = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+    if (places.length === 0) {
+      places.push({
+        id: 'direct_google_search',
+        name: q,
+        address: 'Search directly on Google Maps & copy your Share / Review link',
+        mapsUrl: directMapsSearch,
+        reviewUrl: directMapsSearch,
+        source: 'Google Maps Direct',
+      });
+    }
+
+    return NextResponse.json({ places });
+  } catch (error: any) {
+    console.error('Places search error:', error);
+    return NextResponse.json({ error: error.message || 'Search failed' }, { status: 500 });
+  }
+}

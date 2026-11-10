@@ -226,7 +226,7 @@ Output format: Return ONLY a valid JSON object matching this structure:
 
 export async function extractMenuFromImages(params: {
   images: Array<{ buffer: Buffer; mimeType: string }>;
-  restaurantId: string;
+  restaurantId?: string | null;
   currencyDefault?: 'INR' | 'USD';
 }): Promise<ExtractedMenuResult> {
   const startTime = Date.now();
@@ -239,7 +239,7 @@ export async function extractMenuFromImages(params: {
     console.error(`[VisionExtractor] ${errorMsg}`);
     await prisma.aIUsageEvent.create({
       data: {
-        restaurantId: params.restaurantId,
+        restaurantId: params.restaurantId || null,
         operationType: 'MENU_EXTRACTION',
         modelId: modelName,
         inputTokens: 0,
@@ -268,16 +268,34 @@ export async function extractMenuFromImages(params: {
       text: `Extract all menu categories, dishes, prices (in minor units cents/paise), dietary indicators and visual descriptions according to the JSON schema. Use currency: ${currency}. Return ONLY a JSON object.`,
     });
 
-    const response = await client.models.generateContent({
-      model: modelName,
-      contents: [
-        { role: 'user', parts },
-      ],
-      config: {
-        systemInstruction: EXTRACTION_SYSTEM_PROMPT,
-        responseMimeType: 'application/json',
-      },
-    });
+    const controller = new AbortController();
+    const timeoutMs = Number(process.env.GEMINI_EXTRACTION_TIMEOUT_MS) || 45000;
+    const timeoutHandle = setTimeout(() => {
+      controller.abort(new Error('GEMINI_EXTRACTION_TIMEOUT'));
+    }, timeoutMs);
+
+    let response: any;
+    try {
+      response = await Promise.race([
+        client.models.generateContent({
+          model: modelName,
+          contents: [
+            { role: 'user', parts },
+          ],
+          config: {
+            systemInstruction: EXTRACTION_SYSTEM_PROMPT,
+            responseMimeType: 'application/json',
+            abortSignal: controller.signal,
+            httpOptions: { timeout: timeoutMs },
+          },
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Menu extraction timed out. Please try again with a clearer or smaller menu photo.')), timeoutMs + 250)
+        ),
+      ]);
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
 
     const responseText = response.text || '';
     if (!responseText.trim()) {
@@ -308,7 +326,7 @@ export async function extractMenuFromImages(params: {
     const latencyMs = Date.now() - startTime;
     await prisma.aIUsageEvent.create({
       data: {
-        restaurantId: params.restaurantId,
+        restaurantId: params.restaurantId || null,
         operationType: 'MENU_EXTRACTION',
         modelId: modelName,
         inputTokens: 1200,
@@ -325,7 +343,7 @@ export async function extractMenuFromImages(params: {
     const latencyMs = Date.now() - startTime;
     await prisma.aIUsageEvent.create({
       data: {
-        restaurantId: params.restaurantId,
+        restaurantId: params.restaurantId || null,
         operationType: 'MENU_EXTRACTION',
         modelId: modelName,
         inputTokens: 0,
