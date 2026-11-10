@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 import {
   getGenAIClient,
-  getTextModelName,
+  getTextModelCandidates,
   markGeminiKeyCooldown,
   resolveGeminiAttemptClients,
 } from '@/lib/gemini/client';
@@ -33,44 +33,51 @@ export async function GET(
       source: string;
     }> = [];
 
-    // 1. Try Gemini Google Search Grounding across configured Gemini API keys
-    const geminiClients = resolveGeminiAttemptClients(getGenAIClient());
-    const modelName = getTextModelName();
-    for (const entry of geminiClients) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 6000);
-      try {
-        const resp: any = await entry.client.models.generateContent({
-          model: modelName,
-          contents: `Find the Google Business / Google Maps listing(s) for restaurant/cafe query: "${q}". Return up to 4 real matching places with their exact name, street address/city, and any Google Maps URL or place info if known.`,
-          config: {
-            tools: [{ googleSearch: {} }],
-            abortSignal: controller.signal,
-            httpOptions: { timeout: 6000 },
-          },
-        });
+    // 1. Try Gemini Google Search Grounding across configured Gemini API keys & models
+    const geminiClients = resolveGeminiAttemptClients(getGenAIClient('text'), 'text');
+    const modelCandidates = getTextModelCandidates();
+    let searchCompleted = false;
 
-        const groundingChunks = (resp as any)?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        for (const chunk of groundingChunks) {
-          if (chunk?.web?.uri && (chunk.web.uri.includes('google.com/maps') || chunk.web.uri.includes('goo.gl') || chunk.web.uri.includes('g.page'))) {
-            places.push({
-              id: `google_${places.length}`,
-              name: chunk.web.title || q,
-              address: 'Verified Google Listing',
-              mapsUrl: chunk.web.uri,
-              reviewUrl: chunk.web.uri,
-              source: 'Google Search',
-            });
+    for (const candidateModel of modelCandidates) {
+      if (searchCompleted) break;
+      for (const entry of geminiClients) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        try {
+          const resp: any = await entry.client.models.generateContent({
+            model: candidateModel,
+            contents: `Find the Google Business / Google Maps listing(s) for restaurant/cafe query: "${q}". Return up to 4 real matching places with their exact name, street address/city, and any Google Maps URL or place info if known.`,
+            config: {
+              tools: [{ googleSearch: {} }],
+              abortSignal: controller.signal,
+              // Google GenAI rejects X-Server-Timeout < 10s with 400 INVALID_ARGUMENT
+              httpOptions: { timeout: 10000 },
+            },
+          });
+
+          const groundingChunks = (resp as any)?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+          for (const chunk of groundingChunks) {
+            if (chunk?.web?.uri && (chunk.web.uri.includes('google.com/maps') || chunk.web.uri.includes('goo.gl') || chunk.web.uri.includes('g.page'))) {
+              places.push({
+                id: `google_${places.length}`,
+                name: chunk.web.title || q,
+                address: 'Verified Google Listing',
+                mapsUrl: chunk.web.uri,
+                reviewUrl: chunk.web.uri,
+                source: 'Google Search',
+              });
+            }
           }
+          searchCompleted = true;
+          break;
+        } catch (geminiErr) {
+          if (entry.key !== 'mock-injected-client') {
+            markGeminiKeyCooldown(entry.key, geminiErr, 'text');
+          }
+          console.warn(`Gemini search grounding failed (${candidateModel}, key ${entry.maskedKey}):`, geminiErr);
+        } finally {
+          clearTimeout(timer);
         }
-        break;
-      } catch (geminiErr) {
-        if (entry.key !== 'mock-injected-client') {
-          markGeminiKeyCooldown(entry.key, geminiErr);
-        }
-        console.warn(`Gemini search grounding failed on key ${entry.maskedKey}:`, geminiErr);
-      } finally {
-        clearTimeout(timer);
       }
     }
 

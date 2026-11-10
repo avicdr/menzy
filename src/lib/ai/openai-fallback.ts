@@ -8,7 +8,7 @@ const INVALID_OPENAI_PLACEHOLDERS = new Set([
 
 export const DEFAULT_OPENAI_TEXT_MODEL = 'gpt-4o-mini';
 export const DEFAULT_OPENAI_VISION_MODEL = 'gpt-4o-mini';
-export const DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-1';
+export const DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-1-mini';
 
 export function parseOpenAIApiKeys(): string[] {
   const sources = [process.env.OPENAI_API_KEY, process.env.OPENAI_API_KEYS];
@@ -247,80 +247,105 @@ export async function generateOpenAIDishImage(params: {
   prompt: string;
   timeoutMs?: number;
   model?: string;
+  quality?: 'low' | 'medium' | 'high' | 'auto';
+  outputFormat?: 'webp' | 'jpeg' | 'png';
+  outputCompression?: number;
 }): Promise<{
   buffer: Buffer;
   mimeType: string;
   ext: string;
   model: string;
 }> {
-  const model = params.model || getOpenAIImageModelName();
+  const configuredModel = params.model || getOpenAIImageModelName();
   const baseUrl = getOpenAIBaseUrl();
-  const timeoutMs = Math.max(2000, params.timeoutMs ?? 25000);
+  const timeoutMs = Math.max(2000, params.timeoutMs ?? 45000);
 
   return runWithOpenAIKeys('image-gen', async (apiKey) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(new Error('OPENAI_IMAGE_TIMEOUT')), timeoutMs);
+    const attemptRequest = async (targetModel: string) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(new Error('OPENAI_IMAGE_TIMEOUT')), timeoutMs);
+
+      try {
+        const body: Record<string, any> = {
+          model: targetModel,
+          prompt: params.prompt,
+          n: 1,
+          size: '1024x1024',
+        };
+
+        // dall-e-2 / dall-e-3 accept response_format; gpt-image-* models reject it and return b64_json by default.
+        if (targetModel.startsWith('dall-e')) {
+          body.response_format = 'b64_json';
+        } else if (targetModel.startsWith('gpt-image')) {
+          body.quality = params.quality || 'medium';
+          const fmt = params.outputFormat || 'jpeg';
+          body.output_format = fmt;
+          if (fmt === 'jpeg' || fmt === 'webp') {
+            body.output_compression = params.outputCompression ?? 85;
+          }
+        }
+
+        const res = await fetch(`${baseUrl}/images/generations`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => '');
+          throw new Error(`OpenAI image API error (${res.status}): ${errBody.slice(0, 300)}`);
+        }
+
+        const data = await res.json();
+        const first = data?.data?.[0];
+
+        if (first?.b64_json) {
+          const buffer = Buffer.from(first.b64_json, 'base64');
+          const detected = detectImageTypeFromBuffer(buffer);
+          return {
+            buffer,
+            mimeType: detected.mimeType,
+            ext: detected.ext,
+            model: targetModel,
+          };
+        }
+
+        if (first?.url) {
+          const imgRes = await fetch(first.url, { signal: controller.signal });
+          if (!imgRes.ok) {
+            throw new Error(`Failed to fetch generated OpenAI image (${imgRes.status})`);
+          }
+          const buffer = Buffer.from(await imgRes.arrayBuffer());
+          const detected = detectImageTypeFromBuffer(buffer);
+          return {
+            buffer,
+            mimeType: imgRes.headers.get('content-type')?.split(';')[0]?.trim() || detected.mimeType,
+            ext: detected.ext,
+            model: targetModel,
+          };
+        }
+
+        throw new Error('OpenAI image API returned neither b64_json nor url');
+      } finally {
+        clearTimeout(timer);
+      }
+    };
 
     try {
-      const body: Record<string, any> = {
-        model,
-        prompt: params.prompt,
-        n: 1,
-        size: '1024x1024',
-      };
-
-      // dall-e-2 / dall-e-3 accept response_format; gpt-image-* models reject it and return b64_json by default.
-      if (model.startsWith('dall-e')) {
-        body.response_format = 'b64_json';
+      return await attemptRequest(configuredModel);
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      if (
+        configuredModel === 'gpt-image-1' &&
+        (msg.includes('does not exist') || msg.includes('invalid_value'))
+      ) {
+        return await attemptRequest(DEFAULT_OPENAI_IMAGE_MODEL);
       }
-
-      const res = await fetch(`${baseUrl}/images/generations`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        throw new Error(`OpenAI image API error (${res.status}): ${errBody.slice(0, 300)}`);
-      }
-
-      const data = await res.json();
-      const first = data?.data?.[0];
-
-      if (first?.b64_json) {
-        const buffer = Buffer.from(first.b64_json, 'base64');
-        const detected = detectImageTypeFromBuffer(buffer);
-        return {
-          buffer,
-          mimeType: detected.mimeType,
-          ext: detected.ext,
-          model,
-        };
-      }
-
-      if (first?.url) {
-        const imgRes = await fetch(first.url, { signal: controller.signal });
-        if (!imgRes.ok) {
-          throw new Error(`Failed to fetch generated OpenAI image (${imgRes.status})`);
-        }
-        const buffer = Buffer.from(await imgRes.arrayBuffer());
-        const detected = detectImageTypeFromBuffer(buffer);
-        return {
-          buffer,
-          mimeType: imgRes.headers.get('content-type')?.split(';')[0]?.trim() || detected.mimeType,
-          ext: detected.ext,
-          model,
-        };
-      }
-
-      throw new Error('OpenAI image API returned neither b64_json nor url');
-    } finally {
-      clearTimeout(timer);
+      throw err;
     }
   });
 }

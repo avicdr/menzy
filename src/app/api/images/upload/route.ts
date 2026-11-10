@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import { uploadAsset } from '@/lib/storage/adapter';
+import { getCache } from '@/lib/cache/redis';
 import prisma from '@/lib/db/prisma';
 import { AssetType, ModerationStatus } from '@prisma/client';
 
@@ -78,6 +79,8 @@ export async function POST(req: Request) {
         where: { id: menuItemId, restaurantId },
         data: { imageOverrideAssetId: asset.id },
       });
+      const cache = getCache();
+      await cache.del(`menu:slug:${auth.restaurant.slug}`);
     }
 
     return NextResponse.json({ success: true, asset });

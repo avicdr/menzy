@@ -72,42 +72,98 @@ class InMemoryCache {
   }
 }
 
-// Global cache instance (Redis or InMemory fallback)
-let redisClient: Redis | null = null;
-let inMemoryStore: InMemoryCache | null = null;
+// Global cache instance (shared across Next.js route bundles via globalThis)
+const globalCacheState = globalThis as typeof globalThis & {
+  __menzyRedisClient?: Redis | null;
+  __menzyRedisUrl?: string;
+  __menzyRedisConnectPromise?: Promise<boolean> | null;
+  __menzyRedisDisabledUntil?: number;
+  __menzyInMemoryCache?: InMemoryCache;
+};
 
-export function getCache() {
-  const redisUrl = process.env.REDIS_URL;
+async function getConnectedRedis(): Promise<Redis | null> {
+  const redisUrl = process.env.REDIS_URL?.trim();
+  if (!redisUrl) {
+    return null;
+  }
 
-  if (redisUrl && !redisClient) {
+  const now = Date.now();
+  if (
+    globalCacheState.__menzyRedisDisabledUntil &&
+    globalCacheState.__menzyRedisDisabledUntil > now
+  ) {
+    return null;
+  }
+
+  if (!globalCacheState.__menzyRedisClient || globalCacheState.__menzyRedisUrl !== redisUrl) {
     try {
       const client = new Redis(redisUrl, {
         lazyConnect: true,
         maxRetriesPerRequest: 1,
+        enableOfflineQueue: false,
         connectTimeout: 2000,
-        retryStrategy: () => null, // don't hang if local redis isn't running
+        retryStrategy: () => null, // never hang if redis isn't reachable
       });
 
-      client.on('error', (err) => {
-        // Fallback to in-memory silently
+      client.on('error', () => {
+        // Fallback to shared in-memory cache silently
       });
 
-      redisClient = client;
+      globalCacheState.__menzyRedisClient = client;
+      globalCacheState.__menzyRedisUrl = redisUrl;
+      globalCacheState.__menzyRedisConnectPromise = null;
     } catch {
-      redisClient = null;
+      globalCacheState.__menzyRedisClient = null;
+      globalCacheState.__menzyRedisDisabledUntil = now + 30_000;
+      return null;
     }
   }
 
-  if (!inMemoryStore) {
-    inMemoryStore = new InMemoryCache();
+  const client = globalCacheState.__menzyRedisClient;
+  if (!client) return null;
+  if (client.status === 'ready') {
+    return client;
   }
-  const mem = inMemoryStore;
+
+  if (client.status === 'wait' || client.status === 'close' || client.status === 'end') {
+    if (client.status === 'close' || client.status === 'end') {
+      // Recreate closed client once cooldown clears
+      globalCacheState.__menzyRedisDisabledUntil = now + 15_000;
+      globalCacheState.__menzyRedisClient = null;
+      return null;
+    }
+
+    if (!globalCacheState.__menzyRedisConnectPromise) {
+      globalCacheState.__menzyRedisConnectPromise = client
+        .connect()
+        .then(() => true)
+        .catch(() => {
+          globalCacheState.__menzyRedisDisabledUntil = Date.now() + 30_000;
+          return false;
+        })
+        .finally(() => {
+          globalCacheState.__menzyRedisConnectPromise = null;
+        });
+    }
+
+    await globalCacheState.__menzyRedisConnectPromise;
+  }
+
+  return (client.status as string) === 'ready' ? client : null;
+}
+
+export function getCache() {
+  if (!globalCacheState.__menzyInMemoryCache) {
+    globalCacheState.__menzyInMemoryCache = new InMemoryCache();
+  }
+  const mem = globalCacheState.__menzyInMemoryCache;
 
   return {
     async get(key: string): Promise<string | null> {
       try {
-        if (redisClient && redisClient.status === 'ready') {
-          return await redisClient.get(key);
+        const redis = await getConnectedRedis();
+        if (redis) {
+          return await redis.get(key);
         }
       } catch {}
       return mem.get(key);
@@ -115,25 +171,28 @@ export function getCache() {
 
     async set(key: string, value: string, mode?: 'EX' | 'PX', duration?: number): Promise<'OK'> {
       try {
-        if (redisClient && redisClient.status === 'ready') {
+        const redis = await getConnectedRedis();
+        if (redis) {
           if (mode === 'EX' && duration) {
-            return await (redisClient as any).set(key, value, 'EX', duration);
+            return await (redis as any).set(key, value, 'EX', duration);
           } else if (mode === 'PX' && duration) {
-            return await (redisClient as any).set(key, value, 'PX', duration);
+            return await (redis as any).set(key, value, 'PX', duration);
           }
-          return await redisClient.set(key, value);
+          return await redis.set(key, value);
         }
       } catch {}
       return mem.set(key, value, mode, duration);
     },
 
     async del(key: string): Promise<number> {
+      const memDeleted = await mem.del(key);
       try {
-        if (redisClient && redisClient.status === 'ready') {
-          return await redisClient.del(key);
+        const redis = await getConnectedRedis();
+        if (redis) {
+          return await redis.del(key);
         }
       } catch {}
-      return mem.del(key);
+      return memDeleted;
     },
 
     async slidingWindowCheck(
@@ -146,8 +205,9 @@ export function getCache() {
       const member = `${now}-${Math.random()}`;
 
       try {
-        if (redisClient && redisClient.status === 'ready') {
-          const multi = redisClient.multi();
+        const redis = await getConnectedRedis();
+        if (redis) {
+          const multi = redis.multi();
           multi.zremrangebyscore(key, '-inf', clearBefore);
           multi.zadd(key, now, member);
           multi.zcard(key);

@@ -100,16 +100,52 @@ async function main() {
   // 2. Cost Rates
   const costRates = [
     {
+      modelId: 'gemini-3-flash-preview',
+      inputTokenRatePerMillion: 0.15,
+      outputTokenRatePerMillion: 0.60,
+      imageRatePerUnit: 0.0,
+    },
+    {
+      modelId: 'gemini-3.1-flash-lite-preview',
+      inputTokenRatePerMillion: 0.08,
+      outputTokenRatePerMillion: 0.30,
+      imageRatePerUnit: 0.0,
+    },
+    {
       modelId: 'gemini-2.5-flash',
       inputTokenRatePerMillion: 0.15,
       outputTokenRatePerMillion: 0.60,
       imageRatePerUnit: 0.0,
     },
     {
+      modelId: 'gemini-2.5-flash-image',
+      inputTokenRatePerMillion: 0.0,
+      outputTokenRatePerMillion: 0.0,
+      imageRatePerUnit: 0.039,
+    },
+    {
+      modelId: 'gemini-3.1-flash-image-preview',
+      inputTokenRatePerMillion: 0.0,
+      outputTokenRatePerMillion: 0.0,
+      imageRatePerUnit: 0.04,
+    },
+    {
       modelId: 'imagen-3.0-generate-002',
       inputTokenRatePerMillion: 0.0,
       outputTokenRatePerMillion: 0.0,
       imageRatePerUnit: 0.03,
+    },
+    {
+      modelId: 'gpt-4o-mini',
+      inputTokenRatePerMillion: 0.15,
+      outputTokenRatePerMillion: 0.60,
+      imageRatePerUnit: 0.0,
+    },
+    {
+      modelId: 'gpt-image-1-mini',
+      inputTokenRatePerMillion: 0.0,
+      outputTokenRatePerMillion: 0.0,
+      imageRatePerUnit: 0.02,
     },
   ];
 
@@ -130,7 +166,7 @@ async function main() {
       cuisine: 'Italian / Café',
       generalizedDescription: 'A classic espresso drink balanced with equal parts espresso, steamed milk, and velvety foam.',
       estimatedNutrition: { calories: 120, protein: 6, carbs: 9, fat: 4, servingGrams: 240 },
-      imageUrl: 'https://images.unsplash.com/photo-1572442388796-11668a67e53d?auto=format&fit=crop&w=600&q=80',
+      imageUrl: '/api/storage/illustrations/1794339805934-canonical-cappuccino.jpg',
     },
     {
       normalizedName: 'flat white',
@@ -138,7 +174,7 @@ async function main() {
       cuisine: 'Australian / Café',
       generalizedDescription: 'Double shot of rich espresso layered with finely textured microfoam milk.',
       estimatedNutrition: { calories: 110, protein: 7, carbs: 8, fat: 4, servingGrams: 200 },
-      imageUrl: 'https://images.unsplash.com/photo-1577968897966-3d4325b36b61?auto=format&fit=crop&w=600&q=80',
+      imageUrl: '/api/storage/illustrations/1794342039944-canonical-flat-white.jpg',
     },
     {
       normalizedName: 'paneer tikka',
@@ -146,7 +182,7 @@ async function main() {
       cuisine: 'North Indian',
       generalizedDescription: 'Chunks of cottage cheese marinated in spiced yogurt, skewered with bell peppers and onions, and charred in a clay tandoor.',
       estimatedNutrition: { calories: 280, protein: 16, carbs: 10, fat: 18, servingGrams: 220 },
-      imageUrl: 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?auto=format&fit=crop&w=600&q=80',
+      imageUrl: '/api/storage/illustrations/1794342694986-canonical-paneer-tikka.jpg',
     },
     {
       normalizedName: 'butter chicken',
@@ -154,7 +190,7 @@ async function main() {
       cuisine: 'North Indian',
       generalizedDescription: 'Tender tandoor-roasted chicken simmered in a velvety tomato, butter, and cashew cream sauce.',
       estimatedNutrition: { calories: 450, protein: 28, carbs: 12, fat: 32, servingGrams: 300 },
-      imageUrl: 'https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?auto=format&fit=crop&w=600&q=80',
+      imageUrl: '/api/storage/illustrations/1794342923456-canonical-butter-chicken.jpg',
     },
     {
       normalizedName: 'truffle mushroom pasta',
@@ -162,7 +198,7 @@ async function main() {
       cuisine: 'Italian / Contemporary',
       generalizedDescription: 'Handcrafted pasta ribbons tossed in a delicate black truffle emulsion with sautéed wild forest mushrooms and aged parmesan.',
       estimatedNutrition: { calories: 520, protein: 14, carbs: 68, fat: 22, servingGrams: 280 },
-      imageUrl: 'https://images.unsplash.com/photo-1621996346565-e3d5d6281699?auto=format&fit=crop&w=600&q=80',
+      imageUrl: '/api/storage/illustrations/1794340566125-canonical-truffle-mushroom-pasta.jpg',
     },
     {
       normalizedName: 'avocado sourdough toast',
@@ -170,7 +206,7 @@ async function main() {
       cuisine: 'Contemporary Café',
       generalizedDescription: 'Crushed ripe Hass avocado on toasted artisanal sourdough, finished with extra virgin olive oil, flaky sea salt, and microgreens.',
       estimatedNutrition: { calories: 340, protein: 9, carbs: 36, fat: 18, servingGrams: 190 },
-      imageUrl: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?auto=format&fit=crop&w=600&q=80',
+      imageUrl: '/api/storage/illustrations/1794342338188-canonical-avocado-sourdough-toast.jpg',
     },
     {
       normalizedName: 'masala chai',
@@ -178,7 +214,7 @@ async function main() {
       cuisine: 'Indian',
       generalizedDescription: 'Slow-brewed Assam black tea simmered with fresh ginger, crushed green cardamom, cloves, and whole milk.',
       estimatedNutrition: { calories: 130, protein: 4, carbs: 16, fat: 5, servingGrams: 200 },
-      imageUrl: 'https://images.unsplash.com/photo-1561336313-0bd5e0b27ec8?auto=format&fit=crop&w=600&q=80',
+      imageUrl: '/api/storage/illustrations/1794342118975-canonical-masala-chai.jpg',
     },
     {
       normalizedName: 'tiramisu',
@@ -186,22 +222,40 @@ async function main() {
       cuisine: 'Italian',
       generalizedDescription: 'Espresso-soaked Savoiardi ladyfingers layered with whipped mascarpone cream and dusted with bitter cocoa powder.',
       estimatedNutrition: { calories: 380, protein: 6, carbs: 42, fat: 21, servingGrams: 150 },
-      imageUrl: 'https://images.unsplash.com/photo-1571877227200-a0d98ea607e9?auto=format&fit=crop&w=600&q=80',
+      imageUrl: '/api/storage/illustrations/1794339932929-canonical-tiramisu.jpg',
     },
   ];
 
   for (const item of canonicalDishesData) {
-    const asset = await prisma.asset.create({
-      data: {
-        type: AssetType.AI_ILLUSTRATION,
-        storageKey: `canonical/${item.normalizedName.replace(/\s+/g, '-')}.webp`,
-        publicUrl: item.imageUrl,
-        mime: 'image/jpeg',
-        source: 'SEED',
-        prompt: `3D-clay-style illustration of ${item.normalizedName}`,
-        generationModel: 'imagen-3.0-generate-002',
-      },
+    const existingCanonical = await prisma.canonicalDish.findUnique({
+      where: { normalizedName: item.normalizedName },
+      include: { imageAsset: true },
     });
+
+    const hasGeneratedCuratedAsset =
+      existingCanonical?.imageAsset &&
+      existingCanonical.imageAsset.source !== 'SEED' &&
+      !existingCanonical.imageAsset.publicUrl.includes('unsplash.com');
+
+    let assetIdToUse = existingCanonical?.imageAssetId || null;
+
+    if (!hasGeneratedCuratedAsset) {
+      const isStorageUrl = item.imageUrl.startsWith('/api/storage/');
+      const asset = await prisma.asset.create({
+        data: {
+          type: AssetType.AI_ILLUSTRATION,
+          storageKey: isStorageUrl
+            ? item.imageUrl.replace('/api/storage/', '')
+            : `canonical/${item.normalizedName.replace(/\s+/g, '-')}.webp`,
+          publicUrl: item.imageUrl,
+          mime: 'image/jpeg',
+          source: isStorageUrl ? 'OPENAI_GEN' : 'SEED',
+          prompt: `3D-clay-style illustration of ${item.normalizedName}`,
+          generationModel: isStorageUrl ? 'gpt-image-1-mini' : 'imagen-3.0-generate-002',
+        },
+      });
+      assetIdToUse = asset.id;
+    }
 
     const canonical = await prisma.canonicalDish.upsert({
       where: { normalizedName: item.normalizedName },
@@ -210,7 +264,7 @@ async function main() {
         cuisine: item.cuisine,
         generalizedDescription: item.generalizedDescription,
         estimatedNutrition: item.estimatedNutrition,
-        imageAssetId: asset.id,
+        ...(hasGeneratedCuratedAsset ? {} : { imageAssetId: assetIdToUse }),
       },
       create: {
         normalizedName: item.normalizedName,
@@ -218,7 +272,7 @@ async function main() {
         cuisine: item.cuisine,
         generalizedDescription: item.generalizedDescription,
         estimatedNutrition: item.estimatedNutrition,
-        imageAssetId: asset.id,
+        imageAssetId: assetIdToUse,
       },
     });
 
@@ -238,20 +292,33 @@ async function main() {
       });
     }
 
-    await prisma.canonicalAsset.upsert({
-      where: {
-        canonicalId_assetId: {
-          canonicalId: canonical.id,
-          assetId: asset.id,
+    if (assetIdToUse) {
+      if (!hasGeneratedCuratedAsset) {
+        await prisma.canonicalAsset.updateMany({
+          where: {
+            canonicalId: canonical.id,
+            assetId: { not: assetIdToUse },
+            isApproved: true,
+          },
+          data: { isApproved: false },
+        });
+      }
+      await prisma.canonicalAsset.upsert({
+        where: {
+          canonicalId_assetId: {
+            canonicalId: canonical.id,
+            assetId: assetIdToUse,
+          },
         },
-      },
-      update: {},
-      create: {
-        canonicalId: canonical.id,
-        assetId: asset.id,
-        reuseCount: 1,
-      },
-    });
+        update: { isApproved: true },
+        create: {
+          canonicalId: canonical.id,
+          assetId: assetIdToUse,
+          isApproved: true,
+          reuseCount: 1,
+        },
+      });
+    }
   }
   console.log('✅ Canonical dishes & aliases seeded.');
 
@@ -763,7 +830,7 @@ async function main() {
         currency: 'USD',
         portionSize: '2 large slices',
         ingredients: ['Country Sourdough Bread', 'Hass Avocado', 'Sheep Milk Feta', 'Meyer Lemon', 'Pickled Shallots', 'Aleppo Pepper'],
-        dietaryStatus: ['VEGETARIAN', 'GLUTEN_FREE'],
+        dietaryStatus: ['VEGETARIAN'],
         allergenVerification: { contains: ['Gluten', 'Dairy', 'Sesame'], freeOf: ['Peanuts', 'Tree Nuts', 'Eggs'], unverified: [] },
         nutritionFields: { calories: 390, protein: 11, carbs: 42, fat: 21 },
         nutritionSource: NutritionSource.RESTAURANT_VERIFIED,
@@ -1030,7 +1097,7 @@ async function main() {
       currency: 'INR',
       portionSize: '1 piece (130g)',
       ingredients: ['Flour', 'French Butter', 'Almond Flour', 'Eggs', 'Orange Blossom Water'],
-      dietaryStatus: ['VEGETARIAN'],
+      dietaryStatus: ['EGG'],
       allergenVerification: { contains: ['Gluten', 'Dairy', 'Eggs', 'Tree Nuts (Almond)'], freeOf: ['Peanuts'], unverified: [] },
       nutritionFields: { calories: 420, protein: 8, carbs: 46, fat: 22 },
       nutritionSource: NutritionSource.AI_ESTIMATED,

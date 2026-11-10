@@ -3,6 +3,8 @@ import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import prisma from '@/lib/db/prisma';
 import { PLAN_CATALOG, PlanKey, getPlansForCountry } from '@/lib/payments/plans';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const restaurantId = searchParams.get('restaurantId');
@@ -64,15 +66,18 @@ export async function GET(req: Request) {
     },
   });
 
-  return NextResponse.json({
-    plan,
-    billingCountry,
-    availablePlans,
-    subscription,
-    remainingImageCredits: Math.max(0, remainingImageCredits),
-    chatQueriesThisMonth,
-    maxChatQueries: plan?.aiQuestionsMonthly || 1000,
-    activeGrants,
-  });
+  return NextResponse.json(
+    {
+      plan,
+      billingCountry,
+      availablePlans,
+      subscription,
+      remainingImageCredits: Math.max(0, remainingImageCredits),
+      chatQueriesThisMonth,
+      maxChatQueries: plan?.aiQuestionsMonthly || 1000,
+      activeGrants,
+    },
+    { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+  );
 }
 

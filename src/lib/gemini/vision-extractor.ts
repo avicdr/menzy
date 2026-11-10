@@ -1,6 +1,8 @@
 import { z } from 'zod';
+import { ThinkingLevel } from '@google/genai';
 import {
   getGenAIClient,
+  getTextModelCandidates,
   getTextModelName,
   markGeminiKeyCooldown,
   resolveGeminiAttemptClients,
@@ -83,10 +85,11 @@ export function normalizeItem(raw: any, fallbackCategory: string, currency: 'INR
     if (!l) continue;
     const str = String(l).toUpperCase().trim().replace(/[\s-]/g, '_');
     if (str.includes('NON_VEG') || str === 'NONVEG') dietaryLabels.push('NON_VEG');
-    else if (str.includes('VEG') && !str.includes('NON')) dietaryLabels.push('VEG');
+    else if (str.includes('VEGAN')) dietaryLabels.push('VEGAN');
     else if (str.includes('EGG')) dietaryLabels.push('EGG');
     else if (str.includes('JAIN')) dietaryLabels.push('JAIN');
-    else if (str.includes('VEGAN')) dietaryLabels.push('VEGAN');
+    else if (str === 'VEGETARIAN') dietaryLabels.push('VEGETARIAN');
+    else if (str.includes('VEG') && !str.includes('NON')) dietaryLabels.push('VEG');
     else if (str.includes('GLUTEN_FREE') || str === 'GF') dietaryLabels.push('GLUTEN_FREE');
     else dietaryLabels.push(str);
   }
@@ -239,9 +242,10 @@ export async function extractMenuFromImages(params: {
   currencyDefault?: 'INR' | 'USD';
 }): Promise<ExtractedMenuResult> {
   const startTime = Date.now();
-  const geminiClients = resolveGeminiAttemptClients(getGenAIClient());
+  const geminiClients = resolveGeminiAttemptClients(getGenAIClient('text'), 'text');
   const openAiEnabled = hasOpenAIFallback();
   const modelName = getTextModelName();
+  const modelCandidates = getTextModelCandidates();
   const currency = params.currencyDefault || 'INR';
 
   if (geminiClients.length === 0 && !openAiEnabled) {
@@ -312,60 +316,105 @@ export async function extractMenuFromImages(params: {
       text: extractionUserPrompt,
     });
 
-    for (let idx = 0; idx < geminiClients.length; idx++) {
-      const entry = geminiClients[idx];
-      const controller = new AbortController();
-      const timeoutHandle = setTimeout(() => {
-        controller.abort(new Error('GEMINI_EXTRACTION_TIMEOUT'));
-      }, timeoutMs);
+    const invalidKeySet = new Set<string>();
+    let abortModelCascade = false;
 
-      try {
-        const response: any = await Promise.race([
-          entry.client.models.generateContent({
-            model: modelName,
-            contents: [
-              { role: 'user', parts },
-            ],
-            config: {
-              systemInstruction: EXTRACTION_SYSTEM_PROMPT,
-              responseMimeType: 'application/json',
-              abortSignal: controller.signal,
-              httpOptions: { timeout: timeoutMs },
-            },
-          }),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Menu extraction timed out. Please try again with a clearer or smaller menu photo.')), timeoutMs + 250)
-          ),
-        ]);
+    for (let mIdx = 0; mIdx < modelCandidates.length && !abortModelCascade; mIdx++) {
+      const candidateModel = modelCandidates[mIdx];
+      usedModel = candidateModel;
 
-        const validated = parseAndValidateResponse(response?.text || '');
-
-        const latencyMs = Date.now() - startTime;
-        await prisma.aIUsageEvent.create({
-          data: {
-            restaurantId: params.restaurantId || null,
-            operationType: 'MENU_EXTRACTION',
-            modelId: modelName,
-            inputTokens: 1200,
-            outputTokens: 800,
-            estimatedCostUsd: 0.00066,
-            status: 'SUCCESS',
-            latencyMs,
-          },
-        }).catch(() => {});
-
-        return validated;
-      } catch (geminiErr) {
-        lastError = geminiErr;
-        if (entry.key !== 'mock-injected-client') {
-          markGeminiKeyCooldown(entry.key, geminiErr);
+      for (let idx = 0; idx < geminiClients.length; idx++) {
+        const entry = geminiClients[idx];
+        if (invalidKeySet.has(entry.key)) {
+          continue;
         }
-        console.warn(
-          `[VisionExtractor] Gemini key ${entry.maskedKey} (${idx + 1}/${geminiClients.length}) failed:`,
-          geminiErr instanceof Error ? geminiErr.message : geminiErr
-        );
-      } finally {
-        clearTimeout(timeoutHandle);
+
+        const controller = new AbortController();
+        const timeoutHandle = setTimeout(() => {
+          controller.abort(new Error('GEMINI_EXTRACTION_TIMEOUT'));
+        }, timeoutMs);
+        let raceTimer: ReturnType<typeof setTimeout> | undefined;
+
+        try {
+          const modelConfig: Record<string, any> = {
+            systemInstruction: EXTRACTION_SYSTEM_PROMPT,
+            responseMimeType: 'application/json',
+            abortSignal: controller.signal,
+            httpOptions: { timeout: Math.max(10_000, timeoutMs) },
+          };
+          if (candidateModel.startsWith('gemini-3')) {
+            modelConfig.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
+          }
+
+          const response: any = await Promise.race([
+            entry.client.models.generateContent({
+              model: candidateModel,
+              contents: [
+                { role: 'user', parts },
+              ],
+              config: modelConfig,
+            }),
+            new Promise<never>((_, reject) => {
+              raceTimer = setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      'Menu extraction timed out. Please try again with a clearer or smaller menu photo.'
+                    )
+                  ),
+                timeoutMs + 250
+              );
+            }),
+          ]);
+
+          const validated = parseAndValidateResponse(response?.text || '');
+
+          const latencyMs = Date.now() - startTime;
+          await prisma.aIUsageEvent.create({
+            data: {
+              restaurantId: params.restaurantId || null,
+              operationType: 'MENU_EXTRACTION',
+              modelId: candidateModel,
+              inputTokens: 1200,
+              outputTokens: 800,
+              estimatedCostUsd: 0.00066,
+              status: 'SUCCESS',
+              latencyMs,
+            },
+          }).catch(() => {});
+
+          return validated;
+        } catch (geminiErr) {
+          lastError = geminiErr;
+          const msg = String((geminiErr as any)?.message || geminiErr || '').toLowerCase();
+          const status = Number((geminiErr as any)?.status ?? (geminiErr as any)?.statusCode ?? 0);
+          if (
+            status === 401 ||
+            status === 403 ||
+            msg.includes('api_key_invalid') ||
+            msg.includes('api key not valid') ||
+            msg.includes('permission_denied') ||
+            msg.includes('leaked')
+          ) {
+            invalidKeySet.add(entry.key);
+          }
+
+          if (entry.key !== 'mock-injected-client') {
+            markGeminiKeyCooldown(entry.key, geminiErr, 'text');
+          } else {
+            abortModelCascade = true;
+          }
+          console.warn(
+            `[VisionExtractor] ${candidateModel} key ${entry.maskedKey} (${idx + 1}/${geminiClients.length}) failed:`,
+            geminiErr instanceof Error ? geminiErr.message : geminiErr
+          );
+          if (abortModelCascade) {
+            break;
+          }
+        } finally {
+          clearTimeout(timeoutHandle);
+          if (raceTimer) clearTimeout(raceTimer);
+        }
       }
     }
 

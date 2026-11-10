@@ -4,12 +4,17 @@ import { getCache } from '@/lib/cache/redis';
 import { normalizeThemeFont } from '@/lib/theme/theme-presets';
 import { isWifiVisibleToDiners } from '@/lib/wifi/wifi-qr';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const slug = searchParams.get('slug');
 
   if (!slug) {
-    return NextResponse.json({ error: 'Restaurant slug is required' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'Restaurant slug is required' },
+      { status: 400, headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   }
 
   const cache = getCache();
@@ -19,7 +24,9 @@ export async function GET(req: Request) {
   const cached = await cache.get(cacheKey);
   if (cached) {
     try {
-      return NextResponse.json(JSON.parse(cached));
+      return NextResponse.json(JSON.parse(cached), {
+        headers: { 'Cache-Control': 'no-store, max-age=0' },
+      });
     } catch {}
   }
 
@@ -107,6 +114,8 @@ export async function GET(req: Request) {
   // Cache for 60 seconds
   await cache.set(cacheKey, JSON.stringify(responseData), 'EX', 60);
 
-  return NextResponse.json(responseData);
+  return NextResponse.json(responseData, {
+    headers: { 'Cache-Control': 'no-store, max-age=0' },
+  });
 }
 

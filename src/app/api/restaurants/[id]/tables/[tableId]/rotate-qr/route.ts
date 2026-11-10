@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 import { rotateTableQrToken } from '@/lib/tables/table-service';
+import { normalizeSiteUrl } from '@/lib/seo';
 
 export async function POST(
   req: Request,
@@ -15,7 +16,7 @@ export async function POST(
 
     const result = await rotateTableQrToken(tableId, id);
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const appUrl = normalizeSiteUrl(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
     const scanUrl = `${appUrl}/m/${auth.restaurant.slug}?t=${result.rawToken}`;
 
     return NextResponse.json({

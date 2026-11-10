@@ -21,6 +21,7 @@ import { POST as sessionPost } from '../src/app/api/diner/session/route';
 import { POST as orderPost } from '../src/app/api/diner/orders/route';
 import { POST as serviceCallPost } from '../src/app/api/diner/service-calls/route';
 import { GET as qrGenerateGet } from '../src/app/api/qr/generate/route';
+import { normalizeSiteUrl } from '../src/lib/seo';
 
 describe('Table Session 30-Minute Idle Expiry & Rescan Enforcement', () => {
   let restaurant: any;
@@ -504,7 +505,10 @@ describe('Table Session 30-Minute Idle Expiry & Rescan Enforcement', () => {
     );
     expect(publicQrRes.status).toBe(200);
     const publicQrBody = await publicQrRes.json();
-    expect(publicQrBody.targetUrl).toBe(`http://localhost:3000/m/${restaurant.slug}`);
+    const expectedBaseUrl = normalizeSiteUrl(
+      process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    );
+    expect(publicQrBody.targetUrl).toBe(`${expectedBaseUrl}/m/${restaurant.slug}`);
   });
 });
 

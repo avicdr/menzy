@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getAdminSession, logAdminAction } from '@/lib/auth/admin-auth';
+import { getCanonicalDisplayMeta } from '@/lib/canonical/catalog';
+import { invalidateCanonicalIndexCache } from '@/lib/canonical/matcher';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const session = await getAdminSession();
@@ -8,7 +12,7 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const dishes = await prisma.canonicalDish.findMany({
+  const rawDishes = await prisma.canonicalDish.findMany({
     include: {
       imageAsset: true,
       canonicalAliases: true,
@@ -22,7 +26,27 @@ export async function GET() {
     orderBy: { normalizedName: 'asc' },
   });
 
-  return NextResponse.json({ dishes });
+  const dishes = rawDishes.map((dish) => {
+    const meta = getCanonicalDisplayMeta(dish.normalizedName, dish.cuisine);
+    const aliasList = Array.isArray(dish.aliases) && dish.aliases.length > 0
+      ? dish.aliases
+      : dish.canonicalAliases.map((a) => a.normalizedAlias);
+
+    return {
+      ...dish,
+      canonicalName: meta.displayName,
+      displayName: meta.displayName,
+      category: meta.category,
+      cuisineRegion: meta.cuisine,
+      culinaryBackground: dish.generalizedDescription || '',
+      aliases: aliasList,
+    };
+  });
+
+  return NextResponse.json(
+    { dishes },
+    { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+  );
 }
 
 export async function POST(req: Request) {
@@ -53,6 +77,7 @@ export async function POST(req: Request) {
         reason: 'Added new archetypal dish to shared library',
       });
 
+      invalidateCanonicalIndexCache();
       return NextResponse.json({ success: true, dish });
     }
 
@@ -71,6 +96,7 @@ export async function POST(req: Request) {
         reason: isApproved ? 'Approved illustration for shared reuse' : 'Rejected illustration',
       });
 
+      invalidateCanonicalIndexCache();
       return NextResponse.json({ success: true });
     }
 
@@ -92,6 +118,7 @@ export async function POST(req: Request) {
         });
       }
 
+      invalidateCanonicalIndexCache();
       return NextResponse.json({ success: true });
     }
 

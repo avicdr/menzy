@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import prisma from '@/lib/db/prisma';
 import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 import { buildSignedTableQrToken } from '@/lib/tables/table-service';
+import { normalizeSiteUrl } from '@/lib/seo';
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -53,7 +54,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const appUrl = normalizeSiteUrl(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
   const targetUrl = effectiveTableToken
     ? `${appUrl}/m/${restaurantSlug}?t=${encodeURIComponent(effectiveTableToken)}`
     : `${appUrl}/m/${restaurantSlug}`;

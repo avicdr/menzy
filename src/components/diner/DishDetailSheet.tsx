@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, MessageSquare, Info, ShieldAlert, Sparkles, CheckCircle2, Flame, Plus, Minus, ShoppingBag, Check } from 'lucide-react';
 import { DietaryBadge, FssaiMarker } from './DietaryBadge';
+import { resolveDishDietarySignals } from '@/lib/diner/dietary';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
 import { useCart, CartModifier } from '@/lib/diner/cart-context';
 import { Portal } from '@/components/ui/Portal';
@@ -44,7 +45,8 @@ export function DishDetailSheet({
   if (!isOpen || !item) return null;
 
   const imageUrl = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
-  const dietaryLabels = (item.dietaryStatus as string[]) || [];
+  const dietarySignals = resolveDishDietarySignals(item);
+  const dietaryLabels = dietarySignals.displayLabels;
   const ingredients = (item.ingredients as string[]) || [];
   const nutrition = item.nutritionFields as any;
   const allergenInfo = item.allergenVerification as any;
@@ -52,11 +54,8 @@ export function DishDetailSheet({
   const isVerifiedNutrition = item.nutritionSource === 'RESTAURANT_VERIFIED';
   const hasNutrition = nutrition?.calories != null || nutrition?.protein != null;
 
-  // Detect Indian FSSAI marker
-  const isVeg = dietaryLabels.some((l: string) => ['VEG', 'VEGETARIAN', 'PURE_VEG'].includes(l.toUpperCase()));
-  const isNonVeg = dietaryLabels.some((l: string) => ['NON_VEG', 'NON-VEG', 'NONVEG'].includes(l.toUpperCase()));
-  const isEgg = dietaryLabels.some((l: string) => ['EGG', 'CONTAINS_EGG', 'EGGETARIAN'].includes(l.toUpperCase()));
-  const indianMarker: 'VEG' | 'NON_VEG' | 'EGG' | null = isVeg ? 'VEG' : isNonVeg ? 'NON_VEG' : isEgg ? 'EGG' : null;
+  const indianMarker = dietarySignals.indianMarker;
+  const allowFssaiVegMarker = !dietarySignals.containsEgg && !dietarySignals.isNonVeg;
 
   const variants = item.variants || [];
   const modifierGroups = item.modifierGroups || [];
@@ -204,7 +203,7 @@ export function DishDetailSheet({
           {dietaryLabels.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
               {dietaryLabels.map((label: string) => (
-                <DietaryBadge key={label} label={label} />
+                <DietaryBadge key={label} label={label} allowFssaiVegMarker={allowFssaiVegMarker} />
               ))}
             </div>
           )}

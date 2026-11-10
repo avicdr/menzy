@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ThinkingLevel } from '@google/genai';
 import {
   getGenAIClient,
+  getTextModelCandidates,
   getTextModelName,
   markGeminiKeyCooldown,
   resolveGeminiAttemptClients,
@@ -105,9 +106,10 @@ export async function processDinerQuery(params: {
     return nameMatch || canonMatch;
   });
 
-  const geminiClients = resolveGeminiAttemptClients(getGenAIClient());
+  const geminiClients = resolveGeminiAttemptClients(getGenAIClient('text'), 'text');
   const openAiEnabled = hasOpenAIFallback();
   const modelName = getTextModelName();
+  const modelCandidates = getTextModelCandidates();
   const deadlineAt = startTime + timeoutMs;
 
   const finalizeAIResponse = async (
@@ -204,61 +206,110 @@ CRITICAL RULES:
 Selected dish context: ${focusedDish ? focusedDish.customName : 'None'}.
 Available menu snapshot: ${JSON.stringify(sanitizedMenu)}`;
 
-    for (let idx = 0; idx < geminiClients.length; idx++) {
-      const remainingMs = deadlineAt - Date.now();
-      if (idx > 0 && remainingMs <= 150) {
-        break;
-      }
+    const geminiDeadlineAt = openAiEnabled
+      ? startTime + Math.max(250, timeoutMs - Math.min(2000, Math.floor(timeoutMs * 0.25)))
+      : deadlineAt;
+    const invalidKeySet = new Set<string>();
+    let abortModelCascade = false;
 
-      const remainingFallbacks = geminiClients.length - 1 - idx + (openAiEnabled ? 1 : 0);
-      const attemptTimeoutMs =
-        timeoutMs >= 3000 && remainingFallbacks > 0
-          ? Math.min(remainingMs, Math.max(1500, Math.floor(remainingMs * 0.6)))
-          : Math.max(20, remainingMs);
+    for (let mIdx = 0; mIdx < modelCandidates.length && !abortModelCascade; mIdx++) {
+      const candidateModel = modelCandidates[mIdx];
 
-      const entry = geminiClients[idx];
-      const controller = new AbortController();
-      let requestTimer: ReturnType<typeof setTimeout> | undefined;
-      let raceTimer: ReturnType<typeof setTimeout> | undefined;
-
-      try {
-        requestTimer = setTimeout(() => {
-          controller.abort(new Error('GEMINI_CHAT_TIMEOUT'));
-        }, attemptTimeoutMs);
-
-        const response: any = await Promise.race([
-          entry.client.models.generateContent({
-            model: modelName,
-            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-            config: {
-              systemInstruction: systemPrompt,
-              responseMimeType: 'application/json',
-              thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-              abortSignal: controller.signal,
-              httpOptions: { timeout: attemptTimeoutMs },
-            },
-          }),
-          new Promise<never>((_, reject) => {
-            raceTimer = setTimeout(
-              () => reject(new Error('GEMINI_CHAT_TIMEOUT')),
-              attemptTimeoutMs + 250
-            );
-          }),
-        ]);
-
-        const responseText = response?.text || '{}';
-        return await finalizeAIResponse(responseText, modelName);
-      } catch (err) {
-        if (entry.key !== 'mock-injected-client') {
-          markGeminiKeyCooldown(entry.key, err);
+      for (let idx = 0; idx < geminiClients.length; idx++) {
+        const entry = geminiClients[idx];
+        if (invalidKeySet.has(entry.key)) {
+          continue;
         }
-        console.warn(
-          `Gemini diner chat fallback triggered (key ${entry.maskedKey}, ${idx + 1}/${geminiClients.length}):`,
-          err
-        );
-      } finally {
-        if (requestTimer) clearTimeout(requestTimer);
-        if (raceTimer) clearTimeout(raceTimer);
+
+        const remainingTotalMs = deadlineAt - Date.now();
+        const remainingGeminiMs = geminiDeadlineAt - Date.now();
+        if ((mIdx > 0 || idx > 0) && remainingGeminiMs <= 150) {
+          abortModelCascade = true;
+          break;
+        }
+        if (remainingTotalMs <= 50) {
+          abortModelCascade = true;
+          break;
+        }
+
+        const remainingKeysInModel = geminiClients.length - 1 - idx;
+        const remainingModels = modelCandidates.length - 1 - mIdx;
+        const remainingFallbacks = remainingKeysInModel + remainingModels + (openAiEnabled ? 1 : 0);
+        const budgetMs = Math.max(40, remainingGeminiMs);
+        const attemptTimeoutMs =
+          timeoutMs >= 3000 && remainingFallbacks > 0
+            ? Math.min(budgetMs, Math.max(1500, Math.floor(budgetMs * 0.6)))
+            : Math.max(20, remainingTotalMs);
+
+        const controller = new AbortController();
+        let requestTimer: ReturnType<typeof setTimeout> | undefined;
+        let raceTimer: ReturnType<typeof setTimeout> | undefined;
+
+        try {
+          requestTimer = setTimeout(() => {
+            controller.abort(new Error('GEMINI_CHAT_TIMEOUT'));
+          }, attemptTimeoutMs);
+
+          const modelConfig: Record<string, any> = {
+            systemInstruction: systemPrompt,
+            responseMimeType: 'application/json',
+            abortSignal: controller.signal,
+            // Google GenAI rejects X-Server-Timeout deadlines < 10s with 400 INVALID_ARGUMENT;
+            // enforce sub-10s cancellation locally via AbortController + Promise.race.
+            httpOptions: { timeout: Math.max(10_000, attemptTimeoutMs) },
+          };
+
+          if (candidateModel.startsWith('gemini-3')) {
+            modelConfig.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
+          }
+
+          const response: any = await Promise.race([
+            entry.client.models.generateContent({
+              model: candidateModel,
+              contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+              config: modelConfig,
+            }),
+            new Promise<never>((_, reject) => {
+              raceTimer = setTimeout(
+                () => reject(new Error('GEMINI_CHAT_TIMEOUT')),
+                attemptTimeoutMs + 250
+              );
+            }),
+          ]);
+
+          const responseText = response?.text || '{}';
+          return await finalizeAIResponse(responseText, candidateModel);
+        } catch (err) {
+          const msg = String((err as any)?.message || err || '').toLowerCase();
+          const status = Number((err as any)?.status ?? (err as any)?.statusCode ?? 0);
+          if (
+            status === 401 ||
+            status === 403 ||
+            msg.includes('api_key_invalid') ||
+            msg.includes('api key not valid') ||
+            msg.includes('permission_denied') ||
+            msg.includes('leaked')
+          ) {
+            invalidKeySet.add(entry.key);
+          }
+
+          if (entry.key !== 'mock-injected-client') {
+            markGeminiKeyCooldown(entry.key, err, 'text');
+          } else {
+            // Preserve single-attempt semantics when tests inject a standalone mock client
+            abortModelCascade = true;
+          }
+          console.warn(
+            `Gemini diner chat fallback triggered (${candidateModel}, key ${entry.maskedKey}, ${idx + 1}/${geminiClients.length}):`,
+            err
+          );
+          if (abortModelCascade) {
+            break;
+          }
+        } finally {
+          if (requestTimer) clearTimeout(requestTimer);
+          if (raceTimer) clearTimeout(raceTimer);
+        }
       }
     }
 

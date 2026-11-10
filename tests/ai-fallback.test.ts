@@ -2,7 +2,9 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import prisma from '../src/lib/db/prisma';
 import {
   clearGeminiKeyCooldowns,
+  getImageModelCandidates,
   getOrderedGeminiClients,
+  getTextModelCandidates,
   markGeminiKeyCooldown,
   parseGeminiApiKeys,
   parseKeyList,
@@ -14,6 +16,7 @@ import {
 } from '../src/lib/ai/openai-fallback';
 import { processDinerQuery } from '../src/lib/gemini/diner-chat';
 import { extractMenuFromImages } from '../src/lib/gemini/vision-extractor';
+import { MAX_BATCH_GENERATION } from '../src/lib/gemini/illustration-generator';
 
 describe('Multi-Key Gemini Rotation & OpenAI Fallback', () => {
   const originalEnv = {
@@ -21,6 +24,9 @@ describe('Multi-Key Gemini Rotation & OpenAI Fallback', () => {
     GEMINI_API_KEYS: process.env.GEMINI_API_KEYS,
     GEMINI_API_KEY_1: process.env.GEMINI_API_KEY_1,
     GEMINI_API_KEY_2: process.env.GEMINI_API_KEY_2,
+    GEMINI_TEXT_MODEL: process.env.GEMINI_TEXT_MODEL,
+    GEMINI_IMAGE_MODEL: process.env.GEMINI_IMAGE_MODEL,
+    GEMINI_USE_VERTEX: process.env.GEMINI_USE_VERTEX,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
     OPENAI_TEXT_MODEL: process.env.OPENAI_TEXT_MODEL,
@@ -316,6 +322,75 @@ describe('Multi-Key Gemini Rotation & OpenAI Fallback', () => {
     });
     expect(res.text).toBe('{"ok":true}');
     expect(res.model).toBe('gpt-4o-mini');
+  });
+
+  it('filters deprecated/Vertex models, isolates text vs image cooldowns, and sets >=10s Gemini httpOptions timeout', async () => {
+    process.env.GEMINI_TEXT_MODEL = 'gemini-2.5-flash';
+    const textModels = getTextModelCandidates();
+    expect(textModels).not.toContain('gemini-2.5-flash');
+    expect(textModels).not.toContain('gemini-2.5-pro');
+    expect(textModels[0]).toBe('gemini-3-flash-preview');
+
+    process.env.GEMINI_IMAGE_MODEL = 'imagen-3.0-generate-002';
+    delete process.env.GEMINI_USE_VERTEX;
+    expect(getImageModelCandidates()).not.toContain('imagen-3.0-generate-002');
+    process.env.GEMINI_USE_VERTEX = 'true';
+    expect(getImageModelCandidates()).toContain('imagen-3.0-generate-002');
+
+    delete process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEYS = '["scoped-key-1", "scoped-key-2"]';
+    markGeminiKeyCooldown('scoped-key-1', { status: 429, message: 'RESOURCE_EXHAUSTED' }, 'image');
+    expect(getOrderedGeminiClients('image')[0].key).toBe('scoped-key-2');
+    // Text scope must stay healthy despite image 429 cooldown
+    expect(getOrderedGeminiClients('text')[0].key).toBe('scoped-key-1');
+
+    // Auth 403 error invalidates both scopes
+    markGeminiKeyCooldown('scoped-key-1', { status: 403, message: 'API_KEY_INVALID' }, 'image');
+    expect(getOrderedGeminiClients('text')[0].key).toBe('scoped-key-2');
+
+    // Enforce >=10s httpOptions.timeout even when caller supplies short timeoutMs (e.g. 4000ms)
+    clearGeminiKeyCooldowns();
+    const restaurant = await prisma.restaurant.findFirst({ where: { slug: 'chai-and-chutney' } });
+    expect(restaurant).toBeTruthy();
+
+    const clients = getOrderedGeminiClients('text');
+    let observedHttpTimeout: number | undefined;
+    let observedThinkingLevel: string | undefined;
+    const spy = vi.spyOn(clients[0].client.models, 'generateContent').mockImplementation(async (req: any) => {
+      observedHttpTimeout = req?.config?.httpOptions?.timeout;
+      observedThinkingLevel = req?.config?.thinkingConfig?.thinkingLevel;
+      return {
+        text: JSON.stringify({
+          message: 'Enjoy our freshly brewed Assam Chai.',
+          dishIds: [],
+          selectedDishId: null,
+          pairingDishId: null,
+          suggestedQuestions: [],
+          safetyNotice: null,
+        }),
+      } as any;
+    });
+
+    const beforeCall = new Date();
+    await processDinerQuery({
+      restaurantId: restaurant!.id,
+      userMessage: 'Any tea?',
+      timeoutMs: 4000,
+    });
+    const logged = await prisma.aIUsageEvent.findMany({
+      where: {
+        restaurantId: restaurant!.id,
+        operationType: 'DINER_CHAT',
+        createdAt: { gte: beforeCall },
+      },
+      select: { id: true },
+    });
+    createdEventIds.push(...logged.map((e) => e.id));
+
+    expect(spy).toHaveBeenCalled();
+    expect(observedHttpTimeout).toBeGreaterThanOrEqual(10_000);
+    expect(observedThinkingLevel).toBe('MINIMAL');
+    expect(MAX_BATCH_GENERATION).toBe(5);
   });
 });
 

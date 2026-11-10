@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 import { buildSignedTableQrToken, createRestaurantTable } from '@/lib/tables/table-service';
+import { normalizeSiteUrl } from '@/lib/seo';
 
 export async function GET(
   req: Request,
@@ -35,7 +36,7 @@ export async function GET(
       },
     });
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const appUrl = normalizeSiteUrl(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
     const formatted = tables.map((t) => {
       const signedToken = buildSignedTableQrToken(t);
       return {
@@ -99,7 +100,7 @@ export async function POST(
       capacity: parseInt(capacity || 4, 10),
     });
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const appUrl = normalizeSiteUrl(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
     const scanUrl = `${appUrl}/m/${auth.restaurant.slug}?t=${result.rawToken}`;
 
     return NextResponse.json({

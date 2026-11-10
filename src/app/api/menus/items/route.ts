@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import prisma from '@/lib/db/prisma';
 import { getCache } from '@/lib/cache/redis';
+import { matchCanonicalDish } from '@/lib/canonical/matcher';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -29,7 +32,10 @@ export async function GET(req: Request) {
     orderBy: { sortOrder: 'asc' },
   });
 
-  return NextResponse.json({ items });
+  return NextResponse.json(
+    { items },
+    { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+  );
 }
 
 export async function POST(req: Request) {
@@ -102,11 +108,28 @@ export async function POST(req: Request) {
       }
     }
 
+    let canonicalId: string | null = null;
+    try {
+      const matched = await matchCanonicalDish({
+        dishName: customName,
+        category: categoryName || undefined,
+        description: description || undefined,
+        dietaryLabels: Array.isArray(dietaryStatus) ? dietaryStatus : undefined,
+        useGemini: true,
+        restaurantId,
+        organizationId: auth.restaurant.organizationId,
+      });
+      canonicalId = matched.canonicalId;
+    } catch {
+      canonicalId = null;
+    }
+
     const item = await prisma.restaurantMenuItem.create({
       data: {
         restaurantId,
         menuId: menu.id,
         categoryId: targetCategoryId,
+        canonicalId,
         customName,
         priceMinor: priceMinor || 0,
         currency: currency || auth.restaurant.currency,
@@ -141,7 +164,7 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const body = await req.json();
-    const { itemId, restaurantId, ...updates } = body;
+    const { itemId, restaurantId, ...rawUpdates } = body;
 
     if (!itemId || !restaurantId) {
       return NextResponse.json({ error: 'itemId and restaurantId are required' }, { status: 400 });
@@ -152,14 +175,92 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
     }
 
-    if ('description' in updates) {
-      updates.restaurantDescription = updates.description;
-      delete updates.description;
+    const existing = await prisma.restaurantMenuItem.findFirst({
+      where: { id: itemId, restaurantId },
+      include: { category: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ error: 'Menu item not found' }, { status: 404 });
+    }
+
+    const normalizedUpdates: Record<string, any> = {};
+    if ('description' in rawUpdates) {
+      normalizedUpdates.restaurantDescription = rawUpdates.description;
+    }
+
+    const ALLOWED_PATCH_FIELDS = [
+      'customName',
+      'restaurantDescription',
+      'priceMinor',
+      'categoryId',
+      'isAvailable',
+      'isPublished',
+      'isPopular',
+      'chefRecommended',
+      'dietaryStatus',
+      'canonicalId',
+      'imageOverrideAssetId',
+      'ingredients',
+      'portionSize',
+      'preparationDetails',
+      'allergenVerification',
+      'nutritionFields',
+      'sortOrder',
+    ] as const;
+
+    for (const key of ALLOWED_PATCH_FIELDS) {
+      if (key in rawUpdates && rawUpdates[key] !== undefined) {
+        normalizedUpdates[key] = rawUpdates[key];
+      }
+    }
+
+    // Re-match canonical dish automatically when an unlinked dish's name or description is edited
+    const textChanged =
+      normalizedUpdates.customName !== undefined ||
+      normalizedUpdates.restaurantDescription !== undefined;
+
+    if (
+      textChanged &&
+      !existing.canonicalId &&
+      !existing.imageOverrideAssetId &&
+      !('canonicalId' in normalizedUpdates)
+    ) {
+      try {
+        const nextName =
+          typeof normalizedUpdates.customName === 'string' && normalizedUpdates.customName.trim()
+            ? normalizedUpdates.customName.trim()
+            : existing.customName;
+        const nextDescription =
+          normalizedUpdates.restaurantDescription !== undefined
+            ? normalizedUpdates.restaurantDescription
+            : existing.restaurantDescription;
+        const nextDietary = Array.isArray(normalizedUpdates.dietaryStatus)
+          ? normalizedUpdates.dietaryStatus
+          : Array.isArray(existing.dietaryStatus)
+          ? (existing.dietaryStatus as string[])
+          : undefined;
+
+        const matched = await matchCanonicalDish({
+          dishName: nextName,
+          category: existing.category?.name,
+          description: nextDescription || undefined,
+          dietaryLabels: nextDietary,
+          useGemini: true,
+          restaurantId,
+          organizationId: auth.restaurant.organizationId,
+        });
+        if (matched.canonicalId) {
+          normalizedUpdates.canonicalId = matched.canonicalId;
+        }
+      } catch {
+        // Non-fatal if auto-matching fails during edit
+      }
     }
 
     const updatedItem = await prisma.restaurantMenuItem.update({
       where: { id: itemId, restaurantId },
-      data: updates,
+      data: normalizedUpdates,
       include: {
         category: true,
         canonical: {
@@ -209,4 +310,3 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
-

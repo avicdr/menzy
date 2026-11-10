@@ -6,6 +6,8 @@ import { getCache } from '@/lib/cache/redis';
 import { ClaimStatus } from '@prisma/client';
 import { generateRawClaimToken, hashClaimToken, getRequestOrigin } from '@/lib/claims/claim-service';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const session = await getAdminSession();
   if (!session) {
@@ -36,7 +38,10 @@ export async function GET() {
     orderBy: { createdAt: 'desc' },
   });
 
-  return NextResponse.json({ claims });
+  return NextResponse.json(
+    { claims },
+    { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+  );
 }
 
 class AdminClaimActionError extends Error {

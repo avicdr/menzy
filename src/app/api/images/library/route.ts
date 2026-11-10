@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
+import { getCanonicalDisplayMeta } from '@/lib/canonical/catalog';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const query = searchParams.get('q')?.toLowerCase() || '';
+  const query = searchParams.get('q')?.toLowerCase().trim() || '';
 
   const canonicalDishes = await prisma.canonicalDish.findMany({
     where: query
@@ -11,28 +14,50 @@ export async function GET(req: Request) {
           OR: [
             { normalizedName: { contains: query, mode: 'insensitive' } },
             { cuisine: { contains: query, mode: 'insensitive' } },
+            { generalizedDescription: { contains: query, mode: 'insensitive' } },
+            {
+              canonicalAliases: {
+                some: {
+                  normalizedAlias: { contains: query, mode: 'insensitive' },
+                },
+              },
+            },
           ],
         }
       : undefined,
     include: {
       imageAsset: true,
+      canonicalAliases: true,
       canonicalAssets: {
+        where: { isApproved: true },
         include: { asset: true },
       },
     },
-    take: 30,
+    orderBy: { normalizedName: 'asc' },
+    take: 2000,
   });
 
   const libraryAssets = canonicalDishes
-    .filter((d) => d.imageAsset != null)
-    .map((d) => ({
-      canonicalId: d.id,
-      dishName: d.normalizedName,
-      cuisine: d.cuisine,
-      description: d.generalizedDescription,
-      asset: d.imageAsset,
-    }));
+    .map((d) => {
+      const resolvedAsset = d.imageAsset || d.canonicalAssets?.[0]?.asset || null;
+      if (!resolvedAsset) return null;
+      const meta = getCanonicalDisplayMeta(d.normalizedName, d.cuisine);
+      return {
+        canonicalId: d.id,
+        normalizedName: d.normalizedName,
+        dishName: meta.displayName,
+        category: meta.category,
+        cuisine: meta.cuisine,
+        description: d.generalizedDescription,
+        aliases: Array.isArray(d.aliases) ? d.aliases : [],
+        asset: resolvedAsset,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 
-  return NextResponse.json({ assets: libraryAssets });
+  return NextResponse.json(
+    { assets: libraryAssets },
+    { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+  );
 }
 

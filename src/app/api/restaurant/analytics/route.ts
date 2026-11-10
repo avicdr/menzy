@@ -3,6 +3,8 @@ import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import prisma from '@/lib/db/prisma';
 import { getStartOfDayInTimezone } from '@/lib/analytics/date-window';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -262,46 +264,49 @@ export async function GET(req: Request) {
         ? Math.round((dishViews30Days / scans30Days) * 10) / 10
         : null;
 
-    return NextResponse.json({
-      success: true,
-      currency: auth.restaurant.currency,
-      windowDays: 30,
-      generatedAt: now.toISOString(),
-      scans: {
-        total: totalScans,
-        today: scansToday,
-        last30Days: scans30Days,
-        tableScans30Days,
+    return NextResponse.json(
+      {
+        success: true,
+        currency: auth.restaurant.currency,
+        windowDays: 30,
+        generatedAt: now.toISOString(),
+        scans: {
+          total: totalScans,
+          today: scansToday,
+          last30Days: scans30Days,
+          tableScans30Days,
+        },
+        aiUsage: {
+          chatQueries30Days,
+          chatQueriesTotal,
+          imageGenCount,
+        },
+        dishViews: {
+          total: dishViewsTotal,
+          last30Days: dishViews30Days,
+          viewsPerScan30Days,
+        },
+        orders: {
+          total30Days: orders30Days,
+          completed30Days: completedOrders30Days,
+          revenueMinor30Days,
+          scanToOrderRatePercent,
+          bestsellerSharePercent,
+        },
+        dietary: {
+          totalItems: menuItems.length,
+          veg: vegCount,
+          nonVeg: nonVegCount,
+          egg: eggCount,
+          vegetarianOrVegan: vegetarianOrVeganCount,
+          vegan: veganCount,
+          glutenFree: gfCount,
+          dairyFree: dairyFreeCount,
+        },
+        topDishes,
       },
-      aiUsage: {
-        chatQueries30Days,
-        chatQueriesTotal,
-        imageGenCount,
-      },
-      dishViews: {
-        total: dishViewsTotal,
-        last30Days: dishViews30Days,
-        viewsPerScan30Days,
-      },
-      orders: {
-        total30Days: orders30Days,
-        completed30Days: completedOrders30Days,
-        revenueMinor30Days,
-        scanToOrderRatePercent,
-        bestsellerSharePercent,
-      },
-      dietary: {
-        totalItems: menuItems.length,
-        veg: vegCount,
-        nonVeg: nonVegCount,
-        egg: eggCount,
-        vegetarianOrVegan: vegetarianOrVeganCount,
-        vegan: veganCount,
-        glutenFree: gfCount,
-        dairyFree: dairyFreeCount,
-      },
-      topDishes,
-    });
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (error: any) {
     console.error('Restaurant analytics GET error:', error);
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });

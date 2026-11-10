@@ -4,6 +4,7 @@ import { Sparkles, Flame, Leaf, Wheat, Milk, ShieldAlert } from 'lucide-react';
 interface DietaryBadgeProps {
   label: string;
   showIconOnly?: boolean;
+  allowFssaiVegMarker?: boolean;
 }
 
 /**
@@ -49,15 +50,24 @@ export function FssaiMarker({ type, size = 'sm' }: { type: 'VEG' | 'NON_VEG' | '
   );
 }
 
-export function DietaryBadge({ label, showIconOnly = false }: DietaryBadgeProps) {
+export function DietaryBadge({ label, showIconOnly = false, allowFssaiVegMarker = true }: DietaryBadgeProps) {
   const norm = label.toUpperCase().trim().replace(/\s+/g, '_');
 
   // 1. Indian Food Classification (FSSAI)
-  if (norm === 'VEG' || norm === 'VEGETARIAN' || norm === 'PURE_VEG') {
+  if (norm === 'VEG' || norm === 'PURE_VEG' || (norm === 'VEGETARIAN' && allowFssaiVegMarker)) {
     return (
       <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-50 text-green-800 border border-green-200 shadow-2xs">
         <FssaiMarker type="VEG" />
         {!showIconOnly && <span>Veg</span>}
+      </span>
+    );
+  }
+
+  if (norm === 'VEGETARIAN') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-50 text-green-800 border border-green-200 shadow-2xs">
+        <Leaf className="w-3 h-3 text-green-700" />
+        {!showIconOnly && <span>Vegetarian</span>}
       </span>
     );
   }

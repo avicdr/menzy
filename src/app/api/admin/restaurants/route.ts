@@ -3,9 +3,11 @@ import crypto from 'crypto';
 import prisma from '@/lib/db/prisma';
 import { getAdminSession, logAdminAction } from '@/lib/auth/admin-auth';
 import { ThemePreset, LayoutMode, PublicationState, ClaimStatus } from '@prisma/client';
-import { matchCanonicalDish } from '@/lib/canonical/matcher';
+import { matchCanonicalDishesBatch } from '@/lib/canonical/matcher';
 import { THEME_PRESETS, normalizeThemeFont } from '@/lib/theme/theme-presets';
 import { generateRawClaimToken, hashClaimToken, getRequestOrigin } from '@/lib/claims/claim-service';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const session = await getAdminSession();
@@ -51,7 +53,10 @@ export async function GET() {
     orderBy: { createdAt: 'desc' },
   });
 
-  return NextResponse.json({ restaurants });
+  return NextResponse.json(
+    { restaurants },
+    { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+  );
 }
 
 interface IncomingDemoDish {
@@ -126,15 +131,14 @@ export async function POST(req: Request) {
 
     const parsedTables = Math.min(20, Math.max(1, Number.parseInt(String(tableCount ?? 1), 10) || 1));
 
-    // Normalize dishes and match canonical imagery safely prior to opening DB transaction
+    // Normalize dishes and match canonical imagery in a single batch prior to opening DB transaction
     const rawDishes: IncomingDemoDish[] = Array.isArray(sampleDishes) ? sampleDishes : [];
-    const preparedDishes: Array<{
+    const preparedDrafts: Array<{
       name: string;
       category: string;
       description: string | null;
       priceMinor: number;
       dietaryStatus: string[];
-      canonicalId: string | null;
       isPopular: boolean;
       chefRecommended: boolean;
     }> = [];
@@ -168,19 +172,7 @@ export async function POST(req: Request) {
         }
       }
 
-      let canonicalId: string | null = null;
-      try {
-        const matched = await matchCanonicalDish({
-          dishName,
-          category: catName,
-          description: typeof dish?.description === 'string' ? dish.description.trim() : undefined,
-        });
-        canonicalId = matched.canonicalId;
-      } catch {
-        canonicalId = null;
-      }
-
-      preparedDishes.push({
+      preparedDrafts.push({
         name: dishName,
         category: catName,
         description:
@@ -189,11 +181,30 @@ export async function POST(req: Request) {
             : null,
         priceMinor,
         dietaryStatus: Array.from(tagsSet),
-        canonicalId,
         isPopular: Boolean(dish?.isPopular),
         chefRecommended: Boolean(dish?.chefRecommended),
       });
     }
+
+    let matchResults: Array<{ canonicalId: string | null }> = [];
+    try {
+      matchResults = await matchCanonicalDishesBatch(
+        preparedDrafts.map((d) => ({
+          dishName: d.name,
+          category: d.category,
+          description: d.description || undefined,
+          dietaryLabels: d.dietaryStatus,
+        })),
+        { useGemini: true }
+      );
+    } catch {
+      matchResults = [];
+    }
+
+    const preparedDishes = preparedDrafts.map((d, idx) => ({
+      ...d,
+      canonicalId: matchResults[idx]?.canonicalId ?? null,
+    }));
 
     const rawClaimToken = generateRawClaimToken();
     const claimTokenHash = hashClaimToken(rawClaimToken);

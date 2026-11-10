@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getAdminSession } from '@/lib/auth/admin-auth';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const session = await getAdminSession();
@@ -63,17 +65,20 @@ export async function GET() {
       (statusMap['PREPARING'] || 0) +
       (statusMap['READY'] || 0);
 
-    return NextResponse.json({
-      metrics: {
-        totalOrders,
-        activeOrdersCount,
-        totalTables,
-        totalStaff,
-        grossVolumeMinor: ordersAgg._sum.totalMinor || 0,
-        statusBreakdown: statusMap,
+    return NextResponse.json(
+      {
+        metrics: {
+          totalOrders,
+          activeOrdersCount,
+          totalTables,
+          totalStaff,
+          grossVolumeMinor: ordersAgg._sum.totalMinor || 0,
+          statusBreakdown: statusMap,
+        },
+        recentOrders,
       },
-      recentOrders,
-    });
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (error: any) {
     console.error('Admin orders GET error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

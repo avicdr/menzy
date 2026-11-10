@@ -4,6 +4,8 @@ import { generateSEOMetadata, SITE_NAME, SITE_URL } from '@/lib/seo';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { buildBreadcrumbSchema } from '@/lib/seo-schema';
 
+export const dynamic = 'force-dynamic';
+
 interface MenuSlugLayoutProps {
   children: React.ReactNode;
   params: Promise<{ slug: string }>;

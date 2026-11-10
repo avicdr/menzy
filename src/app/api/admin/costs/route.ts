@@ -3,6 +3,8 @@ import prisma from '@/lib/db/prisma';
 import { getAdminSession } from '@/lib/auth/admin-auth';
 import { calculateRestaurantCosts } from '@/lib/analytics/cost-calculator';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const session = await getAdminSession();
   if (!session) {
@@ -42,15 +44,18 @@ export async function GET() {
     _count: { id: true },
   });
 
-  return NextResponse.json({
-    global: {
-      totalAiCostUsd: Number(globalAiCostUsd.toFixed(4)),
-      totalAiRequests: globalAiRequests,
-      totalTokens: globalTokens,
-      totalImages: globalImages,
+  return NextResponse.json(
+    {
+      global: {
+        totalAiCostUsd: Number(globalAiCostUsd.toFixed(4)),
+        totalAiRequests: globalAiRequests,
+        totalTokens: globalTokens,
+        totalImages: globalImages,
+      },
+      byModel: eventsByModel,
+      restaurants: costBreakdowns,
     },
-    byModel: eventsByModel,
-    restaurants: costBreakdowns,
-  });
+    { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+  );
 }
 

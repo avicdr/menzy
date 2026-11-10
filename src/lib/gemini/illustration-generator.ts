@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import {
   getGenAIClient,
+  getImageModelCandidates,
   getImageModelName,
   markGeminiKeyCooldown,
   resolveGeminiAttemptClients,
@@ -9,6 +10,8 @@ import { generateOpenAIDishImage, hasOpenAIFallback } from '../ai/openai-fallbac
 import { uploadAsset } from '../storage/adapter';
 import prisma from '../db/prisma';
 import { AssetType, ModerationStatus } from '@prisma/client';
+
+export const MAX_BATCH_GENERATION = 5;
 
 export function buildIllustrationPrompt(dishDescription: string, ownerTweaks?: string): string {
   const baseDescription = ownerTweaks
@@ -77,6 +80,7 @@ export async function generateOrReuseDishIllustration(params: {
 
   const prompt = buildIllustrationPrompt(params.visualDescription, params.customInstructions);
   const modelName = getImageModelName();
+  const modelCandidates = getImageModelCandidates();
 
   // Create GenerationJob to track state
   const job = await prisma.generationJob.create({
@@ -90,51 +94,102 @@ export async function generateOrReuseDishIllustration(params: {
     },
   });
 
-  const geminiClients = resolveGeminiAttemptClients(getGenAIClient());
+  const geminiClients = resolveGeminiAttemptClients(getGenAIClient('image'), 'image');
   let imageBuffer: Buffer | null = null;
   let mimeType = 'image/jpeg';
   let ext = 'jpg';
   let usedModel = modelName;
   let usedSource = 'GEMINI_GEN';
 
-  // Tier 1: Try official Google GenAI across configured Gemini API keys
-  for (let idx = 0; idx < geminiClients.length; idx++) {
-    const entry = geminiClients[idx];
-    try {
-      const response = await (entry.client.models as any).generateImages({
-        model: modelName,
-        prompt,
-        config: {
-          numberOfImages: 1,
-          outputMimeType: 'image/jpeg',
-          aspectRatio: '1:1',
-        },
-      });
+  // Tier 1: Try official Google GenAI across image models x configured Gemini API keys
+  const invalidKeySet = new Set<string>();
+  let abortModelCascade = false;
 
-      const generatedImage = response.generatedImages?.[0];
-      if (generatedImage?.image?.imageBytes) {
-        imageBuffer = Buffer.from(generatedImage.image.imageBytes, 'base64');
-        mimeType = 'image/jpeg';
-        ext = 'jpg';
-        usedModel = modelName;
-        usedSource = 'GEMINI_GEN';
-        break;
+  for (let mIdx = 0; mIdx < modelCandidates.length && !imageBuffer && !abortModelCascade; mIdx++) {
+    const candidateModel = modelCandidates[mIdx];
+
+    for (let idx = 0; idx < geminiClients.length; idx++) {
+      const entry = geminiClients[idx];
+      if (invalidKeySet.has(entry.key)) {
+        continue;
       }
-    } catch (err: any) {
-      if (entry.key !== 'mock-injected-client') {
-        markGeminiKeyCooldown(entry.key, err);
+
+      try {
+        if (candidateModel.startsWith('imagen-')) {
+          const response = await (entry.client.models as any).generateImages({
+            model: candidateModel,
+            prompt,
+            config: {
+              numberOfImages: 1,
+              outputMimeType: 'image/jpeg',
+              aspectRatio: '1:1',
+            },
+          });
+
+          const generatedImage = response.generatedImages?.[0];
+          if (generatedImage?.image?.imageBytes) {
+            imageBuffer = Buffer.from(generatedImage.image.imageBytes, 'base64');
+            mimeType = 'image/jpeg';
+            ext = 'jpg';
+            usedModel = candidateModel;
+            usedSource = 'GEMINI_GEN';
+            break;
+          }
+        } else {
+          const response: any = await entry.client.models.generateContent({
+            model: candidateModel,
+            contents: prompt,
+            config: {
+              responseModalities: ['IMAGE'],
+              imageConfig: { aspectRatio: '1:1' },
+            } as any,
+          });
+
+          const parts = response?.candidates?.[0]?.content?.parts || [];
+          const imgPart = parts.find((p: any) => p?.inlineData?.data);
+          if (imgPart?.inlineData?.data) {
+            imageBuffer = Buffer.from(imgPart.inlineData.data, 'base64');
+            mimeType = imgPart.inlineData.mimeType || 'image/jpeg';
+            ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+            usedModel = candidateModel;
+            usedSource = 'GEMINI_GEN';
+            break;
+          }
+        }
+      } catch (err: any) {
+        const msg = String(err?.message || err || '').toLowerCase();
+        const status = Number(err?.status ?? err?.statusCode ?? 0);
+        if (
+          status === 401 ||
+          status === 403 ||
+          msg.includes('api_key_invalid') ||
+          msg.includes('api key not valid') ||
+          msg.includes('permission_denied') ||
+          msg.includes('leaked')
+        ) {
+          invalidKeySet.add(entry.key);
+        }
+
+        if (entry.key !== 'mock-injected-client') {
+          markGeminiKeyCooldown(entry.key, err, 'image');
+        } else {
+          abortModelCascade = true;
+        }
+        console.warn(
+          `GenAI image generation failed (${candidateModel}, key ${entry.maskedKey}, ${idx + 1}/${geminiClients.length}):`,
+          err?.message || err
+        );
+        if (abortModelCascade) {
+          break;
+        }
       }
-      console.warn(
-        `GenAI generateImages failed on key ${entry.maskedKey} (${idx + 1}/${geminiClients.length}):`,
-        err?.message || err
-      );
     }
   }
 
   // Tier 1b: OpenAI Image Generation fallback if Gemini keys failed or aren't configured
   if (!imageBuffer && hasOpenAIFallback()) {
     try {
-      const openAiImg = await generateOpenAIDishImage({ prompt, timeoutMs: 25000 });
+      const openAiImg = await generateOpenAIDishImage({ prompt, timeoutMs: 45000 });
       imageBuffer = openAiImg.buffer;
       mimeType = openAiImg.mimeType;
       ext = openAiImg.ext;
@@ -159,6 +214,8 @@ export async function generateOrReuseDishIllustration(params: {
           imageBuffer = Buffer.from(ab);
           mimeType = res.headers.get('content-type') || 'image/jpeg';
           ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+          usedModel = 'pollinations-flux';
+          usedSource = 'POLLINATIONS_GEN';
         }
       }
     } catch (aiErr: any) {
@@ -171,6 +228,8 @@ export async function generateOrReuseDishIllustration(params: {
     imageBuffer = createPlaceholderIllustrationBuffer(params.dishName);
     mimeType = 'image/svg+xml';
     ext = 'svg';
+    usedModel = 'svg-clay-fallback';
+    usedSource = 'SVG_PLACEHOLDER';
   }
 
   // Store asset with correct MIME type and matching file extension

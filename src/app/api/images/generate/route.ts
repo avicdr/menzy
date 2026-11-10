@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import { generateOrReuseDishIllustration } from '@/lib/gemini/illustration-generator';
+import { getCache } from '@/lib/cache/redis';
 import prisma from '@/lib/db/prisma';
 
 export async function POST(req: Request) {
@@ -46,6 +47,9 @@ export async function POST(req: Request) {
         where: { id: item.id },
         data: { imageOverrideAssetId: result.asset.id },
       });
+
+      const cache = getCache();
+      await cache.del(`menu:slug:${auth.restaurant.slug}`);
     }
 
     return NextResponse.json({

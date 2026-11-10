@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 import { bulkCreateRestaurantTables } from '@/lib/tables/table-service';
+import { normalizeSiteUrl } from '@/lib/seo';
 
 export async function POST(
   req: Request,
@@ -29,7 +30,7 @@ export async function POST(
       capacity: parseInt(capacity || 4, 10),
     });
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const appUrl = normalizeSiteUrl(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
     const formatted = created.map((c) => ({
       id: c.table.id,
       name: c.table.name,

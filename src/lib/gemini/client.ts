@@ -3,6 +3,12 @@ import { GoogleGenAI } from '@google/genai';
 const clientCache = new Map<string, GoogleGenAI>();
 const keyCooldownUntil = new Map<string, number>();
 
+export type GeminiCooldownScope = 'text' | 'image';
+
+function getCooldownMapKey(apiKey: string, scope: GeminiCooldownScope): string {
+  return `${scope}:${apiKey}`;
+}
+
 export interface GeminiClientEntry {
   key: string;
   keyIndex: number;
@@ -87,22 +93,27 @@ export function clearGeminiKeyCooldowns(): void {
   keyCooldownUntil.clear();
 }
 
-export function markGeminiKeyCooldown(apiKey: string, err: unknown): void {
+export function markGeminiKeyCooldown(
+  apiKey: string,
+  err: unknown,
+  scope: GeminiCooldownScope = 'text'
+): void {
   if (!apiKey) return;
   const now = Date.now();
   const anyErr = err as any;
   const status = Number(anyErr?.status ?? anyErr?.statusCode ?? anyErr?.cause?.status ?? 0);
   const message = String(anyErr?.message || anyErr || '').toLowerCase();
 
-  let cooldownMs = 15_000;
-  if (
+  const isAuthError =
     status === 401 ||
     status === 403 ||
     message.includes('api_key_invalid') ||
     message.includes('api key not valid') ||
     message.includes('permission_denied') ||
-    message.includes('leaked')
-  ) {
+    message.includes('leaked');
+
+  let cooldownMs = 15_000;
+  if (isAuthError) {
     cooldownMs = 10 * 60_000;
   } else if (
     status === 429 ||
@@ -114,14 +125,22 @@ export function markGeminiKeyCooldown(apiKey: string, err: unknown): void {
     cooldownMs = 60_000;
   }
 
-  keyCooldownUntil.set(apiKey, now + cooldownMs);
+  if (isAuthError) {
+    // Invalid/revoked keys fail across both text and image scopes
+    keyCooldownUntil.set(getCooldownMapKey(apiKey, 'text'), now + cooldownMs);
+    keyCooldownUntil.set(getCooldownMapKey(apiKey, 'image'), now + cooldownMs);
+  } else {
+    keyCooldownUntil.set(getCooldownMapKey(apiKey, scope), now + cooldownMs);
+  }
 }
 
 /**
  * Returns all configured Gemini clients ordered with healthy (non-cooled-down)
  * keys first, followed by keys currently on cooldown as a last resort.
  */
-export function getOrderedGeminiClients(): GeminiClientEntry[] {
+export function getOrderedGeminiClients(
+  scope: GeminiCooldownScope = 'text'
+): GeminiClientEntry[] {
   const keys = parseGeminiApiKeys();
   if (keys.length === 0) {
     return [];
@@ -138,7 +157,7 @@ export function getOrderedGeminiClients(): GeminiClientEntry[] {
       maskedKey: maskApiKey(key),
       client: getGenAIClientForKey(key),
     };
-    const until = keyCooldownUntil.get(key) ?? 0;
+    const until = keyCooldownUntil.get(getCooldownMapKey(key, scope)) ?? 0;
     if (until > now) {
       cooledDown.push({ until, entry });
     } else {
@@ -155,13 +174,14 @@ export function getOrderedGeminiClients(): GeminiClientEntry[] {
  * with tests that spy on `getGenAIClient()` to inject a mock or disable Gemini.
  */
 export function resolveGeminiAttemptClients(
-  primaryClient: GoogleGenAI | null
+  primaryClient: GoogleGenAI | null,
+  scope: GeminiCooldownScope = 'text'
 ): GeminiClientEntry[] {
   if (!primaryClient) {
     return [];
   }
 
-  const pool = getOrderedGeminiClients();
+  const pool = getOrderedGeminiClients(scope);
   const matchesCachedEnvClient = pool.some((entry) => entry.client === primaryClient);
 
   if (!matchesCachedEnvClient) {
@@ -178,8 +198,10 @@ export function resolveGeminiAttemptClients(
   return pool;
 }
 
-export function getGenAIClient(): GoogleGenAI | null {
-  const ordered = getOrderedGeminiClients();
+export function getGenAIClient(
+  scope: GeminiCooldownScope = 'text'
+): GoogleGenAI | null {
+  const ordered = getOrderedGeminiClients(scope);
   return ordered[0]?.client ?? null;
 }
 
@@ -187,9 +209,23 @@ const DEPRECATED_OR_STALLING_MODELS = new Set([
   'gemini-3.8-flash',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
+  'gemini-2.5-pro',
 ]);
 
 export const DEFAULT_GEMINI_TEXT_MODEL = 'gemini-3-flash-preview';
+export const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-2.5-flash-image';
+
+const DEFAULT_GEMINI_TEXT_FALLBACK_MODELS = [
+  'gemini-3-flash-preview',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
+];
+
+const VERTEX_ONLY_IMAGE_MODELS = new Set([
+  'imagen-3.0-generate-002',
+  'imagen-3.0-fast-generate-001',
+]);
 
 export function getTextModelName(): string {
   const configured = process.env.GEMINI_TEXT_MODEL?.trim();
@@ -199,6 +235,63 @@ export function getTextModelName(): string {
   return configured;
 }
 
+export function getTextModelCandidates(): string[] {
+  const primary = getTextModelName();
+  const envFallbacks = parseKeyList(process.env.GEMINI_TEXT_FALLBACK_MODELS);
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const model of [primary, ...envFallbacks, ...DEFAULT_GEMINI_TEXT_FALLBACK_MODELS]) {
+    const trimmed = model.trim();
+    if (!trimmed || DEPRECATED_OR_STALLING_MODELS.has(trimmed) || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+
+  return result;
+}
+
 export function getImageModelName(): string {
-  return process.env.GEMINI_IMAGE_MODEL || 'imagen-3.0-generate-002';
+  const configured = process.env.GEMINI_IMAGE_MODEL?.trim();
+  const useVertex = process.env.GEMINI_USE_VERTEX === 'true';
+  if (!configured) {
+    return DEFAULT_GEMINI_IMAGE_MODEL;
+  }
+  if (!useVertex && VERTEX_ONLY_IMAGE_MODELS.has(configured)) {
+    return DEFAULT_GEMINI_IMAGE_MODEL;
+  }
+  return configured;
+}
+
+export function getImageModelCandidates(): string[] {
+  const useVertex = process.env.GEMINI_USE_VERTEX === 'true';
+  const primary = getImageModelName();
+  const envFallbacks = parseKeyList(process.env.GEMINI_IMAGE_FALLBACK_MODELS);
+  const defaults = [
+    'gemini-2.5-flash-image',
+    'gemini-3.1-flash-image-preview',
+    'gemini-3.1-flash-image',
+    'gemini-3.1-flash-lite-image',
+    'gemini-3-pro-image-preview',
+    ...(useVertex ? ['imagen-3.0-generate-002'] : []),
+  ];
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const model of [primary, ...envFallbacks, ...defaults]) {
+    const trimmed = model.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    if (!useVertex && VERTEX_ONLY_IMAGE_MODELS.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+
+  return result;
 }

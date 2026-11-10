@@ -3,6 +3,8 @@ import prisma from '@/lib/db/prisma';
 import { getAdminSession } from '@/lib/auth/admin-auth';
 import { PLAN_CATALOG, PlanKey } from '@/lib/payments/plans';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: Request) {
   const session = await getAdminSession();
   if (!session) {
@@ -64,19 +66,22 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({
-    subscriptions,
-    metrics: {
-      totalActive: allActive.length,
-      inrMrr,
-      usdMrr,
-      renewingIn7DaysCount: await prisma.subscription.count({
-        where: { paidThrough: { gte: now, lte: in7d }, status: 'ACTIVE' },
-      }),
-      pastDueCount: await prisma.subscription.count({
-        where: { status: 'PAST_DUE' },
-      }),
+  return NextResponse.json(
+    {
+      subscriptions,
+      metrics: {
+        totalActive: allActive.length,
+        inrMrr,
+        usdMrr,
+        renewingIn7DaysCount: await prisma.subscription.count({
+          where: { paidThrough: { gte: now, lte: in7d }, status: 'ACTIVE' },
+        }),
+        pastDueCount: await prisma.subscription.count({
+          where: { status: 'PAST_DUE' },
+        }),
+      },
     },
-  });
+    { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+  );
 }
 

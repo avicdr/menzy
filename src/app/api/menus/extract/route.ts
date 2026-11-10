@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import { extractMenuFromImages } from '@/lib/gemini/vision-extractor';
-import { matchCanonicalDish } from '@/lib/canonical/matcher';
+import { matchCanonicalDishesBatch } from '@/lib/canonical/matcher';
 import { readAssetFromUrl } from '@/lib/storage/adapter';
+import { getCache } from '@/lib/cache/redis';
 import prisma from '@/lib/db/prisma';
 
 export async function POST(req: Request) {
@@ -135,26 +136,31 @@ export async function POST(req: Request) {
       categoryMap.set(catName, cat.id);
     }
 
-    // Save dishes
-    const createdItems = [];
-    for (const item of extracted.items) {
-      const categoryId = categoryMap.get(item.category) || Array.from(categoryMap.values())[0];
-
-      // Match canonical dish
-      const canonicalMatch = await matchCanonicalDish({
-        dishName: item.normalizedName || item.sourceName,
+    // Single batched canonical matching across all extracted items (Steps 1-4 + batched Gemini closest-match)
+    const canonicalMatches = await matchCanonicalDishesBatch(
+      extracted.items.map((item) => ({
+        dishName: item.sourceName || item.normalizedName,
         category: item.category,
         description: item.description || undefined,
-      });
+        dietaryLabels: item.dietaryLabels,
+      })),
+      {
+        useGemini: true,
+        restaurantId,
+        organizationId: restaurant.organizationId,
+      }
+    );
 
-      // Check if canonical has approved illustration
-      let canonicalImageAssetId: string | null = null;
-      if (canonicalMatch.canonicalId) {
-        const canon = await prisma.canonicalDish.findUnique({
-          where: { id: canonicalMatch.canonicalId },
-          include: { imageAsset: true },
-        });
-        canonicalImageAssetId = canon?.imageAssetId || null;
+    // Save dishes
+    const createdItems = [];
+    let canonicalMatchedCount = 0;
+    for (let itemIdx = 0; itemIdx < extracted.items.length; itemIdx++) {
+      const item = extracted.items[itemIdx];
+      const canonicalMatch = canonicalMatches[itemIdx];
+      const categoryId = categoryMap.get(item.category) || Array.from(categoryMap.values())[0];
+
+      if (canonicalMatch?.canonicalId) {
+        canonicalMatchedCount++;
       }
 
       const menuItem = await prisma.restaurantMenuItem.create({
@@ -162,7 +168,7 @@ export async function POST(req: Request) {
           restaurantId,
           menuId: menu.id,
           categoryId,
-          canonicalId: canonicalMatch.canonicalId,
+          canonicalId: canonicalMatch?.canonicalId ?? null,
           customName: item.sourceName,
           restaurantDescription: item.description,
           priceMinor: item.priceMinor,
@@ -199,6 +205,10 @@ export async function POST(req: Request) {
       createdItems.push(menuItem);
     }
 
+    // Invalidate live diner menu cache immediately
+    const cache = getCache();
+    await cache.del(`menu:slug:${restaurant.slug}`);
+
     // Update upload and job statuses
     await prisma.menuUpload.update({
       where: { id: upload.id },
@@ -220,6 +230,8 @@ export async function POST(req: Request) {
       success: true,
       extractedCategories: extracted.categories.length,
       extractedItemsCount: createdItems.length,
+      canonicalMatchedCount,
+      unmatchedCount: createdItems.length - canonicalMatchedCount,
       items: createdItems,
     });
   } catch (error: any) {

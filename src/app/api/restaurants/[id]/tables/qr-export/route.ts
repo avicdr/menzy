@@ -3,6 +3,7 @@ import prisma from '@/lib/db/prisma';
 import QRCode from 'qrcode';
 import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 import { buildSignedTableQrToken } from '@/lib/tables/table-service';
+import { normalizeSiteUrl } from '@/lib/seo';
 
 export async function GET(
   req: Request,
@@ -20,7 +21,7 @@ export async function GET(
       orderBy: { name: 'asc' },
     });
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const appUrl = normalizeSiteUrl(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
     const darkColor = auth.restaurant.theme?.primaryTextColor || '#35271F';
     const lightColor = auth.restaurant.theme?.surfaceColor || '#FFFFFF';
 

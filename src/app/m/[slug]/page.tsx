@@ -33,6 +33,7 @@ import { RescanTableModal } from '@/components/diner/RescanTableModal';
 import { CartProvider, useCart } from '@/lib/diner/cart-context';
 import { generateThemeVariables, THEME_PRESETS } from '@/lib/theme/theme-presets';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
+import { matchesDietaryFilter } from '@/lib/diner/dietary';
 
 export default function DinerMenuPage() {
   const params = useParams();
@@ -143,7 +144,7 @@ function DinerMenuContent() {
         }
 
         if (!alreadyLoadedForSlug) {
-          const res = await fetch(`/api/diner/menu?slug=${slug}`);
+          const res = await fetch(`/api/diner/menu?slug=${slug}`, { cache: 'no-store' });
           if (!res.ok) {
             throw new Error('Menu not found');
           }
@@ -336,12 +337,8 @@ function DinerMenuContent() {
       }
 
       // Dietary filter
-      if (selectedDietaryFilter !== 'ALL') {
-        const itemLabels = (item.dietaryStatus as string[]) || [];
-        const matches = itemLabels.some(
-          (l) => l.toUpperCase() === selectedDietaryFilter.toUpperCase()
-        );
-        if (!matches) return false;
+      if (selectedDietaryFilter !== 'ALL' && !matchesDietaryFilter(item, selectedDietaryFilter)) {
+        return false;
       }
 
       // Search query

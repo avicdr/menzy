@@ -1,5 +1,6 @@
 import React from 'react';
 import { DietaryBadge, FssaiMarker } from './DietaryBadge';
+import { resolveDishDietarySignals } from '@/lib/diner/dietary';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
 import { Sparkles, Flame } from 'lucide-react';
 
@@ -12,13 +13,10 @@ interface DishCardProps {
 export function DishCard({ item, layoutMode = 'GRID', onSelect }: DishCardProps) {
   const imageUrl = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
   const priceDisplay = item.priceMinor != null ? formatCurrencyMinor(item.priceMinor, item.currency) : '';
-  const dietaryLabels = (item.dietaryStatus as string[]) || [];
-
-  // Detect Indian FSSAI markers
-  const isVeg = dietaryLabels.some((l: string) => ['VEG', 'VEGETARIAN', 'PURE_VEG'].includes(l.toUpperCase()));
-  const isNonVeg = dietaryLabels.some((l: string) => ['NON_VEG', 'NON-VEG', 'NONVEG'].includes(l.toUpperCase()));
-  const isEgg = dietaryLabels.some((l: string) => ['EGG', 'CONTAINS_EGG', 'EGGETARIAN'].includes(l.toUpperCase()));
-  const indianMarker: 'VEG' | 'NON_VEG' | 'EGG' | null = isVeg ? 'VEG' : isNonVeg ? 'NON_VEG' : isEgg ? 'EGG' : null;
+  const dietarySignals = resolveDishDietarySignals(item);
+  const dietaryLabels = dietarySignals.displayLabels;
+  const indianMarker = dietarySignals.indianMarker;
+  const allowFssaiVegMarker = !dietarySignals.containsEgg && !dietarySignals.isNonVeg;
 
   if (layoutMode === 'LIST') {
     return (
@@ -55,7 +53,7 @@ export function DishCard({ item, layoutMode = 'GRID', onSelect }: DishCardProps)
               {priceDisplay}
             </span>
             {dietaryLabels.slice(0, 3).map((label) => (
-              <DietaryBadge key={label} label={label} />
+              <DietaryBadge key={label} label={label} allowFssaiVegMarker={allowFssaiVegMarker} />
             ))}
           </div>
         </div>
@@ -155,7 +153,7 @@ export function DishCard({ item, layoutMode = 'GRID', onSelect }: DishCardProps)
         {dietaryLabels.length > 0 && (
           <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-cream-100">
             {dietaryLabels.slice(0, 3).map((label) => (
-              <DietaryBadge key={label} label={label} />
+              <DietaryBadge key={label} label={label} allowFssaiVegMarker={allowFssaiVegMarker} />
             ))}
           </div>
         )}

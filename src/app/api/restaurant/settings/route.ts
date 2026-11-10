@@ -4,6 +4,8 @@ import prisma from '@/lib/db/prisma';
 import { getCache } from '@/lib/cache/redis';
 import { normalizeGuestWifiInput, type GuestWifiConfig } from '@/lib/wifi/wifi-qr';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -33,17 +35,20 @@ export async function GET(req: Request) {
     const notifSettings = (restaurant.orderingSettings?.notificationSettings as Record<string, any>) || {};
     const wifi = notifSettings?.wifi || { enabled: false, ssid: '', password: '', security: 'WPA' };
 
-    return NextResponse.json({
-      restaurant,
-      wifi,
-      settings: restaurant.settings || {
-        welcomeMessage: 'Welcome! Explore our dishes or ask our AI waiter anything.',
-        aiTone: 'Warm Editorial & Helpful',
-        allowDinerChat: true,
-        allowPairings: true,
-        maxDinerChatPerSession: 25,
+    return NextResponse.json(
+      {
+        restaurant,
+        wifi,
+        settings: restaurant.settings || {
+          welcomeMessage: 'Welcome! Explore our dishes or ask our AI waiter anything.',
+          aiTone: 'Warm Editorial & Helpful',
+          allowDinerChat: true,
+          allowPairings: true,
+          maxDinerChatPerSession: 25,
+        },
       },
-    });
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (error: any) {
     console.error('Restaurant settings GET error:', error);
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });

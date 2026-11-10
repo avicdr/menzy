@@ -53,6 +53,7 @@ import { OrdersManagementView } from '@/components/dashboard/OrdersManagementVie
 import { StaffManagementView } from '@/components/dashboard/StaffManagementView';
 import { GooglePlacesModal } from '@/components/dashboard/GooglePlacesModal';
 import { trackConversionEvent } from '@/lib/analytics/events';
+import { sortCanonicalCategories } from '@/lib/canonical/catalog';
 
 export default function RestaurantDashboardPage() {
   return (
@@ -140,7 +141,17 @@ function RestaurantDashboardContent() {
 
   // Illustration Lab State
   const [isGeneratingImg, setIsGeneratingImg] = useState<string | null>(null);
+  const [isGeneratingBatch, setIsGeneratingBatch] = useState(false);
+  const [batchStatusMsg, setBatchStatusMsg] = useState<string | null>(null);
   const [customPromptTweak, setCustomPromptTweak] = useState('');
+  const [isCanonicalGalleryOpen, setIsCanonicalGalleryOpen] = useState(false);
+  const [canonicalGalleryLoading, setCanonicalGalleryLoading] = useState(false);
+  const [canonicalGalleryItems, setCanonicalGalleryItems] = useState<any[]>([]);
+  const [canonicalGallerySearch, setCanonicalGallerySearch] = useState('');
+  const [canonicalGalleryCategory, setCanonicalGalleryCategory] = useState('ALL');
+  const [galleryTargetDishId, setGalleryTargetDishId] = useState<string>('');
+  const [isApplyingGalleryAsset, setIsApplyingGalleryAsset] = useState<string | null>(null);
+  const [isTogglingPublish, setIsTogglingPublish] = useState(false);
 
   // AI Waiter State
   const [welcomeMsg, setWelcomeMsg] = useState('Welcome! Explore our dishes or ask our AI waiter anything.');
@@ -164,7 +175,7 @@ function RestaurantDashboardContent() {
     try {
       setAnalyticsLoading(true);
       setAnalyticsError(null);
-      const res = await fetch(`/api/restaurant/analytics?restaurantId=${targetRestaurantId}`);
+      const res = await fetch(`/api/restaurant/analytics?restaurantId=${targetRestaurantId}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.success) {
         throw new Error(data.error || 'Failed to load restaurant analytics');
@@ -227,7 +238,7 @@ function RestaurantDashboardContent() {
         setLoading(true);
         setAnalyticsData(null);
         setAnalyticsError(null);
-        const meRes = await fetch('/api/auth/me');
+        const meRes = await fetch('/api/auth/me', { cache: 'no-store' });
         if (!meRes.ok) {
           router.push('/login');
           return;
@@ -267,21 +278,21 @@ function RestaurantDashboardContent() {
           });
 
           // Load items
-          const itemsRes = await fetch(`/api/menus/items?restaurantId=${targetRest.id}`);
+          const itemsRes = await fetch(`/api/menus/items?restaurantId=${targetRest.id}`, { cache: 'no-store' });
           if (itemsRes.ok) {
             const itemsData = await itemsRes.json();
             setMenuItems(itemsData.items || []);
           }
 
           // Load billing & usage
-          const billRes = await fetch(`/api/billing/usage?restaurantId=${targetRest.id}`);
+          const billRes = await fetch(`/api/billing/usage?restaurantId=${targetRest.id}`, { cache: 'no-store' });
           if (billRes.ok) {
             const billData = await billRes.json();
             setBillingUsage(billData);
           }
 
           // Load theme & settings
-          const dinerRes = await fetch(`/api/diner/menu?slug=${targetRest.slug}`);
+          const dinerRes = await fetch(`/api/diner/menu?slug=${targetRest.slug}`, { cache: 'no-store' });
           if (dinerRes.ok) {
             const dinerData = await dinerRes.json();
             if (dinerData.theme) {
@@ -312,7 +323,7 @@ function RestaurantDashboardContent() {
           }
 
           // Load restaurant profile & Wi-Fi settings
-          const restSettingsRes = await fetch(`/api/restaurant/settings?restaurantId=${targetRest.id}`);
+          const restSettingsRes = await fetch(`/api/restaurant/settings?restaurantId=${targetRest.id}`, { cache: 'no-store' });
           if (restSettingsRes.ok) {
             const rsData = await restSettingsRes.json();
             if (rsData.wifi) {
@@ -342,7 +353,7 @@ function RestaurantDashboardContent() {
           }
 
           // Load QR code
-          const qrRes = await fetch(`/api/qr/generate?slug=${targetRest.slug}`);
+          const qrRes = await fetch(`/api/qr/generate?slug=${targetRest.slug}`, { cache: 'no-store' });
           if (qrRes.ok) {
             const qData = await qrRes.json();
             setQrData(qData);
@@ -368,7 +379,7 @@ function RestaurantDashboardContent() {
   // Keep Wi-Fi & profile settings fresh whenever owner navigates to Settings tab
   useEffect(() => {
     if (currentTab === 'settings' && restaurant?.id) {
-      fetch(`/api/restaurant/settings?restaurantId=${restaurant.id}`)
+      fetch(`/api/restaurant/settings?restaurantId=${restaurant.id}`, { cache: 'no-store' })
         .then((res) => (res.ok ? res.json() : null))
         .then((rsData) => {
           if (!rsData) return;
@@ -664,9 +675,17 @@ function RestaurantDashboardContent() {
       }
 
       setExtractionError(null);
-      setExtractionSuccess(`Extracted ${extractData.extractedItemsCount} dishes successfully from your menu!`);
+      const linkedMsg =
+        typeof extractData.canonicalMatchedCount === 'number' && extractData.canonicalMatchedCount > 0
+          ? ` (${extractData.canonicalMatchedCount} matched with canonical 3D visuals)`
+          : '';
+      setExtractionSuccess(
+        `Extracted ${extractData.extractedItemsCount} dishes successfully${linkedMsg}!`
+      );
       // Reload items
-      const itemsRes = await fetch(`/api/menus/items?restaurantId=${restaurant.id}`);
+      const itemsRes = await fetch(`/api/menus/items?restaurantId=${restaurant.id}`, {
+        cache: 'no-store',
+      });
       if (itemsRes.ok) {
         const itemsData = await itemsRes.json();
         setMenuItems(itemsData.items || []);
@@ -718,7 +737,9 @@ function RestaurantDashboardContent() {
       });
 
       // Refresh billing credits
-      const billRes = await fetch(`/api/billing/usage?restaurantId=${restaurant.id}`);
+      const billRes = await fetch(`/api/billing/usage?restaurantId=${restaurant.id}`, {
+        cache: 'no-store',
+      });
       if (billRes.ok) {
         setBillingUsage(await billRes.json());
       }
@@ -764,6 +785,140 @@ function RestaurantDashboardContent() {
       alert('Error applying image override');
     } finally {
       setIsApplyingCandidate(false);
+    }
+  };
+
+  // Open Shared Canonical Gallery Browser (always refresh in background so newly seeded assets appear)
+  const handleOpenCanonicalGallery = async (targetDish?: any) => {
+    setIsCanonicalGalleryOpen(true);
+    setGalleryTargetDishId(targetDish?.id || menuItems[0]?.id || '');
+    const showInitialLoader = canonicalGalleryItems.length === 0;
+    if (showInitialLoader) {
+      setCanonicalGalleryLoading(true);
+    }
+    try {
+      const res = await fetch('/api/images/library', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        setCanonicalGalleryItems(data.assets || []);
+      }
+    } catch (err) {
+      console.error('Failed to load canonical gallery:', err);
+    } finally {
+      if (showInitialLoader) {
+        setCanonicalGalleryLoading(false);
+      }
+    }
+  };
+
+  // Toggle Menu Publication State (PUBLISHED vs DRAFT)
+  const handleTogglePublication = async () => {
+    if (!restaurant?.id || isTogglingPublish) return;
+    const isCurrentlyPublished = restaurant.publicationState === 'PUBLISHED';
+    const nextState = isCurrentlyPublished ? 'DRAFT' : 'PUBLISHED';
+    setIsTogglingPublish(true);
+    try {
+      const res = await fetch('/api/menus/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+          publishState: nextState,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.publicationState) {
+        setRestaurant((prev: any) =>
+          prev ? { ...prev, publicationState: data.publicationState } : prev
+        );
+      } else {
+        alert(data.error || 'Failed to update menu publication status');
+      }
+    } catch {
+      alert('Failed to update menu publication status');
+    } finally {
+      setIsTogglingPublish(false);
+    }
+  };
+
+  // Match canonical illustrations first (0 credits) then generate up to 5 custom visuals
+  const handleBatchIllustrateMenu = async () => {
+    if (!restaurant?.id || isGeneratingBatch) return;
+    setIsGeneratingBatch(true);
+    setBatchStatusMsg(null);
+    try {
+      const res = await fetch('/api/images/batch-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || 'Batch visual matching failed');
+        return;
+      }
+
+      const [itemsRes, billRes] = await Promise.all([
+        fetch(`/api/menus/items?restaurantId=${restaurant.id}`, { cache: 'no-store' }),
+        fetch(`/api/billing/usage?restaurantId=${restaurant.id}`, { cache: 'no-store' }),
+      ]);
+      if (itemsRes.ok) {
+        const itemsData = await itemsRes.json();
+        setMenuItems(itemsData.items || []);
+      }
+      if (billRes.ok) {
+        setBillingUsage(await billRes.json());
+      }
+
+      const linked = Number(data.canonicalLinkedCount || 0);
+      const generated = Number(data.generatedCount || 0);
+      if (linked === 0 && generated === 0) {
+        setBatchStatusMsg(data.message || 'All dishes already have 3D illustrations.');
+      } else {
+        const parts = [];
+        if (linked > 0) parts.push(`linked ${linked} canonical visuals (0 credits)`);
+        if (generated > 0) parts.push(`generated ${generated} custom 3D visuals (cap 5/batch)`);
+        setBatchStatusMsg(`Success: ${parts.join(' and ')}.`);
+      }
+      setTimeout(() => setBatchStatusMsg(null), 5000);
+    } catch {
+      alert('Error running batch visual generation');
+    } finally {
+      setIsGeneratingBatch(false);
+    }
+  };
+
+  // Apply Canonical Gallery Illustration to Selected Menu Item (0 Credits)
+  const handleApplyCanonicalFromGallery = async (galleryEntry: any) => {
+    if (!galleryTargetDishId || !restaurant?.id) return;
+    setIsApplyingGalleryAsset(galleryEntry.canonicalId);
+    try {
+      const res = await fetch('/api/menus/items', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itemId: galleryTargetDishId,
+          restaurantId: restaurant.id,
+          canonicalId: galleryEntry.canonicalId,
+          imageOverrideAssetId: null,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setMenuItems((prev) =>
+          prev.map((i) => (i.id === galleryTargetDishId ? { ...i, ...data.item } : i))
+        );
+        setIsCanonicalGalleryOpen(false);
+      } else {
+        alert('Failed to link canonical illustration');
+      }
+    } catch (err) {
+      alert('Error linking canonical illustration');
+    } finally {
+      setIsApplyingGalleryAsset(null);
     }
   };
 
@@ -1061,7 +1216,34 @@ function RestaurantDashboardContent() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={handleTogglePublication}
+              disabled={isTogglingPublish}
+              title={
+                restaurant.publicationState === 'PUBLISHED'
+                  ? 'Menu is published and indexable by search engines. Click to switch to Draft.'
+                  : 'Menu is currently in Draft status. Click to publish live.'
+              }
+              className={`w-full sm:w-auto justify-center inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs sm:text-sm font-semibold shadow-sm transition-all disabled:opacity-60 ${
+                restaurant.publicationState === 'PUBLISHED'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                  : 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  restaurant.publicationState === 'PUBLISHED' ? 'bg-emerald-500' : 'bg-amber-500'
+                }`}
+              />
+              {isTogglingPublish
+                ? 'Updating...'
+                : restaurant.publicationState === 'PUBLISHED'
+                ? 'Live & Published'
+                : 'Publish Menu Live'}
+            </button>
+
             <a
               href={`/m/${restaurant.slug}`}
               target="_blank"
@@ -2073,15 +2255,44 @@ function RestaurantDashboardContent() {
               <div>
                 <h2 className="font-serif text-xl font-bold text-espresso-900">Illustration Lab</h2>
                 <p className="text-xs sm:text-sm text-taupe-500 mt-1">
-                  Manage 3D-clay-styled illustrations. All images use consistent square proportions across your digital menu.
+                  Manage 3D-clay-styled illustrations. Reuse curated Canonical Gallery art at zero credit cost or generate custom visuals.
                 </p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleBatchIllustrateMenu}
+                  disabled={isGeneratingBatch}
+                  className="px-3.5 py-1.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-60"
+                  title="Links closest canonical gallery artwork first (0 credits), then generates up to 5 custom visuals"
+                >
+                  {isGeneratingBatch ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-terracotta" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-terracotta" />
+                  )}
+                  {isGeneratingBatch ? 'Matching & Generating...' : 'Auto-Match & Generate (Up to 5)'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenCanonicalGallery()}
+                  className="px-3.5 py-1.5 rounded-xl bg-sage-50 hover:bg-sage-100 text-sage-800 border border-sage-200 font-semibold text-xs flex items-center gap-1.5 transition-colors"
+                >
+                  <ImageIcon className="w-3.5 h-3.5 text-sage-700" />
+                  Browse Canonical Gallery
+                </button>
                 <span className="px-3 py-1.5 rounded-xl bg-terracotta-50 text-terracotta-700 font-bold text-xs border border-terracotta-200">
                   {billingUsage?.remainingImageCredits ?? 15} Generation Credits Remaining
                 </span>
               </div>
             </div>
+
+            {batchStatusMsg && (
+              <div className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in">
+                <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
+                <span>{batchStatusMsg}</span>
+              </div>
+            )}
 
             {/* Gallery of Dishes & Visuals - Uniform Square Aspect Ratio */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -2108,6 +2319,15 @@ function RestaurantDashboardContent() {
 
                       <div className="flex items-center gap-2 pt-2 border-t border-cream-100">
                         <button
+                          type="button"
+                          onClick={() => handleOpenCanonicalGallery(item)}
+                          className="py-2 px-3 rounded-xl bg-cream-100 hover:bg-cream-200 text-espresso-800 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 border border-cream-200 shrink-0"
+                          title="Choose free image from Canonical Gallery"
+                        >
+                          <ImageIcon className="w-3.5 h-3.5 text-sage-700" />
+                          Gallery
+                        </button>
+                        <button
                           onClick={() => handleGenerateIllustration(item)}
                           disabled={isGeneratingImg === item.id}
                           className="flex-1 py-2 px-3 rounded-xl bg-espresso-900 text-white text-xs font-semibold hover:bg-espresso-800 disabled:opacity-50 transition-all flex items-center justify-center gap-1.5 shadow-sm"
@@ -2125,6 +2345,148 @@ function RestaurantDashboardContent() {
                 );
               })}
             </div>
+
+            {/* Canonical Gallery Modal */}
+            <Modal
+              isOpen={isCanonicalGalleryOpen}
+              onClose={() => setIsCanonicalGalleryOpen(false)}
+              title="Canonical 3D Culinary Gallery"
+              subtitle="Browse curated 3D-clay dish artwork. Apply any illustration to a dish on your menu at zero credit cost."
+              maxWidth="4xl"
+              bodyClassName="space-y-4"
+            >
+              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between bg-cream-50 p-3 rounded-2xl border border-cream-200">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-taupe-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={canonicalGallerySearch}
+                    onChange={(e) => setCanonicalGallerySearch(e.target.value)}
+                    placeholder="Search dishes, beverages, pastries..."
+                    className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-cream-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-terracotta"
+                  />
+                </div>
+                {menuItems.length > 0 && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[11px] font-semibold text-taupe-600 whitespace-nowrap">Apply to:</span>
+                    <select
+                      value={galleryTargetDishId}
+                      onChange={(e) => setGalleryTargetDishId(e.target.value)}
+                      className="px-3 py-2 text-xs font-semibold bg-white border border-cream-300 rounded-xl text-espresso-900 focus:outline-none focus:ring-1 focus:ring-terracotta max-w-[200px]"
+                    >
+                      {menuItems.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.customName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {canonicalGalleryItems.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {['ALL', ...sortCanonicalCategories(Array.from(new Set(canonicalGalleryItems.map((i) => i.category).filter(Boolean))))].map((cat) => {
+                    const count =
+                      cat === 'ALL'
+                        ? canonicalGalleryItems.length
+                        : canonicalGalleryItems.filter((i) => i.category === cat).length;
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setCanonicalGalleryCategory(cat)}
+                        className={`px-3 py-1 rounded-full text-[11px] font-semibold transition-all ${
+                          canonicalGalleryCategory === cat
+                            ? 'bg-espresso-900 text-white'
+                            : 'bg-cream-100 text-taupe-700 hover:bg-cream-200'
+                        }`}
+                      >
+                        {cat === 'ALL' ? `All (${count})` : `${cat} (${count})`}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {canonicalGalleryLoading ? (
+                <div className="py-12 flex flex-col items-center justify-center text-taupe-500 text-xs gap-2">
+                  <RefreshCw className="w-6 h-6 animate-spin text-terracotta" />
+                  <span>Loading Canonical Gallery...</span>
+                </div>
+              ) : (() => {
+                const filteredGalleryItems = canonicalGalleryItems.filter((entry) => {
+                  if (canonicalGalleryCategory !== 'ALL' && entry.category !== canonicalGalleryCategory) {
+                    return false;
+                  }
+                  const q = canonicalGallerySearch.toLowerCase().trim();
+                  if (!q) return true;
+                  return (
+                    entry.dishName?.toLowerCase().includes(q) ||
+                    entry.normalizedName?.toLowerCase().includes(q) ||
+                    entry.description?.toLowerCase().includes(q) ||
+                    entry.cuisine?.toLowerCase().includes(q) ||
+                    (Array.isArray(entry.aliases) &&
+                      entry.aliases.some((a: string) => a.toLowerCase().includes(q)))
+                  );
+                });
+
+                if (filteredGalleryItems.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-taupe-500 text-xs">
+                      No canonical dishes match your current filter or search query.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5">
+                    {filteredGalleryItems.map((entry) => (
+                      <div
+                        key={entry.canonicalId}
+                        className="rounded-2xl border border-cream-200 bg-white overflow-hidden flex flex-col justify-between shadow-xs hover:border-terracotta/50 transition-all"
+                      >
+                        <div>
+                          <div className="relative aspect-square bg-cream-100 overflow-hidden">
+                            <img
+                              src={entry.asset?.publicUrl || '/placeholder-dish.svg'}
+                              alt={entry.dishName}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                            />
+                            {entry.category && (
+                              <span className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-black/65 text-white backdrop-blur-xs max-w-[90%] truncate">
+                                {entry.category}
+                              </span>
+                            )}
+                          </div>
+                          <div className="p-2.5 space-y-1">
+                            <h5 className="font-semibold text-xs text-espresso-900 line-clamp-1">
+                              {entry.dishName}
+                            </h5>
+                            <p className="text-[10px] text-taupe-500 line-clamp-2 leading-snug">
+                              {entry.description}
+                            </p>
+                          </div>
+                        </div>
+                        {galleryTargetDishId && (
+                          <div className="px-2.5 pb-2.5">
+                            <button
+                              type="button"
+                              onClick={() => handleApplyCanonicalFromGallery(entry)}
+                              disabled={isApplyingGalleryAsset === entry.canonicalId}
+                              className="w-full py-1.5 px-2.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-[11px] font-semibold transition-colors disabled:opacity-50"
+                            >
+                              {isApplyingGalleryAsset === entry.canonicalId ? 'Applying...' : 'Use This Image'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </Modal>
           </div>
         )}
 
