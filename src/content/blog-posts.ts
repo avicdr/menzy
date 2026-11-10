@@ -109,7 +109,7 @@ export const BLOG_POSTS: BlogArticle[] = [
         ],
         bullets: [
           'Starter plans covering up to 50 dishes, 15 custom 3D image credits/mo, and 1,000 AI diner queries/mo.',
-          'Growth and Pro tiers scaling up to Unlimited dishes, 200 image credits/mo, and 20,000 AI queries/mo.',
+          'Growth and Pro tiers scaling up to Unlimited dishes, 100 custom 3D image credits/mo, and 6,000 AI queries/mo.',
           'Transparent monthly billing in INR via Razorpay without surprise foreign-exchange markups.',
         ],
       },

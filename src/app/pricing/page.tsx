@@ -110,13 +110,13 @@ export default async function PricingPage() {
             <div className="p-5 bg-white rounded-2xl border border-cream-200 shadow-xs space-y-2">
               <h3 className="font-serif text-lg font-bold text-espresso-900">Growth</h3>
               <p className="text-taupe-600 leading-relaxed">
-                Tailored for busy full-service restaurants up to 150 dishes, custom brand palette controls, AI pairing upsells, and advanced funnel insights.
+                Tailored for busy full-service restaurants up to 100 dishes, custom brand palette controls, AI pairing upsells, and advanced funnel insights.
               </p>
             </div>
             <div className="p-5 bg-white rounded-2xl border border-cream-200 shadow-xs space-y-2">
               <h3 className="font-serif text-lg font-bold text-espresso-900">Pro</h3>
               <p className="text-taupe-600 leading-relaxed">
-                Built for large menus, food courts, and hospitality groups requiring unlimited dishes, multiple menus, and 20,000 monthly AI queries.
+                Built for large menus, food courts, and hospitality groups requiring unlimited dishes, multiple menus, and 6,000 monthly AI queries.
               </p>
             </div>
           </div>
@@ -135,7 +135,7 @@ export default async function PricingPage() {
               >
                 <summary className="cursor-pointer font-semibold text-sm sm:text-base text-espresso-900 list-none flex items-center justify-between gap-3">
                   <span>{faq.question}</span>
-                  <span className="text-terracotta text-lg font-normal shrink-0 group-open:rotate-45 transition-transform">
+                  <span className="text-terracotta-700 text-lg font-normal shrink-0 group-open:rotate-45 transition-transform">
                     +
                   </span>
                 </summary>

@@ -61,11 +61,6 @@ function LoginForm() {
     }
   };
 
-  const handleDemoFill = (demoEmail: string) => {
-    setEmail(demoEmail);
-    setPassword('dishora2026!');
-  };
-
   const signupHref = claimToken ? `/signup?claimToken=${encodeURIComponent(claimToken)}` : '/signup';
 
   return (
@@ -153,30 +148,9 @@ function LoginForm() {
         </button>
       </form>
 
-      {/* Demo Quick-Fill Hints */}
-      <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 text-xs space-y-2">
-        <div className="font-semibold text-taupe-600">Explore Seeded Demo Venues:</div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => handleDemoFill('aarav@chaiandchutney.in')}
-            className="flex-1 py-1.5 px-2 rounded-lg bg-white border border-cream-200 hover:bg-cream-100 text-[11px] font-medium text-espresso-800 text-center"
-          >
-            🇮🇳 Chai & Chutney (INR)
-          </button>
-          <button
-            type="button"
-            onClick={() => handleDemoFill('elena@gildedbistro.com')}
-            className="flex-1 py-1.5 px-2 rounded-lg bg-white border border-cream-200 hover:bg-cream-100 text-[11px] font-medium text-espresso-800 text-center"
-          >
-            🇺🇸 Gilded Fork (USD)
-          </button>
-        </div>
-      </div>
-
       <div className="text-center text-xs text-taupe-500">
-        Don't have a menu yet?{' '}
-        <Link href={signupHref} className="font-semibold text-terracotta hover:underline">
+        Don&apos;t have a menu yet?{' '}
+        <Link href={signupHref} className="font-semibold text-terracotta-700 hover:underline">
           Create your menu
         </Link>
       </div>

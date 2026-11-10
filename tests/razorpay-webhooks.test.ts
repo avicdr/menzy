@@ -36,13 +36,25 @@ describe('Razorpay Webhook Signature Verification & Idempotency', () => {
     expect(result).toBe(false);
   });
 
-  it('exposes configured Menzy India pricing tiers (999, 1799, 2699)', () => {
+  it('exposes configured Menzy India pricing tiers (999, 1799, 2699) and updated IN/US allowances', () => {
     expect(PLAN_CATALOG.IN_STARTER.priceMinor).toBe(99900);
     expect(PLAN_CATALOG.IN_STARTER.monthlyPriceFormatted).toBe('₹999/mo');
     expect(PLAN_CATALOG.IN_GROWTH.priceMinor).toBe(179900);
     expect(PLAN_CATALOG.IN_GROWTH.monthlyPriceFormatted).toBe('₹1,799/mo');
     expect(PLAN_CATALOG.IN_PRO.priceMinor).toBe(269900);
     expect(PLAN_CATALOG.IN_PRO.monthlyPriceFormatted).toBe('₹2,699/mo');
+
+    for (const prefix of ['IN', 'US'] as const) {
+      const growth = PLAN_CATALOG[`${prefix}_GROWTH`];
+      expect(growth.itemLimit).toBe(100);
+      expect(growth.imageCreditsMonthly).toBe(40);
+      expect(growth.aiQuestionsMonthly).toBe(3000);
+
+      const pro = PLAN_CATALOG[`${prefix}_PRO`];
+      expect(pro.itemLimit).toBeGreaterThan(1000);
+      expect(pro.imageCreditsMonthly).toBe(100);
+      expect(pro.aiQuestionsMonthly).toBe(6000);
+    }
   });
 
   it('reuses an existing matching Razorpay plan from catalog without env vars', async () => {
