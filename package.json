@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "check:seo": "tsx scripts/check-seo.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "prisma generate",

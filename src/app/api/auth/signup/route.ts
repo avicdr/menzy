@@ -4,6 +4,7 @@ import prisma from '@/lib/db/prisma';
 import { hashPassword, createOwnerToken, setOwnerSessionCookie } from '@/lib/auth/owner-auth';
 import { getCache } from '@/lib/cache/redis';
 import { ClaimRedeemError, redeemClaimWithinTransaction } from '@/lib/claims/claim-service';
+import { resolveVisitorRegion } from '@/lib/geo/region-server';
 import { ThemePreset, LayoutMode } from '@prisma/client';
 
 export async function POST(req: Request) {
@@ -58,13 +59,13 @@ export async function POST(req: Request) {
     }
 
     const passwordHash = hashPassword(password);
-    const selectedCountry = country === 'US' ? 'US' : 'IN';
-    const selectedCurrency =
-      currency === 'USD' || currency === 'INR'
-        ? currency
-        : selectedCountry === 'US'
-        ? 'USD'
-        : 'INR';
+    const geo = await resolveVisitorRegion(req.headers);
+    const selectedCountry: 'IN' | 'US' = geo.authoritative
+      ? geo.region
+      : country === 'US'
+      ? 'US'
+      : 'IN';
+    const selectedCurrency: 'INR' | 'USD' = selectedCountry === 'US' ? 'USD' : 'INR';
 
     const result = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({

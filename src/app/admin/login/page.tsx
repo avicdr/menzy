@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Lock, ShieldCheck, AlertCircle, ArrowLeft, KeyRound } from 'lucide-react';
+import { ShieldCheck, AlertCircle, ArrowLeft, KeyRound } from 'lucide-react';
+import { MenzyLogo } from '@/components/brand/MenzyLogo';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -58,8 +59,8 @@ export default function AdminLoginPage() {
 
         {/* Brand & Heading */}
         <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-terracotta text-white flex items-center justify-center mx-auto shadow-md">
-            <Lock className="w-6 h-6" />
+          <div className="flex items-center justify-center mb-1">
+            <MenzyLogo size={44} className="ring-1 ring-white/15" />
           </div>
           <h1 className="font-serif text-2xl sm:text-3xl font-bold tracking-tight text-cream-50">
             Menzy Founder Portal

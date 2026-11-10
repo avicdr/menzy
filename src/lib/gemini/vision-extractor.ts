@@ -1,5 +1,14 @@
 import { z } from 'zod';
-import { getGenAIClient, getTextModelName } from './client';
+import {
+  getGenAIClient,
+  getTextModelName,
+  markGeminiKeyCooldown,
+  resolveGeminiAttemptClients,
+} from './client';
+import {
+  callOpenAIVisionMenuExtraction,
+  hasOpenAIFallback,
+} from '../ai/openai-fallback';
 import prisma from '../db/prisma';
 
 export const ExtractedVariantSchema = z.object({
@@ -230,12 +239,13 @@ export async function extractMenuFromImages(params: {
   currencyDefault?: 'INR' | 'USD';
 }): Promise<ExtractedMenuResult> {
   const startTime = Date.now();
-  const client = getGenAIClient();
+  const geminiClients = resolveGeminiAttemptClients(getGenAIClient());
+  const openAiEnabled = hasOpenAIFallback();
   const modelName = getTextModelName();
   const currency = params.currencyDefault || 'INR';
 
-  if (!client) {
-    const errorMsg = 'Gemini AI Vision client is not configured or GEMINI_API_KEY is missing. Extraction cannot proceed without valid AI credentials.';
+  if (geminiClients.length === 0 && !openAiEnabled) {
+    const errorMsg = 'No AI Vision provider is configured (GEMINI_API_KEY / GEMINI_API_KEYS or OPENAI_API_KEY missing). Extraction cannot proceed without valid AI credentials.';
     console.error(`[VisionExtractor] ${errorMsg}`);
     await prisma.aIUsageEvent.create({
       data: {
@@ -256,48 +266,10 @@ export async function extractMenuFromImages(params: {
     throw new Error('No readable menu image files were provided. Please upload valid image files (JPG, PNG, WebP) or PDF.');
   }
 
-  try {
-    const parts: any[] = params.images.map((img) => ({
-      inlineData: {
-        data: img.buffer.toString('base64'),
-        mimeType: img.mimeType,
-      },
-    }));
+  const extractionUserPrompt = `Extract all menu categories, dishes, prices (in minor units cents/paise), dietary indicators and visual descriptions according to the JSON schema. Use currency: ${currency}. Return ONLY a JSON object.`;
+  const timeoutMs = Number(process.env.GEMINI_EXTRACTION_TIMEOUT_MS) || 45000;
 
-    parts.push({
-      text: `Extract all menu categories, dishes, prices (in minor units cents/paise), dietary indicators and visual descriptions according to the JSON schema. Use currency: ${currency}. Return ONLY a JSON object.`,
-    });
-
-    const controller = new AbortController();
-    const timeoutMs = Number(process.env.GEMINI_EXTRACTION_TIMEOUT_MS) || 45000;
-    const timeoutHandle = setTimeout(() => {
-      controller.abort(new Error('GEMINI_EXTRACTION_TIMEOUT'));
-    }, timeoutMs);
-
-    let response: any;
-    try {
-      response = await Promise.race([
-        client.models.generateContent({
-          model: modelName,
-          contents: [
-            { role: 'user', parts },
-          ],
-          config: {
-            systemInstruction: EXTRACTION_SYSTEM_PROMPT,
-            responseMimeType: 'application/json',
-            abortSignal: controller.signal,
-            httpOptions: { timeout: timeoutMs },
-          },
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Menu extraction timed out. Please try again with a clearer or smaller menu photo.')), timeoutMs + 250)
-        ),
-      ]);
-    } finally {
-      clearTimeout(timeoutHandle);
-    }
-
-    const responseText = response.text || '';
+  const parseAndValidateResponse = (responseText: string): ExtractedMenuResult => {
     if (!responseText.trim()) {
       throw new Error('Empty response received from vision model.');
     }
@@ -322,30 +294,127 @@ export async function extractMenuFromImages(params: {
       throw new Error('No dishes or menu entries could be detected in the uploaded image. Please ensure the menu photo is clear, focused, and well-lit.');
     }
 
-    // Record AI usage event
-    const latencyMs = Date.now() - startTime;
-    await prisma.aIUsageEvent.create({
-      data: {
-        restaurantId: params.restaurantId || null,
-        operationType: 'MENU_EXTRACTION',
-        modelId: modelName,
-        inputTokens: 1200,
-        outputTokens: 800,
-        estimatedCostUsd: 0.00066,
-        status: 'SUCCESS',
-        latencyMs,
-      },
-    }).catch(() => {});
-
     return validated;
+  };
+
+  let lastError: unknown;
+  let usedModel = modelName;
+
+  try {
+    const parts: any[] = params.images.map((img) => ({
+      inlineData: {
+        data: img.buffer.toString('base64'),
+        mimeType: img.mimeType,
+      },
+    }));
+
+    parts.push({
+      text: extractionUserPrompt,
+    });
+
+    for (let idx = 0; idx < geminiClients.length; idx++) {
+      const entry = geminiClients[idx];
+      const controller = new AbortController();
+      const timeoutHandle = setTimeout(() => {
+        controller.abort(new Error('GEMINI_EXTRACTION_TIMEOUT'));
+      }, timeoutMs);
+
+      try {
+        const response: any = await Promise.race([
+          entry.client.models.generateContent({
+            model: modelName,
+            contents: [
+              { role: 'user', parts },
+            ],
+            config: {
+              systemInstruction: EXTRACTION_SYSTEM_PROMPT,
+              responseMimeType: 'application/json',
+              abortSignal: controller.signal,
+              httpOptions: { timeout: timeoutMs },
+            },
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Menu extraction timed out. Please try again with a clearer or smaller menu photo.')), timeoutMs + 250)
+          ),
+        ]);
+
+        const validated = parseAndValidateResponse(response?.text || '');
+
+        const latencyMs = Date.now() - startTime;
+        await prisma.aIUsageEvent.create({
+          data: {
+            restaurantId: params.restaurantId || null,
+            operationType: 'MENU_EXTRACTION',
+            modelId: modelName,
+            inputTokens: 1200,
+            outputTokens: 800,
+            estimatedCostUsd: 0.00066,
+            status: 'SUCCESS',
+            latencyMs,
+          },
+        }).catch(() => {});
+
+        return validated;
+      } catch (geminiErr) {
+        lastError = geminiErr;
+        if (entry.key !== 'mock-injected-client') {
+          markGeminiKeyCooldown(entry.key, geminiErr);
+        }
+        console.warn(
+          `[VisionExtractor] Gemini key ${entry.maskedKey} (${idx + 1}/${geminiClients.length}) failed:`,
+          geminiErr instanceof Error ? geminiErr.message : geminiErr
+        );
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
+    }
+
+    if (openAiEnabled) {
+      try {
+        const openAiRes = await callOpenAIVisionMenuExtraction({
+          systemPrompt: EXTRACTION_SYSTEM_PROMPT,
+          userPrompt: extractionUserPrompt,
+          files: params.images,
+          timeoutMs,
+        });
+        usedModel = openAiRes.model;
+        const validated = parseAndValidateResponse(openAiRes.text);
+
+        const latencyMs = Date.now() - startTime;
+        await prisma.aIUsageEvent.create({
+          data: {
+            restaurantId: params.restaurantId || null,
+            operationType: 'MENU_EXTRACTION',
+            modelId: openAiRes.model,
+            inputTokens: openAiRes.inputTokens,
+            outputTokens: openAiRes.outputTokens,
+            estimatedCostUsd: 0.001,
+            status: 'SUCCESS',
+            latencyMs,
+          },
+        }).catch(() => {});
+
+        return validated;
+      } catch (openAiErr) {
+        lastError = openAiErr;
+        console.warn(
+          '[VisionExtractor] OpenAI fallback extraction failed:',
+          openAiErr instanceof Error ? openAiErr.message : openAiErr
+        );
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('Menu extraction failed. Please ensure the menu photo is clear and try again later.');
   } catch (err: any) {
-    console.error('Gemini menu extraction error:', err);
+    console.error('Menu extraction error:', err);
     const latencyMs = Date.now() - startTime;
     await prisma.aIUsageEvent.create({
       data: {
         restaurantId: params.restaurantId || null,
         operationType: 'MENU_EXTRACTION',
-        modelId: modelName,
+        modelId: usedModel,
         inputTokens: 0,
         outputTokens: 0,
         estimatedCostUsd: 0,

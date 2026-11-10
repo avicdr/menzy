@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ChefHat, Lock, AlertCircle, ArrowLeft, KeyRound, Sparkles, UserCheck } from 'lucide-react';
 import { generateStaffTypographyVars } from '@/lib/theme/theme-presets';
+import { MenzyLogo } from '@/components/brand/MenzyLogo';
 
 export default function StaffLoginPage() {
   return (
@@ -97,9 +98,11 @@ function StaffLoginContent() {
         <div className="flex items-center justify-between">
           <Link
             href="/"
-            className="inline-flex items-center gap-1.5 text-xs text-taupe-400 hover:text-cream-100 transition-colors font-medium"
+            className="inline-flex items-center gap-2 text-xs text-taupe-400 hover:text-cream-100 transition-colors font-medium"
           >
-            <ArrowLeft className="w-3.5 h-3.5" /> Back to Menzy
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <MenzyLogo size={20} className="ring-1 ring-white/15" />
+            <span>Back to Menzy</span>
           </Link>
           <span className="text-[11px] font-mono tracking-wider uppercase text-amber-300 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/25">
             Staff & Kitchen KDS

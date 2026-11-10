@@ -39,6 +39,8 @@ export async function GET() {
         id: m.organization.id,
         name: m.organization.name,
         role: m.role,
+        billingCountry: m.organization.billingCountry,
+        billingCurrency: m.organization.billingCurrency,
         restaurants: m.organization.restaurants,
         subscription: m.organization.subscriptions[0] || null,
       })),

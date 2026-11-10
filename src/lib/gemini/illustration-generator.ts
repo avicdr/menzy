@@ -1,5 +1,11 @@
 import crypto from 'crypto';
-import { getGenAIClient, getImageModelName } from './client';
+import {
+  getGenAIClient,
+  getImageModelName,
+  markGeminiKeyCooldown,
+  resolveGeminiAttemptClients,
+} from './client';
+import { generateOpenAIDishImage, hasOpenAIFallback } from '../ai/openai-fallback';
 import { uploadAsset } from '../storage/adapter';
 import prisma from '../db/prisma';
 import { AssetType, ModerationStatus } from '@prisma/client';
@@ -84,15 +90,18 @@ export async function generateOrReuseDishIllustration(params: {
     },
   });
 
-  const client = getGenAIClient();
+  const geminiClients = resolveGeminiAttemptClients(getGenAIClient());
   let imageBuffer: Buffer | null = null;
   let mimeType = 'image/jpeg';
   let ext = 'jpg';
+  let usedModel = modelName;
+  let usedSource = 'GEMINI_GEN';
 
-  // Tier 1: Try official Google GenAI if available
-  if (client) {
+  // Tier 1: Try official Google GenAI across configured Gemini API keys
+  for (let idx = 0; idx < geminiClients.length; idx++) {
+    const entry = geminiClients[idx];
     try {
-      const response = await (client.models as any).generateImages({
+      const response = await (entry.client.models as any).generateImages({
         model: modelName,
         prompt,
         config: {
@@ -107,9 +116,32 @@ export async function generateOrReuseDishIllustration(params: {
         imageBuffer = Buffer.from(generatedImage.image.imageBytes, 'base64');
         mimeType = 'image/jpeg';
         ext = 'jpg';
+        usedModel = modelName;
+        usedSource = 'GEMINI_GEN';
+        break;
       }
     } catch (err: any) {
-      console.warn('GenAI generateImages unavailable or exceeded quota, trying AI generation fallback...', err?.message || err);
+      if (entry.key !== 'mock-injected-client') {
+        markGeminiKeyCooldown(entry.key, err);
+      }
+      console.warn(
+        `GenAI generateImages failed on key ${entry.maskedKey} (${idx + 1}/${geminiClients.length}):`,
+        err?.message || err
+      );
+    }
+  }
+
+  // Tier 1b: OpenAI Image Generation fallback if Gemini keys failed or aren't configured
+  if (!imageBuffer && hasOpenAIFallback()) {
+    try {
+      const openAiImg = await generateOpenAIDishImage({ prompt, timeoutMs: 25000 });
+      imageBuffer = openAiImg.buffer;
+      mimeType = openAiImg.mimeType;
+      ext = openAiImg.ext;
+      usedModel = openAiImg.model;
+      usedSource = 'OPENAI_GEN';
+    } catch (openAiErr: any) {
+      console.warn('OpenAI image generation fallback failed:', openAiErr?.message || openAiErr);
     }
   }
 
@@ -155,9 +187,9 @@ export async function generateOrReuseDishIllustration(params: {
       storageKey: uploadResult.storageKey,
       publicUrl: uploadResult.publicUrl,
       mime: mimeType,
-      source: 'GEMINI_GEN',
+      source: usedSource,
       prompt,
-      generationModel: modelName,
+      generationModel: usedModel,
       moderationStatus: ModerationStatus.APPROVED,
       ownerOrganizationId: params.organizationId,
       canonicalId: params.canonicalId ?? null,
@@ -204,7 +236,7 @@ export async function generateOrReuseDishIllustration(params: {
       organizationId: params.organizationId,
       restaurantId: params.restaurantId,
       operationType: 'IMAGE_GENERATION',
-      modelId: modelName,
+      modelId: usedModel,
       requestId: job.id,
       imageCount: 1,
       estimatedCostUsd: 0.03, // $0.03 per image

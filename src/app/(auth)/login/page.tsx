@@ -4,6 +4,7 @@ import React, { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, AlertCircle, Sparkles, Eye, EyeOff } from 'lucide-react';
+import { MenzyLogo } from '@/components/brand/MenzyLogo';
 
 function LoginForm() {
   const router = useRouter();
@@ -70,11 +71,8 @@ function LoginForm() {
   return (
     <div className="w-full max-w-md bg-white rounded-3xl border border-cream-300 shadow-lifted p-8 space-y-6">
       <div className="text-center space-y-2">
-        <Link href="/" className="inline-flex items-center gap-2 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-espresso-900 text-cream-100 flex items-center justify-center font-serif text-xl font-bold">
-            M
-          </div>
-          <span className="font-serif text-2xl font-bold text-espresso-900">Menzy</span>
+        <Link href="/" className="inline-flex items-center mb-2">
+          <MenzyLogo size={40} showWordmark wordmarkClassName="font-serif text-2xl font-bold text-espresso-900" />
         </Link>
         <h1 className="font-serif text-2xl font-bold text-espresso-900">Welcome back</h1>
         <p className="text-xs text-taupe-500">Sign in to your restaurant owner dashboard</p>
@@ -188,10 +186,10 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen bg-[#F7F3EC] flex items-center justify-center p-4">
+    <main className="min-h-screen bg-[#F7F3EC] flex items-center justify-center p-4">
       <Suspense fallback={<div className="w-8 h-8 border-4 border-terracotta border-t-transparent rounded-full animate-spin" />}>
         <LoginForm />
       </Suspense>
-    </div>
+    </main>
   );
 }

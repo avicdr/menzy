@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { MenzyLogo } from '@/components/brand/MenzyLogo';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -70,9 +71,7 @@ export function DashboardNav({
         {/* Brand Logo & Tagline */}
         <div className="p-5 sm:p-6 border-b border-cream-200 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-espresso-900 text-cream-100 flex items-center justify-center font-serif text-xl font-bold shadow-sm shrink-0">
-              M
-            </div>
+            <MenzyLogo size={36} />
             <div>
               <span className="font-serif text-xl font-bold tracking-tight text-espresso-900">
                 Menzy
@@ -187,9 +186,7 @@ export function DashboardNav({
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-espresso-900 text-cream-100 flex items-center justify-center font-serif text-sm font-bold shadow-sm">
-              M
-            </div>
+            <MenzyLogo size={28} className="rounded-lg" />
             <div className="min-w-0">
               <span className="font-serif text-sm font-bold text-espresso-900 truncate block max-w-[150px] sm:max-w-xs">
                 {currentRestaurant.displayName}

@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
-  Utensils,
   ShieldCheck,
   ArrowRight,
   AlertCircle,
@@ -16,6 +15,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
+import { MenzyLogo } from '@/components/brand/MenzyLogo';
 
 interface ClaimPreviewResponse {
   valid: boolean;
@@ -331,9 +331,9 @@ export default function ClaimPage() {
     <div className="min-h-screen bg-[#F7F3EC] text-espresso-900 flex items-center justify-center p-4 py-10">
       <div className="w-full max-w-xl bg-white rounded-3xl border border-cream-300 shadow-lifted p-6 sm:p-8 space-y-6">
         <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-terracotta text-white flex items-center justify-center mx-auto shadow-md">
-            <Utensils className="w-6 h-6" />
-          </div>
+          <Link href="/" className="inline-flex items-center justify-center mb-1">
+            <MenzyLogo size={36} showWordmark wordmarkClassName="font-serif text-xl font-bold text-espresso-900" />
+          </Link>
           <h1 className="font-serif text-2xl sm:text-3xl font-bold tracking-tight">
             Claim Your Restaurant Menu
           </h1>

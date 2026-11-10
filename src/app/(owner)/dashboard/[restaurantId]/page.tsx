@@ -37,7 +37,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import { Portal } from '@/components/ui/Portal';
-import { formatCurrencyMinor, PLAN_CATALOG, PlanKey } from '@/lib/payments/plans';
+import { formatCurrencyMinor, type PlanDefinition } from '@/lib/payments/plans';
 import {
   THEME_PRESETS,
   ThemeConfig,
@@ -52,6 +52,7 @@ import { TablesManagementView } from '@/components/dashboard/TablesManagementVie
 import { OrdersManagementView } from '@/components/dashboard/OrdersManagementView';
 import { StaffManagementView } from '@/components/dashboard/StaffManagementView';
 import { GooglePlacesModal } from '@/components/dashboard/GooglePlacesModal';
+import { trackConversionEvent } from '@/lib/analytics/events';
 
 export default function RestaurantDashboardPage() {
   return (
@@ -116,9 +117,6 @@ function RestaurantDashboardContent() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeletingDish, setIsDeletingDish] = useState(false);
   const [deleteToast, setDeleteToast] = useState<string | null>(null);
-
-  // Billing Region View
-  const [billingCountryFilter, setBillingCountryFilter] = useState<'IN' | 'US' | null>(null);
 
   // Candidate Image Review (Accept / Reject Workflow)
   const [candidateReview, setCandidateReview] = useState<{
@@ -3731,7 +3729,7 @@ function RestaurantDashboardContent() {
                   {billingUsage?.plan?.name || 'Growth Plan'}
                 </h3>
                 <p className="text-xs text-cream-300 mt-1">
-                  Status: {billingUsage?.subscription?.status || 'ACTIVE'} • Country: {restaurant.country}
+                  Status: {billingUsage?.subscription?.status || 'ACTIVE'} • Region: {billingUsage?.billingCountry || restaurant.country}
                 </p>
               </div>
 
@@ -3750,53 +3748,26 @@ function RestaurantDashboardContent() {
             {/* Available Plans Catalog */}
             {(() => {
               const activeBillingCountry: 'IN' | 'US' =
-                billingCountryFilter ||
-                (restaurant?.country === 'US' || restaurant?.currency === 'USD' ? 'US' : 'IN');
+                billingUsage?.billingCountry === 'US' ? 'US' : 'IN';
+              const availablePlans: PlanDefinition[] = Array.isArray(billingUsage?.availablePlans)
+                ? billingUsage.availablePlans
+                : [];
 
               return (
                 <div className="space-y-4 pt-4">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-white rounded-2xl border border-cream-200">
-                    <div>
-                      <h3 className="font-serif text-lg font-bold text-espresso-900">
-                        Available Subscription Tiers
-                      </h3>
-                      <p className="text-xs text-taupe-500">
-                        {activeBillingCountry === 'US'
-                          ? 'United States Dollar (USD $) billing plans'
-                          : 'India Rupee (INR ₹) billing plans'}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 p-1 bg-cream-100 rounded-xl border border-cream-200">
-                      <button
-                        type="button"
-                        onClick={() => setBillingCountryFilter('US')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                          activeBillingCountry === 'US'
-                            ? 'bg-espresso-900 text-white shadow-xs'
-                            : 'text-taupe-700 hover:text-espresso-900'
-                        }`}
-                      >
-                        🇺🇸 US ($ USD Plans)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setBillingCountryFilter('IN')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                          activeBillingCountry === 'IN'
-                            ? 'bg-espresso-900 text-white shadow-xs'
-                            : 'text-taupe-700 hover:text-espresso-900'
-                        }`}
-                      >
-                        🇮🇳 India (₹ INR Plans)
-                      </button>
-                    </div>
+                  <div className="p-4 bg-white rounded-2xl border border-cream-200">
+                    <h3 className="font-serif text-lg font-bold text-espresso-900">
+                      Available Subscription Tiers
+                    </h3>
+                    <p className="text-xs text-taupe-500">
+                      {activeBillingCountry === 'US'
+                        ? 'United States Dollar (USD $) billing plans'
+                        : 'India Rupee (INR ₹) billing plans'}
+                    </p>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {Object.values(PLAN_CATALOG)
-                      .filter((p) => p.country === activeBillingCountry)
-                      .map((plan) => {
+                    {availablePlans.map((plan) => {
                         const isCurrent = billingUsage?.plan?.key === plan.key;
                         return (
                           <div
@@ -3825,6 +3796,7 @@ function RestaurantDashboardContent() {
                             </div>
 
                             <button
+                              disabled={isCurrent}
                               onClick={async () => {
                                 const res = await fetch('/api/billing/create-subscription', {
                                   method: 'POST',
@@ -3835,6 +3807,14 @@ function RestaurantDashboardContent() {
                                   }),
                                 });
                                 const data = await res.json();
+                                if (!res.ok) {
+                                  alert(data.error || 'Could not start subscription checkout');
+                                  return;
+                                }
+                                trackConversionEvent('subscription_started', {
+                                  planKey: plan.key,
+                                  currency: plan.currency,
+                                });
                                 alert(`Razorpay checkout initialized for ${plan.name} (Sub ID: ${data.subscriptionId})`);
                               }}
                               className={`w-full py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import { createSubscriptionSession } from '@/lib/payments/razorpay';
-import { PlanKey } from '@/lib/payments/plans';
+import { PLAN_CATALOG, PlanKey } from '@/lib/payments/plans';
 
 export async function POST(req: Request) {
   try {
@@ -11,14 +11,33 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'restaurantId and planKey are required' }, { status: 400 });
     }
 
+    const plan = PLAN_CATALOG[planKey as PlanKey];
+    if (!plan) {
+      return NextResponse.json({ error: 'Invalid subscription plan key.' }, { status: 400 });
+    }
+
     const auth = await requireRestaurantAccess(restaurantId);
     if (!auth.authorized || !auth.restaurant?.organizationId) {
       return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
     }
 
+    const accountCountry = (
+      auth.restaurant.organization?.billingCountry ||
+      auth.restaurant.country ||
+      'IN'
+    ).toUpperCase();
+    const allowedRegion: 'IN' | 'US' = accountCountry === 'US' ? 'US' : 'IN';
+
+    if (plan.country !== allowedRegion) {
+      return NextResponse.json(
+        { error: 'Selected plan is not available in your billing region.' },
+        { status: 403 }
+      );
+    }
+
     const session = await createSubscriptionSession({
       organizationId: auth.restaurant.organizationId,
-      planKey: planKey as PlanKey,
+      planKey: plan.key,
       customerEmail: auth.user?.email || 'customer@example.com',
       customerName: auth.user?.name || undefined,
     });
@@ -29,4 +48,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
-

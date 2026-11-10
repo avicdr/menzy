@@ -34,6 +34,7 @@ import {
   KeyRound,
 } from 'lucide-react';
 import { Portal } from '@/components/ui/Portal';
+import { MenzyLogo } from '@/components/brand/MenzyLogo';
 
 interface DemoDishDraft {
   localId: string;
@@ -576,9 +577,7 @@ export default function SuperAdminPortalPage() {
       {/* Top Founder Executive Bar */}
       <header className="px-4 sm:px-8 py-3.5 border-b border-espresso-800/80 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-terracotta to-terracotta-600 text-white flex items-center justify-center font-bold text-base shadow-md ring-1 ring-white/10 shrink-0">
-            M
-          </div>
+          <MenzyLogo size={36} className="ring-1 ring-white/10" />
           <div>
             <div className="flex items-center gap-2">
               <h1 className="font-serif text-lg font-bold text-cream-50 leading-tight">Menzy Founder Portal</h1>

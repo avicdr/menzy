@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
-import { getGenAIClient, getTextModelName } from '@/lib/gemini/client';
+import {
+  getGenAIClient,
+  getTextModelName,
+  markGeminiKeyCooldown,
+  resolveGeminiAttemptClients,
+} from '@/lib/gemini/client';
 
 export async function GET(
   req: Request,
@@ -28,27 +33,22 @@ export async function GET(
       source: string;
     }> = [];
 
-    // 1. Try Gemini Google Search Grounding to find Google Business listings
-    try {
-      const genai = getGenAIClient();
-      if (genai) {
-        const modelName = getTextModelName();
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 6000);
-        let resp: any;
-        try {
-          resp = await genai.models.generateContent({
-            model: modelName,
-            contents: `Find the Google Business / Google Maps listing(s) for restaurant/cafe query: "${q}". Return up to 4 real matching places with their exact name, street address/city, and any Google Maps URL or place info if known.`,
-            config: {
-              tools: [{ googleSearch: {} }],
-              abortSignal: controller.signal,
-              httpOptions: { timeout: 6000 },
-            },
-          });
-        } finally {
-          clearTimeout(timer);
-        }
+    // 1. Try Gemini Google Search Grounding across configured Gemini API keys
+    const geminiClients = resolveGeminiAttemptClients(getGenAIClient());
+    const modelName = getTextModelName();
+    for (const entry of geminiClients) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      try {
+        const resp: any = await entry.client.models.generateContent({
+          model: modelName,
+          contents: `Find the Google Business / Google Maps listing(s) for restaurant/cafe query: "${q}". Return up to 4 real matching places with their exact name, street address/city, and any Google Maps URL or place info if known.`,
+          config: {
+            tools: [{ googleSearch: {} }],
+            abortSignal: controller.signal,
+            httpOptions: { timeout: 6000 },
+          },
+        });
 
         const groundingChunks = (resp as any)?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
         for (const chunk of groundingChunks) {
@@ -63,9 +63,15 @@ export async function GET(
             });
           }
         }
+        break;
+      } catch (geminiErr) {
+        if (entry.key !== 'mock-injected-client') {
+          markGeminiKeyCooldown(entry.key, geminiErr);
+        }
+        console.warn(`Gemini search grounding failed on key ${entry.maskedKey}:`, geminiErr);
+      } finally {
+        clearTimeout(timer);
       }
-    } catch (geminiErr) {
-      console.warn('Gemini search grounding unavailable, falling back to Nominatim:', geminiErr);
     }
 
     // 2. Also query OpenStreetMap Nominatim for real location candidates

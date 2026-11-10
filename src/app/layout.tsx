@@ -1,12 +1,17 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { generateSEOMetadata } from '@/lib/seo';
+import { GoogleAnalytics } from '@/components/analytics/GoogleAnalytics';
 
-export const metadata: Metadata = {
-  title: 'Menzy — See it. Ask it. Crave it.',
-  description: 'Menzy converts static restaurant menus into beautiful, interactive AI-powered visual menus with 3D-styled food illustrations and an intelligent AI waiter.',
-  icons: {
-    icon: '/favicon.ico',
-  },
+export const metadata: Metadata = generateSEOMetadata({
+  path: '/',
+  omitCanonical: true,
+});
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: '#21150F',
 };
 
 export default function RootLayout({
@@ -26,8 +31,8 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen antialiased selection:bg-terracotta-200 selection:text-espresso-900">
         {children}
+        <GoogleAnalytics />
       </body>
     </html>
   );
 }
-

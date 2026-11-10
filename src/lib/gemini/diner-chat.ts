@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { ThinkingLevel } from '@google/genai';
-import { getGenAIClient, getTextModelName } from './client';
+import {
+  getGenAIClient,
+  getTextModelName,
+  markGeminiKeyCooldown,
+  resolveGeminiAttemptClients,
+} from './client';
+import { callOpenAIChatJson, hasOpenAIFallback } from '../ai/openai-fallback';
 import prisma from '../db/prisma';
 
 export const DinerAIResponseSchema = z.object({
@@ -99,26 +105,77 @@ export async function processDinerQuery(params: {
     return nameMatch || canonMatch;
   });
 
-  const client = getGenAIClient();
+  const geminiClients = resolveGeminiAttemptClients(getGenAIClient());
+  const openAiEnabled = hasOpenAIFallback();
   const modelName = getTextModelName();
+  const deadlineAt = startTime + timeoutMs;
 
-  if (client) {
-    try {
-      const sanitizedMenu = items.map((i) => ({
-        id: i.id,
-        name: i.customName,
-        category: i.category?.name || 'General',
-        priceMinor: i.priceMinor,
-        currency: i.currency,
-        description: i.restaurantDescription,
-        dietary: i.dietaryStatus,
-        allergenVerification: i.allergenVerification,
-        nutrition: i.nutritionFields,
-        nutritionSource: i.nutritionSource,
-        chefRecommended: i.chefRecommended,
-      }));
+  const finalizeAIResponse = async (
+    rawText: string,
+    usedModel: string,
+    inputTokens = 600,
+    outputTokens = 250
+  ): Promise<DinerAIResponse> => {
+    const parsed = parseGeminiJsonResponse(rawText);
 
-      const systemPrompt = `You are the digital host & AI waiter for "${restaurant?.displayName || 'our restaurant'}".
+    // Sanitize returned IDs against actual published items
+    const sanitizedDishIds = Array.isArray(parsed.dishIds)
+      ? parsed.dishIds.filter((id: string) => validDishIds.has(id))
+      : [];
+
+    const sanitizedSelectedId =
+      parsed.selectedDishId && validDishIds.has(parsed.selectedDishId)
+        ? parsed.selectedDishId
+        : focusedDish?.id || (sanitizedDishIds[0] ?? null);
+
+    const sanitizedPairingId =
+      parsed.pairingDishId && validDishIds.has(parsed.pairingDishId)
+        ? parsed.pairingDishId
+        : null;
+
+    // Record AI usage event (non-blocking if tracking fails)
+    const latencyMs = Date.now() - startTime;
+    await prisma.aIUsageEvent.create({
+      data: {
+        restaurantId: params.restaurantId,
+        operationType: 'DINER_CHAT',
+        modelId: usedModel,
+        inputTokens,
+        outputTokens,
+        estimatedCostUsd: 0.00024,
+        status: 'SUCCESS',
+        latencyMs,
+      },
+    }).catch((e) => console.warn('AIUsageEvent log failed:', e));
+
+    return {
+      message: parsed.message || "Here are our recommendations from the menu.",
+      dishIds: sanitizedDishIds.length > 0 ? sanitizedDishIds : focusedDish ? [focusedDish.id] : [],
+      selectedDishId: sanitizedSelectedId,
+      pairingDishId: sanitizedPairingId,
+      suggestedQuestions: Array.isArray(parsed.suggestedQuestions) && parsed.suggestedQuestions.length
+        ? parsed.suggestedQuestions.slice(0, 3)
+        : ["What's popular here?", "Show vegetarian options", "What goes with this?"],
+      safetyNotice: parsed.safetyNotice || (hasAllergenQuery ? "Please confirm allergy & cross-contact requirements with restaurant staff." : null),
+    };
+  };
+
+  if (geminiClients.length > 0 || openAiEnabled) {
+    const sanitizedMenu = items.map((i) => ({
+      id: i.id,
+      name: i.customName,
+      category: i.category?.name || 'General',
+      priceMinor: i.priceMinor,
+      currency: i.currency,
+      description: i.restaurantDescription,
+      dietary: i.dietaryStatus,
+      allergenVerification: i.allergenVerification,
+      nutrition: i.nutritionFields,
+      nutritionSource: i.nutritionSource,
+      chefRecommended: i.chefRecommended,
+    }));
+
+    const systemPrompt = `You are the digital host & AI waiter for "${restaurant?.displayName || 'our restaurant'}".
 Tone: ${restaurant?.settings?.aiTone || 'warm, hospitable, knowledgeable, concise'}.
 
 CRITICAL RULES:
@@ -143,22 +200,34 @@ CRITICAL RULES:
      "safetyNotice": "string ONLY when allergy/medical safety caution applies, otherwise null"
    }`;
 
-      const userPrompt = `Diner says: "${params.userMessage}".
+    const userPrompt = `Diner says: "${params.userMessage}".
 Selected dish context: ${focusedDish ? focusedDish.customName : 'None'}.
 Available menu snapshot: ${JSON.stringify(sanitizedMenu)}`;
 
+    for (let idx = 0; idx < geminiClients.length; idx++) {
+      const remainingMs = deadlineAt - Date.now();
+      if (idx > 0 && remainingMs <= 150) {
+        break;
+      }
+
+      const remainingFallbacks = geminiClients.length - 1 - idx + (openAiEnabled ? 1 : 0);
+      const attemptTimeoutMs =
+        timeoutMs >= 3000 && remainingFallbacks > 0
+          ? Math.min(remainingMs, Math.max(1500, Math.floor(remainingMs * 0.6)))
+          : Math.max(20, remainingMs);
+
+      const entry = geminiClients[idx];
       const controller = new AbortController();
       let requestTimer: ReturnType<typeof setTimeout> | undefined;
       let raceTimer: ReturnType<typeof setTimeout> | undefined;
 
-      let response: any;
       try {
         requestTimer = setTimeout(() => {
           controller.abort(new Error('GEMINI_CHAT_TIMEOUT'));
-        }, timeoutMs);
+        }, attemptTimeoutMs);
 
-        response = await Promise.race([
-          client.models.generateContent({
+        const response: any = await Promise.race([
+          entry.client.models.generateContent({
             model: modelName,
             contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
             config: {
@@ -166,63 +235,50 @@ Available menu snapshot: ${JSON.stringify(sanitizedMenu)}`;
               responseMimeType: 'application/json',
               thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
               abortSignal: controller.signal,
-              httpOptions: { timeout: timeoutMs },
+              httpOptions: { timeout: attemptTimeoutMs },
             },
           }),
           new Promise<never>((_, reject) => {
-            raceTimer = setTimeout(() => reject(new Error('GEMINI_CHAT_TIMEOUT')), timeoutMs + 250);
+            raceTimer = setTimeout(
+              () => reject(new Error('GEMINI_CHAT_TIMEOUT')),
+              attemptTimeoutMs + 250
+            );
           }),
         ]);
+
+        const responseText = response?.text || '{}';
+        return await finalizeAIResponse(responseText, modelName);
+      } catch (err) {
+        if (entry.key !== 'mock-injected-client') {
+          markGeminiKeyCooldown(entry.key, err);
+        }
+        console.warn(
+          `Gemini diner chat fallback triggered (key ${entry.maskedKey}, ${idx + 1}/${geminiClients.length}):`,
+          err
+        );
       } finally {
         if (requestTimer) clearTimeout(requestTimer);
         if (raceTimer) clearTimeout(raceTimer);
       }
+    }
 
-      const responseText = response?.text || '{}';
-      const parsed = parseGeminiJsonResponse(responseText);
-
-      // Sanitize returned IDs against actual published items
-      const sanitizedDishIds = Array.isArray(parsed.dishIds)
-        ? parsed.dishIds.filter((id: string) => validDishIds.has(id))
-        : [];
-
-      const sanitizedSelectedId =
-        parsed.selectedDishId && validDishIds.has(parsed.selectedDishId)
-          ? parsed.selectedDishId
-          : focusedDish?.id || (sanitizedDishIds[0] ?? null);
-
-      const sanitizedPairingId =
-        parsed.pairingDishId && validDishIds.has(parsed.pairingDishId)
-          ? parsed.pairingDishId
-          : null;
-
-      // Record AI usage event (non-blocking if tracking fails)
-      const latencyMs = Date.now() - startTime;
-      await prisma.aIUsageEvent.create({
-        data: {
-          restaurantId: params.restaurantId,
-          operationType: 'DINER_CHAT',
-          modelId: modelName,
-          inputTokens: 600,
-          outputTokens: 250,
-          estimatedCostUsd: 0.00024,
-          status: 'SUCCESS',
-          latencyMs,
-        },
-      }).catch((e) => console.warn('AIUsageEvent log failed:', e));
-
-      return {
-        message: parsed.message || "Here are our recommendations from the menu.",
-        dishIds: sanitizedDishIds.length > 0 ? sanitizedDishIds : focusedDish ? [focusedDish.id] : [],
-        selectedDishId: sanitizedSelectedId,
-        pairingDishId: sanitizedPairingId,
-        suggestedQuestions: Array.isArray(parsed.suggestedQuestions) && parsed.suggestedQuestions.length
-          ? parsed.suggestedQuestions.slice(0, 3)
-          : ["What's popular here?", "Show vegetarian options", "What goes with this?"],
-        safetyNotice: parsed.safetyNotice || (hasAllergenQuery ? "Please confirm allergy & cross-contact requirements with restaurant staff." : null),
-      };
-    } catch (err) {
-      console.warn('Gemini diner chat fallback triggered:', err);
+    const remainingForOpenAI = deadlineAt - Date.now();
+    if (openAiEnabled && (geminiClients.length === 0 || remainingForOpenAI > 250)) {
+      try {
+        const openAiResult = await callOpenAIChatJson({
+          systemPrompt,
+          userPrompt,
+          timeoutMs: Math.max(500, remainingForOpenAI),
+        });
+        return await finalizeAIResponse(
+          openAiResult.text,
+          openAiResult.model,
+          openAiResult.inputTokens,
+          openAiResult.outputTokens
+        );
+      } catch (openAiErr) {
+        console.warn('OpenAI diner chat fallback failed, using deterministic fallback:', openAiErr);
+      }
     }
   }
 

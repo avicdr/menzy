@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import prisma from '@/lib/db/prisma';
-import { PLAN_CATALOG, PlanKey } from '@/lib/payments/plans';
+import { PLAN_CATALOG, PlanKey, getPlansForCountry } from '@/lib/payments/plans';
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -21,8 +21,23 @@ export async function GET(req: Request) {
     where: { organizationId: orgId },
   });
 
-  const planKey = (subscription?.planKey as PlanKey) || (auth.restaurant.country === 'US' ? 'US_STARTER' : 'IN_STARTER');
+  const rawCountry = (
+    auth.restaurant.organization?.billingCountry ||
+    auth.restaurant.country ||
+    'IN'
+  ).toUpperCase();
+  const billingCountry: 'IN' | 'US' = rawCountry === 'US' ? 'US' : 'IN';
+
+  const subPlanKey = subscription?.planKey as PlanKey | undefined;
+  const subPlan = subPlanKey ? PLAN_CATALOG[subPlanKey] : undefined;
+  const planKey: PlanKey =
+    subPlan && subPlan.country === billingCountry
+      ? subPlan.key
+      : billingCountry === 'US'
+      ? 'US_STARTER'
+      : 'IN_STARTER';
   const plan = PLAN_CATALOG[planKey];
+  const availablePlans = getPlansForCountry(billingCountry);
 
   // Calculate image credit balance from CreditLedger
   const creditEntries = await prisma.creditLedger.findMany({
@@ -51,6 +66,8 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     plan,
+    billingCountry,
+    availablePlans,
     subscription,
     remainingImageCredits: Math.max(0, remainingImageCredits),
     chatQueriesThisMonth,
