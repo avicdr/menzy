@@ -1,8 +1,7 @@
 import 'dotenv/config';
-import { PrismaClient, PlanTier, NutritionSource, AssetType, ThemePreset, LayoutMode, PublicationState, ClaimStatus } from '@prisma/client';
+import { PlanTier, NutritionSource, AssetType, ThemePreset, LayoutMode, PublicationState, ClaimStatus } from '@prisma/client';
 import crypto from 'crypto';
-
-const prisma = new PrismaClient();
+import prisma from '../src/lib/db/prisma';
 
 function hashStaffPassword(plainText: string): string {
   const salt = crypto.randomBytes(16).toString('hex');

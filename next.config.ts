@@ -11,7 +11,15 @@ const nextConfig: NextConfig = {
       { protocol: "http", hostname: "**" },
     ],
   },
-  serverExternalPackages: ["@prisma/client", "ioredis", "razorpay"],
+  serverExternalPackages: [
+    "@prisma/client",
+    "@prisma/adapter-neon",
+    "@neondatabase/serverless",
+    "@neon/config",
+    "@neon/env",
+    "ioredis",
+    "razorpay",
+  ],
   async headers() {
     return [
       {

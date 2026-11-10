@@ -924,7 +924,7 @@ export const SEO_LANDING_CONFIGS: Record<string, SeoLandingConfig> = {
       },
       {
         title: 'Pricing Plans',
-        description: 'Scale up to Unlimited menu dishes on Pro.',
+        description: 'Scale to unlimited menu dishes on Pro.',
         href: '/pricing',
       },
       {
