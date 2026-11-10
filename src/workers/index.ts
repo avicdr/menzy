@@ -2,8 +2,7 @@ import 'dotenv/config';
 import prisma from '../lib/db/prisma';
 import { extractMenuFromImages } from '../lib/gemini/vision-extractor';
 import { generateOrReuseDishIllustration } from '../lib/gemini/illustration-generator';
-import fs from 'fs';
-import path from 'path';
+import { readAssetFromUrl } from '../lib/storage/adapter';
 
 async function runWorkerLoop() {
   console.log('🚀 Menzy Background Worker running...');
@@ -28,18 +27,13 @@ async function runWorkerLoop() {
 
         for (const fileUrl of fileKeys) {
           try {
-            const localPath = path.join(process.cwd(), 'public', fileUrl.replace(/^\//, ''));
-            if (fs.existsSync(localPath)) {
-              const buffer = fs.readFileSync(localPath);
-              const ext = path.extname(localPath).toLowerCase();
-              let mimeType = 'image/jpeg';
-              if (ext === '.webp') mimeType = 'image/webp';
-              else if (ext === '.png') mimeType = 'image/png';
-              else if (ext === '.pdf') mimeType = 'application/pdf';
-              else if (ext === '.gif') mimeType = 'image/gif';
-              images.push({ buffer, mimeType });
+            const loaded = await readAssetFromUrl(fileUrl);
+            if (loaded) {
+              images.push(loaded);
             }
-          } catch {}
+          } catch (err) {
+            console.warn('[Worker] Failed to read uploaded menu asset:', fileUrl, err);
+          }
         }
 
         try {

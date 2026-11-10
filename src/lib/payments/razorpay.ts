@@ -1,16 +1,22 @@
 import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import prisma from '../db/prisma';
-import { PLAN_CATALOG, PlanKey } from './plans';
+import { PLAN_CATALOG, PlanDefinition, PlanKey } from './plans';
 import { SubscriptionStatus } from '@prisma/client';
 
 let razorpayClient: Razorpay | null = null;
+const resolvedPlanIdCache = new Map<string, string>();
 
 export function getRazorpayClient(): Razorpay | null {
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
-  if (!keyId || !keySecret || keyId === 'rzp_test_placeholder') {
+  if (
+    !keyId ||
+    !keySecret ||
+    keyId === 'rzp_test_placeholder' ||
+    keySecret === 'rzp_secret_placeholder'
+  ) {
     return null;
   }
 
@@ -22,6 +28,63 @@ export function getRazorpayClient(): Razorpay | null {
   }
 
   return razorpayClient;
+}
+
+/**
+ * Resolves (or lazily creates) the Razorpay Plan ID directly from PLAN_CATALOG
+ * so operators don't have to manually maintain per-plan RAZORPAY_PLAN_* env vars.
+ */
+export async function resolveRazorpayPlanId(
+  client: Pick<Razorpay, 'plans'>,
+  plan: PlanDefinition,
+  cacheKeyPrefix = 'default'
+): Promise<string> {
+  const cacheKey = `${cacheKeyPrefix}:${plan.key}:${plan.priceMinor}:${plan.currency}`;
+  const cached = resolvedPlanIdCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const pageSize = 100;
+  for (let page = 0; page < 5; page++) {
+    const res = await client.plans.all({ count: pageSize, skip: page * pageSize });
+    const items = res?.items || [];
+    const match = items.find((p) => {
+      const notes = p.notes as Record<string, string | number> | undefined;
+      return (
+        notes?.planKey === plan.key &&
+        p.period === 'monthly' &&
+        Number(p.interval) === 1 &&
+        Number(p.item?.amount) === plan.priceMinor &&
+        String(p.item?.currency || '').toUpperCase() === plan.currency &&
+        p.item?.active !== false
+      );
+    });
+    if (match?.id) {
+      resolvedPlanIdCache.set(cacheKey, match.id);
+      return match.id;
+    }
+    if (items.length < pageSize) {
+      break;
+    }
+  }
+
+  const created = await client.plans.create({
+    period: 'monthly',
+    interval: 1,
+    item: {
+      name: `Menzy ${plan.name}`,
+      amount: plan.priceMinor,
+      currency: plan.currency,
+      description: `${plan.itemLimit > 1000 ? 'Unlimited' : plan.itemLimit} dishes, ${plan.imageCreditsMonthly} image credits/mo, ${plan.aiQuestionsMonthly.toLocaleString()} AI queries/mo`,
+    },
+    notes: {
+      planKey: plan.key,
+    },
+  });
+
+  resolvedPlanIdCache.set(cacheKey, created.id);
+  return created.id;
 }
 
 /**
@@ -49,7 +112,7 @@ export async function createSubscriptionSession(params: {
 
   if (client) {
     try {
-      const planId = process.env[plan.razorpayPlanEnvVar] || `plan_${plan.key.toLowerCase()}`;
+      const planId = await resolveRazorpayPlanId(client, plan, keyId);
       const sub = await client.subscriptions.create({
         plan_id: planId,
         total_count: 12, // 12 monthly billing cycles

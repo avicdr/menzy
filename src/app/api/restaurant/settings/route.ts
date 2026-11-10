@@ -115,6 +115,7 @@ export async function PATCH(req: Request) {
         const trimmedUrl = coverUrl.trim();
         if (
           !trimmedUrl.startsWith('/uploads/') &&
+          !trimmedUrl.startsWith('/api/storage/') &&
           !trimmedUrl.startsWith('https://') &&
           !trimmedUrl.startsWith('http://')
         ) {

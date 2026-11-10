@@ -21,7 +21,6 @@ export interface PlanDefinition {
   allowUpsellingPairings: boolean;
   allowMultipleMenus: boolean;
   analyticsTier: 'BASIC' | 'ADVANCED';
-  razorpayPlanEnvVar: string;
 }
 
 export const PLAN_CATALOG: Record<PlanKey, PlanDefinition> = {
@@ -40,7 +39,6 @@ export const PLAN_CATALOG: Record<PlanKey, PlanDefinition> = {
     allowUpsellingPairings: false,
     allowMultipleMenus: false,
     analyticsTier: 'BASIC',
-    razorpayPlanEnvVar: 'RAZORPAY_PLAN_IN_STARTER',
   },
   IN_GROWTH: {
     key: 'IN_GROWTH',
@@ -57,7 +55,6 @@ export const PLAN_CATALOG: Record<PlanKey, PlanDefinition> = {
     allowUpsellingPairings: true,
     allowMultipleMenus: false,
     analyticsTier: 'ADVANCED',
-    razorpayPlanEnvVar: 'RAZORPAY_PLAN_IN_GROWTH',
   },
   IN_PRO: {
     key: 'IN_PRO',
@@ -74,7 +71,6 @@ export const PLAN_CATALOG: Record<PlanKey, PlanDefinition> = {
     allowUpsellingPairings: true,
     allowMultipleMenus: true,
     analyticsTier: 'ADVANCED',
-    razorpayPlanEnvVar: 'RAZORPAY_PLAN_IN_PRO',
   },
   US_STARTER: {
     key: 'US_STARTER',
@@ -91,7 +87,6 @@ export const PLAN_CATALOG: Record<PlanKey, PlanDefinition> = {
     allowUpsellingPairings: false,
     allowMultipleMenus: false,
     analyticsTier: 'BASIC',
-    razorpayPlanEnvVar: 'RAZORPAY_PLAN_US_STARTER',
   },
   US_GROWTH: {
     key: 'US_GROWTH',
@@ -108,7 +103,6 @@ export const PLAN_CATALOG: Record<PlanKey, PlanDefinition> = {
     allowUpsellingPairings: true,
     allowMultipleMenus: false,
     analyticsTier: 'ADVANCED',
-    razorpayPlanEnvVar: 'RAZORPAY_PLAN_US_GROWTH',
   },
   US_PRO: {
     key: 'US_PRO',
@@ -125,7 +119,6 @@ export const PLAN_CATALOG: Record<PlanKey, PlanDefinition> = {
     allowUpsellingPairings: true,
     allowMultipleMenus: true,
     analyticsTier: 'ADVANCED',
-    razorpayPlanEnvVar: 'RAZORPAY_PLAN_US_PRO',
   },
 };
 

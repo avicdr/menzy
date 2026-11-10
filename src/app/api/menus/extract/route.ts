@@ -2,9 +2,8 @@ import { NextResponse } from 'next/server';
 import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import { extractMenuFromImages } from '@/lib/gemini/vision-extractor';
 import { matchCanonicalDish } from '@/lib/canonical/matcher';
+import { readAssetFromUrl } from '@/lib/storage/adapter';
 import prisma from '@/lib/db/prisma';
-import fs from 'fs';
-import path from 'path';
 
 export async function POST(req: Request) {
   try {
@@ -30,22 +29,17 @@ export async function POST(req: Request) {
     const restaurant = auth.restaurant;
     const fileKeys = upload.fileKeys as string[];
 
-    // Read files
+    // Read files (from S3/Supabase Storage or local fallback)
     const images: Array<{ buffer: Buffer; mimeType: string }> = [];
     for (const fileUrl of fileKeys) {
       try {
-        const localPath = path.join(process.cwd(), 'public', fileUrl.replace(/^\//, ''));
-        if (fs.existsSync(localPath)) {
-          const buffer = fs.readFileSync(localPath);
-          const ext = path.extname(localPath).toLowerCase();
-          let mimeType = 'image/jpeg';
-          if (ext === '.webp') mimeType = 'image/webp';
-          else if (ext === '.png') mimeType = 'image/png';
-          else if (ext === '.pdf') mimeType = 'application/pdf';
-          else if (ext === '.gif') mimeType = 'image/gif';
-          images.push({ buffer, mimeType });
+        const loaded = await readAssetFromUrl(fileUrl);
+        if (loaded) {
+          images.push(loaded);
         }
-      } catch {}
+      } catch (err) {
+        console.warn('Failed to load uploaded menu file:', fileUrl, err);
+      }
     }
 
     if (images.length === 0) {
