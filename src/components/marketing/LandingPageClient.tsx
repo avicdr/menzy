@@ -2,25 +2,14 @@
 
 import React from 'react';
 import Link from 'next/link';
-import {
-  Sparkles,
-  ArrowRight,
-  Bot,
-  ExternalLink,
-  ShieldCheck,
-  ScanText,
-  QrCode,
-  UtensilsCrossed,
-  Coffee,
-  Zap,
-  Mail,
-} from 'lucide-react';
+import { Sparkles, ArrowRight, ScanText, QrCode, UtensilsCrossed, Coffee, Zap, Mail, ExternalLink } from 'lucide-react';
 import type { PlanDefinition } from '@/lib/payments/plans';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 import { HOMEPAGE_FAQS } from '@/content/seo-pages';
 import { MarketingHeader } from './MarketingHeader';
 import { MarketingFooter } from './MarketingFooter';
 import { PricingCardsClient } from './PricingCardsClient';
+import { MenuPreviewClip } from './MenuPreviewClip';
 
 interface LandingPageClientProps {
   authoritativeGeo: boolean;
@@ -79,141 +68,21 @@ export function LandingPageClient({ authoritativeGeo, initialPlans }: LandingPag
             </a>
           </div>
 
-          {/* Interactive Diner Preview */}
-          <div id="preview" className="pt-12 sm:pt-16 max-w-4xl mx-auto text-center space-y-3">
+          {/* Interactive Diner Preview Clip */}
+          <div id="preview" className="scroll-mt-24 pt-12 sm:pt-16 max-w-5xl mx-auto text-center space-y-3">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cream-200 border border-cream-300 text-[11px] sm:text-xs font-semibold text-terracotta-700">
               <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
               <span>Interactive Diner Menu &amp; AI Waiter Preview</span>
             </div>
             <h2 className="font-serif text-2xl sm:text-4xl font-bold text-espresso-900">
-              What your guests see when scanning your table QR
+              See your QR menu in action in 13 seconds
             </h2>
-            <p className="text-xs sm:text-sm text-taupe-600 max-w-lg mx-auto">
-              A visual-first interactive menu paired with instant, grounded dish recommendations and dietary clarity.
+            <p className="text-xs sm:text-sm text-taupe-600 max-w-xl mx-auto">
+              Watch how diners browse 3D-styled dishes, customize orders, ask your AI host for pairings, and order directly to the kitchen.
             </p>
           </div>
 
-          <div className="pt-6 max-w-4xl mx-auto text-left">
-            <div className="p-4 sm:p-7 bg-white rounded-3xl border border-cream-300 shadow-lifted space-y-5">
-              <div className="flex items-center justify-between pb-4 border-b border-cream-200">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-10 h-10 rounded-xl bg-terracotta text-white flex items-center justify-center font-serif text-lg font-bold shadow-sm"
-                    aria-hidden="true"
-                  >
-                    C
-                  </div>
-                  <div>
-                    <h3 className="font-serif text-lg sm:text-xl font-bold text-espresso-900">
-                      Chai &amp; Chutney Craft Kitchen
-                    </h3>
-                    <p className="text-[11px] text-taupe-500">
-                      Indiranagar, Bengaluru • Table 4
-                    </p>
-                  </div>
-                </div>
-
-                <Link
-                  href="/m/chai-and-chutney"
-                  className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-cream-100 hover:bg-cream-200 text-xs font-semibold text-espresso-800 transition-colors"
-                >
-                  <span>Open Full Menu</span>
-                  <ExternalLink className="w-3.5 h-3.5 text-terracotta" aria-hidden="true" />
-                </Link>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
-                <div className="md:col-span-7 space-y-3">
-                  <div className="p-3.5 bg-cream-50 rounded-2xl border border-cream-200 flex items-center gap-3.5 shadow-sm">
-                    <img
-                      src="https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?auto=format&fit=crop&w=300&q=80"
-                      alt="Smoked Malai Paneer Tikka prepared on charcoal"
-                      width={80}
-                      height={80}
-                      loading="lazy"
-                      className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover bg-cream-200 shrink-0"
-                    />
-                    <div className="flex-1 min-w-0 pr-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <h4 className="font-semibold text-sm sm:text-base text-espresso-900 truncate">
-                          Smoked Malai Paneer Tikka
-                        </h4>
-                        <span className="font-bold text-sm text-espresso-900 shrink-0">₹380</span>
-                      </div>
-                      <p className="text-xs text-taupe-500 line-clamp-1 mt-0.5">
-                        Silken organic cottage cheese charred over charcoal with bell peppers.
-                      </p>
-                      <div className="flex items-center gap-1.5 mt-2">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sage-100 text-sage-800">
-                          Vegetarian
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-900">
-                          Gluten Free
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-3.5 bg-cream-50 rounded-2xl border border-cream-200 flex items-center gap-3.5 shadow-sm">
-                    <img
-                      src="https://images.unsplash.com/photo-1561336313-0bd5e0b27ec8?auto=format&fit=crop&w=300&q=80"
-                      alt="Steaming Adrak Elaichi Kulhad Chai"
-                      width={80}
-                      height={80}
-                      loading="lazy"
-                      className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover bg-cream-200 shrink-0"
-                    />
-                    <div className="flex-1 min-w-0 pr-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <h4 className="font-semibold text-sm sm:text-base text-espresso-900 truncate">
-                          Adrak Elaichi Kulhad Chai
-                        </h4>
-                        <span className="font-bold text-sm text-espresso-900 shrink-0">₹120</span>
-                      </div>
-                      <p className="text-xs text-taupe-500 line-clamp-1 mt-0.5">
-                        Slow-simmered Assam orthodox blend with crushed ginger and green cardamom.
-                      </p>
-                      <div className="flex items-center gap-1.5 mt-2">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-terracotta-100 text-terracotta-800">
-                          Chef Pick
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="md:col-span-5 p-4 bg-espresso-900 text-white rounded-2xl border border-espresso-800 space-y-3 shadow-md">
-                  <div className="flex items-center gap-2 pb-2 border-b border-espresso-800">
-                    <div className="w-6 h-6 rounded-full bg-terracotta flex items-center justify-center">
-                      <Bot className="w-3.5 h-3.5 text-white" aria-hidden="true" />
-                    </div>
-                    <span className="text-xs font-semibold text-cream-100">AI Host &amp; Sommelier</span>
-                  </div>
-
-                  <div className="space-y-2 text-xs">
-                    <div className="bg-espresso-800 p-2.5 rounded-xl rounded-br-sm text-cream-200 ml-4 text-right">
-                      &ldquo;What drink pairs with the Paneer Tikka?&rdquo;
-                    </div>
-                    <div className="bg-cream-100 text-espresso-900 p-2.5 rounded-xl rounded-bl-sm mr-2 leading-relaxed">
-                      We recommend our <strong>Adrak Elaichi Kulhad Chai</strong> or <strong>Kokum Jeera Sparkler</strong>. Both cleanse the palate and highlight the smoky charcoal tandoor marinade!
-                    </div>
-                  </div>
-
-                  <div className="pt-2 border-t border-espresso-800 flex items-center justify-between text-[11px] text-cream-300">
-                    <span className="flex items-center gap-1 text-sage-400">
-                      <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" /> Allergen Safety Grounded
-                    </span>
-                    <Link
-                      href="/m/chai-and-chutney"
-                      className="text-terracotta-200 font-semibold hover:underline"
-                    >
-                      Try it live &rarr;
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <MenuPreviewClip />
         </section>
 
         {/* 3-Step Hospitality Workflow */}
