@@ -225,8 +225,9 @@ describe('14-Day Free Trial, Hard Subscription Cutoff & Setup Support Helpline',
       },
     });
 
-    // 2. Active trial permits owner APIs, diner menu (warms Redis cache), QR generate, and staff KDS
-    const [activeItemsRes, activeDinerMenuRes, activeQrRes, activeStaffLoginRes] = await Promise.all([
+    // 2. Active trial permits owner /api/auth/me, owner APIs, diner menu (warms Redis cache), QR generate, and staff KDS
+    const [activeAuthMeRes, activeItemsRes, activeDinerMenuRes, activeQrRes, activeStaffLoginRes] = await Promise.all([
+      authMeGet(),
       menuItemsGet(new Request(`http://localhost:3000/api/menus/items?restaurantId=${restaurantId}`)),
       dinerMenuGet(new Request(`http://localhost:3000/api/diner/menu?slug=${restaurantSlug}`)),
       qrGenerateGet(new Request(`http://localhost:3000/api/qr/generate?slug=${restaurantSlug}`)),
@@ -238,6 +239,16 @@ describe('14-Day Free Trial, Hard Subscription Cutoff & Setup Support Helpline',
         })
       ),
     ]);
+    expect(activeAuthMeRes.status).toBe(200);
+    const activeAuthMeBody = await activeAuthMeRes.json();
+    expect(activeAuthMeBody.authenticated).toBe(true);
+    expect(activeAuthMeBody.user.organizations[0].access).toMatchObject({
+      allowed: true,
+      expired: false,
+      mode: 'TRIAL',
+      planName: 'Trial',
+      supportPhone: SUPPORT_PHONE,
+    });
     expect(activeItemsRes.status).toBe(200);
     expect(activeDinerMenuRes.status).toBe(200);
     expect(activeQrRes.status).toBe(200);
@@ -446,6 +457,46 @@ describe('14-Day Free Trial, Hard Subscription Cutoff & Setup Support Helpline',
       new Request(`http://localhost:3000/api/diner/menu?slug=${demoRestaurant.slug}`)
     );
     expect(restoredClaimRes.status).toBe(200);
+  });
+
+  it('handles unauthenticated, malformed, deleted-user, active-trial, and DB-error cases on GET /api/auth/me without empty 500 responses', async () => {
+    // 1. No cookie -> 401 JSON
+    mockOwnerCookieValue = undefined;
+    const unauthRes = await authMeGet();
+    expect(unauthRes.status).toBe(401);
+    expect(await unauthRes.json()).toEqual({ authenticated: false, user: null });
+
+    // 2. Tampered / malformed cookie -> 401 JSON
+    mockOwnerCookieValue = 'not-a-valid-token.sig';
+    const invalidRes = await authMeGet();
+    expect(invalidRes.status).toBe(401);
+    expect(await invalidRes.json()).toEqual({ authenticated: false, user: null });
+
+    // 3. Valid cookie referencing non-existent / deleted user -> 401 JSON
+    mockOwnerCookieValue = createOwnerToken(crypto.randomUUID(), 'deleted@menzy.test');
+    const deletedUserRes = await authMeGet();
+    expect(deletedUserRes.status).toBe(401);
+    expect(await deletedUserRes.json()).toEqual({ authenticated: false, user: null });
+
+    // 4. Unexpected DB error -> structured 500 JSON (never empty body)
+    const suffix = crypto.randomBytes(4).toString('hex');
+    const ownerId = crypto.randomUUID();
+    mockOwnerCookieValue = createOwnerToken(ownerId, `err-${suffix}@menzy.test`);
+    const findUniqueSpy = vi
+      .spyOn(prisma.user, 'findUnique')
+      .mockRejectedValueOnce(new Error('Simulated Postgres transient error'));
+    try {
+      const dbErrRes = await authMeGet();
+      expect(dbErrRes.status).toBe(500);
+      const dbErrBody = await dbErrRes.json();
+      expect(dbErrBody).toMatchObject({
+        authenticated: false,
+        user: null,
+        error: 'Failed to load authenticated session.',
+      });
+    } finally {
+      findUniqueSpy.mockRestore();
+    }
   });
 });
 

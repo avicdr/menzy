@@ -54,7 +54,15 @@ export function verifyOwnerToken(token: string): { userId: string; email: string
     }
 
     const payload = JSON.parse(Buffer.from(base64Payload, 'base64url').toString('utf8'));
-    if (Date.now() > payload.expiresAt) {
+    if (
+      !payload ||
+      typeof payload.userId !== 'string' ||
+      payload.userId.length === 0 ||
+      typeof payload.email !== 'string' ||
+      typeof payload.expiresAt !== 'number' ||
+      !Number.isFinite(payload.expiresAt) ||
+      Date.now() > payload.expiresAt
+    ) {
       return null;
     }
 

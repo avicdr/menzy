@@ -5,7 +5,8 @@
   "description": "Menzy - Premium AI-powered interactive menus for restaurants. See it. Ask it. Crave it.",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "postinstall": "prisma generate",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
     "check:seo": "tsx scripts/check-seo.ts",
