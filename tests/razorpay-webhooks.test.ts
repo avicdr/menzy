@@ -1,9 +1,20 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import crypto from 'crypto';
-import { verifyRazorpayWebhookSignature, resolveRazorpayPlanId } from '../src/lib/payments/razorpay';
+import prisma from '../src/lib/db/prisma';
+import {
+  verifyRazorpayWebhookSignature,
+  verifyRazorpaySubscriptionSignature,
+  resolveRazorpayPlanId,
+  getRazorpayConfig,
+  createSubscriptionSession,
+  confirmRazorpaySubscriptionPayment,
+  processRazorpayWebhookEvent,
+  RazorpayConfigError,
+  RazorpayApiError,
+} from '../src/lib/payments/razorpay';
 import { PLAN_CATALOG } from '../src/lib/payments/plans';
 
-describe('Razorpay Webhook Signature Verification & Idempotency', () => {
+describe('Razorpay Webhook Signature Verification, Checkout Verification & Idempotency', () => {
   const secret = 'test_webhook_secret_key_12345';
   const samplePayload = JSON.stringify({
     event: 'subscription.charged',
@@ -15,6 +26,38 @@ describe('Razorpay Webhook Signature Verification & Idempotency', () => {
         },
       },
     },
+  });
+  const createdOrgIds: string[] = [];
+  const createdUserIds: string[] = [];
+  const createdEventIds: string[] = [];
+  const originalKeyId = process.env.RAZORPAY_KEY_ID;
+  const originalKeySecret = process.env.RAZORPAY_KEY_SECRET;
+  const originalWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  const originalNodeEnv = process.env.NODE_ENV;
+
+  afterEach(async () => {
+    process.env.RAZORPAY_KEY_ID = originalKeyId;
+    process.env.RAZORPAY_KEY_SECRET = originalKeySecret;
+    process.env.RAZORPAY_WEBHOOK_SECRET = originalWebhookSecret;
+    (process.env as Record<string, string | undefined>).NODE_ENV = originalNodeEnv;
+
+    if (createdEventIds.length > 0) {
+      await prisma.billingEvent
+        .deleteMany({
+          where: { providerEventId: { in: createdEventIds.splice(0, createdEventIds.length) } },
+        })
+        .catch(() => {});
+    }
+    if (createdOrgIds.length > 0) {
+      await prisma.organization
+        .deleteMany({ where: { id: { in: createdOrgIds.splice(0, createdOrgIds.length) } } })
+        .catch(() => {});
+    }
+    if (createdUserIds.length > 0) {
+      await prisma.user
+        .deleteMany({ where: { id: { in: createdUserIds.splice(0, createdUserIds.length) } } })
+        .catch(() => {});
+    }
   });
 
   it('accepts valid HMAC signature computed from raw body bytes', () => {
@@ -34,6 +77,135 @@ describe('Razorpay Webhook Signature Verification & Idempotency', () => {
     const tamperedPayload = samplePayload + ' ';
     const result = verifyRazorpayWebhookSignature(tamperedPayload, validSignature, secret);
     expect(result).toBe(false);
+  });
+
+  it('safely returns false on mismatched signature byte lengths without throwing RangeError', () => {
+    expect(verifyRazorpayWebhookSignature(samplePayload, 'short_sig', secret)).toBe(false);
+    expect(
+      verifyRazorpaySubscriptionSignature({
+        paymentId: 'pay_123',
+        subscriptionId: 'sub_123',
+        signature: 'bad',
+        secret: 'key_sec',
+      })
+    ).toBe(false);
+  });
+
+  it('normalizes whitespace/quotes in env vars and refuses mock fallback in production or on API failure', async () => {
+    process.env.RAZORPAY_KEY_ID = '  "rzp_live_trimmed123"  ';
+    process.env.RAZORPAY_KEY_SECRET = "  'sec_live_trimmed456'  ";
+    process.env.RAZORPAY_WEBHOOK_SECRET = ' "whsec_trimmed789" ';
+
+    const cfg = getRazorpayConfig();
+    expect(cfg).toEqual({
+      keyId: 'rzp_live_trimmed123',
+      keySecret: 'sec_live_trimmed456',
+      webhookSecret: 'whsec_trimmed789',
+      isConfigured: true,
+    });
+
+    // Missing credentials in production must throw RazorpayConfigError (never sub_mock_)
+    process.env.RAZORPAY_KEY_ID = 'rzp_test_placeholder';
+    process.env.RAZORPAY_KEY_SECRET = 'rzp_secret_placeholder';
+    (process.env as Record<string, string | undefined>).NODE_ENV = 'production';
+    await expect(
+      createSubscriptionSession({
+        organizationId: '00000000-0000-0000-0000-000000000001',
+        planKey: 'IN_STARTER',
+        customerEmail: 'prod@menzy.test',
+      })
+    ).rejects.toThrow(RazorpayConfigError);
+  });
+
+  it('verifies Checkout subscription signature, activates tenant once, and avoids duplicate credits on subsequent webhook', async () => {
+    const suffix = crypto.randomBytes(4).toString('hex');
+    const testKeySecret = 'rzp_test_checkout_verify_secret_999';
+    process.env.RAZORPAY_KEY_ID = 'rzp_test_verify999';
+    process.env.RAZORPAY_KEY_SECRET = testKeySecret;
+
+    const owner = await prisma.user.create({
+      data: {
+        email: `rzp-verify-${suffix}@menzy.test`,
+        name: 'Verify Owner',
+        emailVerified: new Date(),
+      },
+    });
+    createdUserIds.push(owner.id);
+
+    const org = await prisma.organization.create({
+      data: {
+        name: `Verify Org ${suffix}`,
+        ownerUserId: owner.id,
+        billingCountry: 'IN',
+        billingCurrency: 'INR',
+        members: { create: { userId: owner.id, role: 'OWNER' } },
+      },
+    });
+    createdOrgIds.push(org.id);
+
+    const subId = `sub_live_test_${suffix}`;
+    const paymentId = `pay_live_test_${suffix}`;
+    createdEventIds.push(`verify_${paymentId}`, paymentId);
+
+    await prisma.subscription.create({
+      data: {
+        organizationId: org.id,
+        provider: 'RAZORPAY',
+        planKey: 'IN_STARTER',
+        providerSubscriptionId: subId,
+        status: 'PENDING',
+        currency: 'INR',
+        billingPeriod: 'MONTHLY',
+      },
+    });
+
+    // Reject forged payment signature
+    await expect(
+      confirmRazorpaySubscriptionPayment({
+        organizationId: org.id,
+        razorpayPaymentId: paymentId,
+        razorpaySubscriptionId: subId,
+        razorpaySignature: '0'.repeat(64),
+      })
+    ).rejects.toThrow(RazorpayApiError);
+
+    // Confirm with valid HMAC signature (`${paymentId}|${subId}`)
+    const validSignature = crypto
+      .createHmac('sha256', testKeySecret)
+      .update(`${paymentId}|${subId}`)
+      .digest('hex');
+
+    const confirmRes = await confirmRazorpaySubscriptionPayment({
+      organizationId: org.id,
+      razorpayPaymentId: paymentId,
+      razorpaySubscriptionId: subId,
+      razorpaySignature: validSignature,
+      planKeyHint: 'IN_STARTER',
+    });
+
+    expect(confirmRes.status).toBe('ACTIVE');
+    expect(confirmRes.planKey).toBe('IN_STARTER');
+
+    const dbSubAfterConfirm = await prisma.subscription.findUnique({
+      where: { organizationId: org.id },
+    });
+    expect(dbSubAfterConfirm?.status).toBe('ACTIVE');
+
+    // Follow-up Razorpay webhook for the same cycle must NOT double-grant monthly credits
+    const webhookRes = await processRazorpayWebhookEvent({
+      event: 'subscription.charged',
+      payload: {
+        payment: { entity: { id: paymentId } },
+        subscription: { entity: { id: subId, status: 'active' } },
+      },
+    });
+    expect(webhookRes.status).toBe('PROCESSED_SUCCESSFULLY');
+
+    const creditSum = await prisma.creditLedger.aggregate({
+      where: { organizationId: org.id, creditType: 'IMAGE_GENERATION' },
+      _sum: { delta: true },
+    });
+    expect(creditSum._sum.delta).toBe(PLAN_CATALOG.IN_STARTER.imageCreditsMonthly);
   });
 
   it('exposes configured Menzy India pricing tiers (999, 1799, 2699) and updated IN/US allowances', () => {

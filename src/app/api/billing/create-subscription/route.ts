@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createOwnerAccessDeniedResponse, requireRestaurantAccess } from '@/lib/auth/owner-auth';
-import { createSubscriptionSession } from '@/lib/payments/razorpay';
+import {
+  createSubscriptionSession,
+  extractRazorpayErrorMessage,
+  RazorpayApiError,
+  RazorpayConfigError,
+} from '@/lib/payments/razorpay';
 import { PLAN_CATALOG, PlanKey, TRIAL_PLAN_KEY } from '@/lib/payments/plans';
 
 export async function POST(req: Request) {
@@ -44,16 +49,37 @@ export async function POST(req: Request) {
       );
     }
 
+    const customerEmail = auth.user?.email || 'customer@example.com';
+    const customerName = auth.user?.name || undefined;
+
     const session = await createSubscriptionSession({
       organizationId: auth.restaurant.organizationId,
       planKey: plan.key,
-      customerEmail: auth.user?.email || 'customer@example.com',
-      customerName: auth.user?.name || undefined,
+      customerEmail,
+      customerName,
     });
 
-    return NextResponse.json({ success: true, ...session });
+    return NextResponse.json({
+      success: true,
+      ...session,
+      customerEmail,
+      customerName: customerName || null,
+      restaurantName: auth.restaurant.displayName || 'Menzy',
+    });
   } catch (error: any) {
     console.error('Create subscription error:', error);
-    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
+    if (error instanceof RazorpayConfigError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 503 });
+    }
+    if (error instanceof RazorpayApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 502 }
+      );
+    }
+    return NextResponse.json(
+      { error: extractRazorpayErrorMessage(error) || 'Internal server error' },
+      { status: 500 }
+    );
   }
 }

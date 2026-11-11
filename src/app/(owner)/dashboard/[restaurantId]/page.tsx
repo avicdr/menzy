@@ -145,6 +145,7 @@ function RestaurantDashboardContent() {
   const [checkoutNotice, setCheckoutNotice] = useState<{
     type: 'success' | 'error';
     message: string;
+    paymentUrl?: string | null;
   } | null>(null);
   const activeRestaurantIdRef = React.useRef<string | null>(null);
   const activeRestaurantSlugRef = React.useRef<string | null>(null);
@@ -446,6 +447,61 @@ function RestaurantDashboardContent() {
       return next;
     });
   }, []);
+
+  const handleSubscriptionActivated = useCallback(async () => {
+    const rid = activeRestaurantIdRef.current || restaurantId;
+    if (!rid) return;
+    invalidateRestaurantSessionCache(rid);
+    clearAllDashboardSessionCaches();
+    setExpiredGate(null);
+
+    try {
+      const [billRes, meRes, itemsRes, settingsRes] = await Promise.all([
+        fetch(`/api/billing/usage?restaurantId=${rid}`, { cache: 'no-store' }),
+        fetch('/api/auth/me', { cache: 'no-store' }),
+        fetch(`/api/menus/items?restaurantId=${rid}`, { cache: 'no-store' }),
+        fetch(`/api/restaurant/settings?restaurantId=${rid}`, { cache: 'no-store' }),
+      ]);
+
+      if (meRes.ok) {
+        const meJson = await meRes.json().catch(() => null);
+        if (meJson?.user) {
+          writeSessionCache(cacheKeys.authMe(), meJson);
+        }
+      }
+      if (billRes.ok) {
+        const billJson = await billRes.json().catch(() => null);
+        if (billJson) {
+          writeSessionCache(cacheKeys.billingUsage(rid), billJson);
+          setBillingUsage(billJson);
+          if (billJson.access) {
+            setTargetOrgAccess(billJson.access);
+            setExpiredGate(
+              billJson.access.expired
+                ? { paused: true, code: billJson.access.reason, ...billJson.access }
+                : null
+            );
+          }
+        }
+      }
+      if (itemsRes.ok) {
+        const itemsJson = await itemsRes.json().catch(() => null);
+        if (itemsJson?.items) {
+          writeSessionCache(cacheKeys.menuItems(rid), itemsJson);
+          setMenuItems(itemsJson.items);
+        }
+      }
+      if (settingsRes.ok) {
+        const settingsJson = await settingsRes.json().catch(() => null);
+        if (settingsJson) {
+          writeSessionCache(cacheKeys.restaurantSettings(rid), settingsJson);
+          applyRestaurantSettingsPayload(settingsJson);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to refresh dashboard after subscription activation:', err);
+    }
+  }, [restaurantId, applyRestaurantSettingsPayload]);
 
   // Progressive non-blocking background fetch state
   const [secondaryLoading, setSecondaryLoading] = useState({
@@ -1945,6 +2001,7 @@ function RestaurantDashboardContent() {
             supportMailHref={supportMailHref}
             checkoutNotice={checkoutNotice}
             setCheckoutNotice={setCheckoutNotice}
+            onSubscriptionActivated={handleSubscriptionActivated}
           />
         )}
       </main>

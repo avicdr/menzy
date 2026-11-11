@@ -1,77 +1,79 @@
 import type { Metadata, Viewport } from 'next';
-import {
-  DM_Sans,
-  DM_Serif_Display,
-  Inter,
-  Lora,
-  Manrope,
-  Outfit,
-  Playfair_Display,
-  Plus_Jakarta_Sans,
-} from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import { generateSEOMetadata } from '@/lib/seo';
 import { GoogleAnalytics } from '@/components/analytics/GoogleAnalytics';
 
-const plusJakartaSans = Plus_Jakarta_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+const plusJakartaSans = localFont({
+  src: './fonts/plus-jakarta-sans.woff2',
+  weight: '400 700',
+  style: 'normal',
   variable: '--font-next-plus-jakarta-sans',
   display: 'swap',
   preload: true,
 });
 
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+const inter = localFont({
+  src: './fonts/inter.woff2',
+  weight: '400 700',
+  style: 'normal',
   variable: '--font-next-inter',
   display: 'swap',
   preload: true,
 });
 
-const dmSans = DM_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+const dmSans = localFont({
+  src: './fonts/dm-sans.woff2',
+  weight: '400 700',
+  style: 'normal',
   variable: '--font-next-dm-sans',
   display: 'swap',
   preload: false,
 });
 
-const lora = Lora({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+const lora = localFont({
+  src: './fonts/lora.woff2',
+  weight: '400 700',
+  style: 'normal',
   variable: '--font-next-lora',
   display: 'swap',
   preload: false,
+  adjustFontFallback: 'Times New Roman',
 });
 
-const dmSerifDisplay = DM_Serif_Display({
-  subsets: ['latin'],
+const dmSerifDisplay = localFont({
+  src: './fonts/dm-serif-display.woff2',
   weight: '400',
+  style: 'normal',
   variable: '--font-next-dm-serif-display',
   display: 'swap',
   preload: false,
+  adjustFontFallback: 'Times New Roman',
 });
 
-const playfairDisplay = Playfair_Display({
-  subsets: ['latin'],
-  weight: ['400', '600', '700'],
+const playfairDisplay = localFont({
+  src: './fonts/playfair-display.woff2',
+  weight: '400 700',
+  style: 'normal',
   variable: '--font-next-playfair-display',
   display: 'swap',
   preload: false,
+  adjustFontFallback: 'Times New Roman',
 });
 
-const manrope = Manrope({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+const manrope = localFont({
+  src: './fonts/manrope.woff2',
+  weight: '400 700',
+  style: 'normal',
   variable: '--font-next-manrope',
   display: 'swap',
   preload: false,
 });
 
-const outfit = Outfit({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+const outfit = localFont({
+  src: './fonts/outfit.woff2',
+  weight: '400 700',
+  style: 'normal',
   variable: '--font-next-outfit',
   display: 'swap',
   preload: false,

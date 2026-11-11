@@ -1,7 +1,7 @@
 'use client';
 
-import React from 'react';
-import { AlertCircle, CheckCircle2, Mail, ShieldCheck, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { AlertCircle, CheckCircle2, ExternalLink, Loader2, Mail, ShieldCheck, X } from 'lucide-react';
 import { trackConversionEvent } from '@/lib/analytics/events';
 import {
   FREE_TRIAL_DAYS,
@@ -19,8 +19,51 @@ interface DashboardBillingTabProps {
   isTrialEnded: boolean;
   supportEmail: string;
   supportMailHref: string;
-  checkoutNotice: { type: 'success' | 'error'; message: string } | null;
-  setCheckoutNotice: (notice: { type: 'success' | 'error'; message: string } | null) => void;
+  checkoutNotice: { type: 'success' | 'error'; message: string; paymentUrl?: string | null } | null;
+  setCheckoutNotice: (
+    notice: { type: 'success' | 'error'; message: string; paymentUrl?: string | null } | null
+  ) => void;
+  onSubscriptionActivated?: () => Promise<void> | void;
+}
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, any>) => {
+      open: () => void;
+      on?: (event: string, handler: (res: any) => void) => void;
+    };
+  }
+}
+
+let razorpayScriptPromise: Promise<boolean> | null = null;
+
+function loadRazorpayCheckoutScript(): Promise<boolean> {
+  if (typeof window === 'undefined') return Promise.resolve(false);
+  if (window.Razorpay) return Promise.resolve(true);
+  if (razorpayScriptPromise) return razorpayScriptPromise;
+
+  razorpayScriptPromise = new Promise<boolean>((resolve) => {
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[src="https://checkout.razorpay.com/v1/checkout.js"]'
+    );
+    if (existing) {
+      existing.addEventListener('load', () => resolve(Boolean(window.Razorpay)), { once: true });
+      existing.addEventListener('error', () => resolve(false), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => resolve(Boolean(window.Razorpay));
+    script.onerror = () => {
+      razorpayScriptPromise = null;
+      resolve(false);
+    };
+    document.body.appendChild(script);
+  });
+
+  return razorpayScriptPromise;
 }
 
 export function DashboardBillingTab({
@@ -34,7 +77,9 @@ export function DashboardBillingTab({
   supportMailHref,
   checkoutNotice,
   setCheckoutNotice,
+  onSubscriptionActivated,
 }: DashboardBillingTabProps) {
+  const [startingPlanKey, setStartingPlanKey] = useState<string | null>(null);
   const trialDef: TrialPlanDefinition = billingUsage?.trialPlan || TRIAL_PLAN;
   const onTrial =
     billingUsage?.plan?.key === trialDef.key || effectiveAccess?.planKey === trialDef.key;
@@ -95,19 +140,30 @@ export function DashboardBillingTab({
               : 'bg-red-50 border-red-200 text-red-900'
           }`}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2.5 flex-1">
             {checkoutNotice.type === 'success' ? (
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             ) : (
               <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
             )}
             <span>{checkoutNotice.message}</span>
+            {checkoutNotice.paymentUrl && (
+              <a
+                href={checkoutNotice.paymentUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-700 text-white text-xs font-semibold hover:bg-emerald-800 transition-colors"
+              >
+                <span>Open Razorpay Checkout</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
           </div>
           <button
             type="button"
             onClick={() => setCheckoutNotice(null)}
             aria-label="Dismiss notice"
-            className="p-1 rounded-lg hover:bg-black/5"
+            className="p-1 rounded-lg hover:bg-black/5 shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
@@ -252,41 +308,165 @@ export function DashboardBillingTab({
                 </div>
 
                 <button
-                  disabled={isCurrent}
+                  type="button"
+                  disabled={isCurrent || startingPlanKey !== null}
                   onClick={async () => {
                     setCheckoutNotice(null);
-                    const res = await fetch('/api/billing/create-subscription', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        restaurantId: restaurant.id,
+                    setStartingPlanKey(plan.key);
+                    try {
+                      const res = await fetch('/api/billing/create-subscription', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          restaurantId: restaurant.id,
+                          planKey: plan.key,
+                        }),
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        setCheckoutNotice({
+                          type: 'error',
+                          message: data.error || 'Could not start subscription checkout.',
+                        });
+                        setStartingPlanKey(null);
+                        return;
+                      }
+                      trackConversionEvent('subscription_started', {
                         planKey: plan.key,
-                      }),
-                    });
-                    const data = await res.json().catch(() => ({}));
-                    if (!res.ok) {
+                        currency: plan.currency,
+                      });
+
+                      const isMockSession =
+                        Boolean(data.isMock) ||
+                        data.keyId === 'rzp_test_mock' ||
+                        String(data.subscriptionId || '').startsWith('sub_mock_');
+
+                      if (isMockSession) {
+                        setCheckoutNotice({
+                          type: 'success',
+                          message: `Razorpay sandbox subscription initialized for ${plan.name} (Sub ID: ${data.subscriptionId}). Need billing help? Email ${supportEmail}.`,
+                        });
+                        setStartingPlanKey(null);
+                        return;
+                      }
+
+                      const scriptLoaded = await loadRazorpayCheckoutScript();
+                      if (!scriptLoaded || !window.Razorpay) {
+                        setCheckoutNotice({
+                          type: data.shortUrl ? 'success' : 'error',
+                          message: data.shortUrl
+                            ? `Razorpay Checkout modal was blocked by your browser. Continue on Razorpay's hosted page for ${plan.name} (Sub ID: ${data.subscriptionId}).`
+                            : `Unable to load Razorpay Checkout script. Please disable any script blocker or email ${supportEmail}.`,
+                          paymentUrl: data.shortUrl || null,
+                        });
+                        setStartingPlanKey(null);
+                        return;
+                      }
+
+                      const rzp = new window.Razorpay({
+                        key: data.keyId,
+                        subscription_id: data.subscriptionId,
+                        name: 'Menzy',
+                        description: `${plan.name} — ${restaurant.displayName || 'Restaurant'}`,
+                        prefill: {
+                          email: data.customerEmail || undefined,
+                          name: data.customerName || undefined,
+                        },
+                        notes: {
+                          restaurantId: restaurant.id,
+                          planKey: plan.key,
+                        },
+                        theme: {
+                          color: '#21150F',
+                        },
+                        handler: async (paymentResponse: {
+                          razorpay_payment_id: string;
+                          razorpay_subscription_id: string;
+                          razorpay_signature: string;
+                        }) => {
+                          try {
+                            const verifyRes = await fetch('/api/billing/verify-subscription', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                restaurantId: restaurant.id,
+                                planKey: plan.key,
+                                ...paymentResponse,
+                              }),
+                            });
+                            const verifyData = await verifyRes.json().catch(() => ({}));
+                            if (!verifyRes.ok) {
+                              setCheckoutNotice({
+                                type: 'error',
+                                message:
+                                  verifyData.error ||
+                                  `Payment received (ID: ${paymentResponse.razorpay_payment_id}), awaiting confirmation. Need help? Email ${supportEmail}.`,
+                              });
+                              return;
+                            }
+                            setCheckoutNotice({
+                              type: 'success',
+                              message: `${plan.name} is now active! Payment ID: ${paymentResponse.razorpay_payment_id}.`,
+                            });
+                            await onSubscriptionActivated?.();
+                          } catch {
+                            setCheckoutNotice({
+                              type: 'error',
+                              message: `Payment received (ID: ${paymentResponse.razorpay_payment_id}), but status refresh failed. Please reload or email ${supportEmail}.`,
+                            });
+                          } finally {
+                            setStartingPlanKey(null);
+                          }
+                        },
+                        modal: {
+                          ondismiss: () => {
+                            setStartingPlanKey(null);
+                            setCheckoutNotice({
+                              type: 'success',
+                              message: `Checkout paused for ${plan.name} (Sub ID: ${data.subscriptionId}). You can reopen checkout below or complete payment on Razorpay.`,
+                              paymentUrl: data.shortUrl || null,
+                            });
+                          },
+                        },
+                      });
+
+                      rzp.on?.('payment.failed', (failure: any) => {
+                        setStartingPlanKey(null);
+                        setCheckoutNotice({
+                          type: 'error',
+                          message:
+                            failure?.error?.description ||
+                            `Payment failed on Razorpay. Need billing help? Email ${supportEmail}.`,
+                        });
+                      });
+
+                      rzp.open();
+                    } catch {
                       setCheckoutNotice({
                         type: 'error',
-                        message: data.error || 'Could not start subscription checkout.',
+                        message: `Network error starting checkout. Please try again or email ${supportEmail}.`,
                       });
-                      return;
+                      setStartingPlanKey(null);
                     }
-                    trackConversionEvent('subscription_started', {
-                      planKey: plan.key,
-                      currency: plan.currency,
-                    });
-                    setCheckoutNotice({
-                      type: 'success',
-                      message: `Razorpay subscription initialized for ${plan.name} (Sub ID: ${data.subscriptionId}). Need billing help? Email ${supportEmail}.`,
-                    });
                   }}
-                  className={`w-full py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+                  className={`w-full py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all inline-flex items-center justify-center gap-2 ${
                     isCurrent
                       ? 'bg-cream-200 text-espresso-700 cursor-default'
+                      : startingPlanKey !== null
+                      ? 'bg-espresso-900/75 text-white cursor-wait'
                       : 'bg-espresso-900 text-white hover:bg-espresso-800'
                   }`}
                 >
-                  {isCurrent ? 'Current Plan' : upgradeButtonLabel}
+                  {startingPlanKey === plan.key ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Opening Razorpay...</span>
+                    </>
+                  ) : isCurrent ? (
+                    'Current Plan'
+                  ) : (
+                    upgradeButtonLabel
+                  )}
                 </button>
               </div>
             );
