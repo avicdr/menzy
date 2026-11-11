@@ -50,21 +50,34 @@ import {
   GET as serviceCallsGet,
   PATCH as serviceCallsPatch,
 } from '../src/app/api/restaurants/[id]/service-calls/route';
+import { loadDinerMenuPayload } from '../src/lib/diner/diner-menu-loader';
+import { getCache } from '../src/lib/cache/redis';
 
 describe('Dashboard, Founder Portal & KDS Action Performance Contracts', () => {
   const createdOrderIds: string[] = [];
   const createdAiEventIds: string[] = [];
   const createdCanonicalIds: string[] = [];
   const createdServiceCallIds: string[] = [];
+  const createdRestaurantSlugs: string[] = [];
   const createdRestaurantIds: string[] = [];
   const createdOrgIds: string[] = [];
   const createdUserIds: string[] = [];
   const createdPlanKeys: string[] = [];
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     mockAdminCookieValue = undefined;
     mockOwnerCookieValue = undefined;
     mockStaffCookieValue = undefined;
+
+    if (createdRestaurantSlugs.length > 0) {
+      const cache = getCache();
+      await Promise.all(
+        createdRestaurantSlugs.splice(0, createdRestaurantSlugs.length).map((s) =>
+          cache.del(`menu:slug:${s}`).catch(() => {})
+        )
+      );
+    }
 
     if (createdServiceCallIds.length > 0) {
       const ids = createdServiceCallIds.splice(0, createdServiceCallIds.length);
@@ -159,6 +172,7 @@ describe('Dashboard, Founder Portal & KDS Action Performance Contracts', () => {
       },
     });
     createdRestaurantIds.push(restaurant.id);
+    createdRestaurantSlugs.push(restaurant.slug);
 
     await prisma.restaurantTheme.create({
       data: {
@@ -652,5 +666,90 @@ describe('Dashboard, Founder Portal & KDS Action Performance Contracts', () => {
 
     const callsAfter = await getActiveServiceCalls(restaurant.id);
     expect(callsAfter.some((c) => c.id === serviceCall.id)).toBe(false);
+  });
+
+  it('loads slim SSR diner menu payload, hits cache without re-querying menus, and enforces expiry pause', async () => {
+    const { suffix, restaurant } = await seedTenantFixture({ withSubscription: true });
+
+    const menu = await prisma.menu.create({
+      data: { restaurantId: restaurant.id, title: 'All Day Cafe', active: true },
+    });
+    const category = await prisma.menuCategory.create({
+      data: { menuId: menu.id, name: 'Coffee & Bakes', sortOrder: 1 },
+    });
+    await prisma.restaurantMenuItem.create({
+      data: {
+        restaurantId: restaurant.id,
+        menuId: menu.id,
+        categoryId: category.id,
+        customName: `Cortado ${suffix}`,
+        restaurantDescription: 'Double ristretto with warm microfoam',
+        priceMinor: 21000,
+        currency: 'INR',
+        isPublished: true,
+        isAvailable: true,
+        variants: {
+          create: [
+            { name: 'Regular', supplementalPriceMinor: 0, sortOrder: 1 },
+            { name: 'Oat Milk', supplementalPriceMinor: 4000, sortOrder: 2 },
+          ],
+        },
+        modifierGroups: {
+          create: [
+            {
+              name: 'Roast Profile',
+              required: true,
+              minSelections: 1,
+              maxSelections: 1,
+              sortOrder: 1,
+              options: {
+                create: [{ name: 'House Medium Roast', priceMinor: 0, sortOrder: 1 }],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    await prisma.restaurantTheme.update({
+      where: { restaurantId: restaurant.id },
+      data: {
+        draftSettings: { unusedHugeDraftBlob: 'should_not_be_in_diner_payload' },
+        publishedSettings: { unusedPublishedBlob: 'should_not_be_in_diner_payload' },
+      },
+    });
+
+    const firstLoad = await loadDinerMenuPayload(restaurant.slug);
+    expect(firstLoad.status).toBe('OK');
+    if (firstLoad.status === 'OK') {
+      expect(firstLoad.data.restaurant.slug).toBe(restaurant.slug);
+      expect(firstLoad.data.menus).toHaveLength(1);
+      expect(firstLoad.data.menus[0].title).toBe('All Day Cafe');
+      expect(firstLoad.data.menus[0].categories[0].items[0].customName).toBe(`Cortado ${suffix}`);
+      expect(firstLoad.data.menus[0].categories[0].items[0].variants).toHaveLength(2);
+      expect(firstLoad.data.menus[0].categories[0].items[0].modifierGroups[0].required).toBe(true);
+      expect(JSON.stringify(firstLoad.data)).not.toContain('should_not_be_in_diner_payload');
+    }
+
+    // Warm cache hit MUST return menu without executing a full menu join query again
+    const findUniqueSpy = vi.spyOn(prisma.restaurant, 'findUnique');
+    const cachedLoad = await loadDinerMenuPayload(restaurant.slug);
+    expect(cachedLoad.status).toBe('OK');
+    expect(findUniqueSpy).not.toHaveBeenCalled();
+
+    // Unknown slug returns NOT_FOUND
+    const missingLoad = await loadDinerMenuPayload(`missing-${suffix}`);
+    expect(missingLoad.status).toBe('NOT_FOUND');
+
+    // Unsubscribed / expired tenant returns PAUSED even when menu cache is warm
+    await prisma.subscription.updateMany({
+      where: { organizationId: restaurant.organizationId! },
+      data: { paidThrough: new Date(Date.now() - 60_000) },
+    });
+    const pausedLoad = await loadDinerMenuPayload(restaurant.slug);
+    expect(pausedLoad.status).toBe('PAUSED');
+    if (pausedLoad.status === 'PAUSED') {
+      expect(pausedLoad.pausedPayload.paused).toBe(true);
+    }
   });
 });

@@ -13,11 +13,11 @@ import {
   EyeOff,
   LogOut,
   Clock,
-  Phone,
+  Mail,
 } from 'lucide-react';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
-import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
+import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 
 interface ClaimPreviewResponse {
   valid: boolean;
@@ -276,11 +276,11 @@ export default function ClaimPage() {
           <div className="p-3.5 rounded-2xl bg-cream-50 border border-cream-200 text-xs text-taupe-700 space-y-1">
             <div className="font-semibold text-espresso-900">Need setup help or a fresh invite link?</div>
             <a
-              href={SUPPORT_PHONE_HREF}
+              href={SUPPORT_EMAIL_HREF}
               className="inline-flex items-center gap-1.5 text-terracotta font-semibold hover:underline"
             >
-              <Phone className="w-3.5 h-3.5" />
-              <span>Call or WhatsApp {SUPPORT_PHONE_DISPLAY}</span>
+              <Mail className="w-3.5 h-3.5" />
+              <span>Email {SUPPORT_EMAIL_DISPLAY}</span>
             </a>
           </div>
 
@@ -688,13 +688,13 @@ export default function ClaimPage() {
         )}
 
         <div className="pt-4 border-t border-cream-200 flex flex-wrap items-center justify-center gap-2 text-xs text-taupe-600">
-          <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" />
-          <span>Setup &amp; onboarding queries? Call or WhatsApp</span>
+          <Mail className="w-3.5 h-3.5 text-terracotta shrink-0" />
+          <span>Setup &amp; onboarding queries? Email</span>
           <a
-            href={SUPPORT_PHONE_HREF}
+            href={SUPPORT_EMAIL_HREF}
             className="font-semibold text-espresso-900 hover:text-terracotta underline underline-offset-2"
           >
-            {SUPPORT_PHONE_DISPLAY}
+            {SUPPORT_EMAIL_DISPLAY}
           </a>
         </div>
       </div>

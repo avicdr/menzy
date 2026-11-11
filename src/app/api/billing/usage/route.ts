@@ -9,7 +9,7 @@ import {
   getPlansForCountry,
 } from '@/lib/payments/plans';
 import { evaluateOrganizationAccess } from '@/lib/billing/subscription-access';
-import { SUPPORT_PHONE } from '@/lib/support/contact';
+import { SUPPORT_EMAIL } from '@/lib/support/contact';
 
 export const dynamic = 'force-dynamic';
 
@@ -116,7 +116,7 @@ export async function GET(req: Request) {
         chatQueriesThisMonth,
         maxChatQueries: (plan?.aiQuestionsMonthly || TRIAL_PLAN.aiQuestionsMonthly) + bonusQuestions,
         activeGrants,
-        supportPhone: SUPPORT_PHONE,
+        supportEmail: SUPPORT_EMAIL,
       },
       { headers: { 'Cache-Control': 'no-store, max-age=0' } }
     );

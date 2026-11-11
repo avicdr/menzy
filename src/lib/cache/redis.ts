@@ -101,7 +101,8 @@ async function getConnectedRedis(): Promise<Redis | null> {
         lazyConnect: true,
         maxRetriesPerRequest: 1,
         enableOfflineQueue: false,
-        connectTimeout: 2000,
+        connectTimeout: 800,
+        commandTimeout: 800,
         retryStrategy: () => null, // never hang if redis isn't reachable
       });
 
@@ -146,7 +147,10 @@ async function getConnectedRedis(): Promise<Redis | null> {
         });
     }
 
-    await globalCacheState.__menzyRedisConnectPromise;
+    await Promise.race([
+      globalCacheState.__menzyRedisConnectPromise,
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 850)),
+    ]);
   }
 
   return (client.status as string) === 'ready' ? client : null;

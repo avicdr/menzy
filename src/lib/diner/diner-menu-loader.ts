@@ -1,0 +1,268 @@
+import * as React from 'react';
+import prisma from '@/lib/db/prisma';
+import { getCache } from '@/lib/cache/redis';
+import { normalizeThemeFont } from '@/lib/theme/theme-presets';
+import { isWifiVisibleToDiners } from '@/lib/wifi/wifi-qr';
+import { extractTableSessionConfig } from '@/lib/diner/table-session-config';
+import {
+  buildSubscriptionExpiredPayload,
+  checkRestaurantSubscriptionAccess,
+} from '@/lib/billing/subscription-access';
+
+export type DinerMenuLoadResult =
+  | { status: 'NOT_FOUND' }
+  | {
+      status: 'PAUSED';
+      pausedPayload: ReturnType<typeof buildSubscriptionExpiredPayload>;
+    }
+  | {
+      status: 'OK';
+      data: Record<string, any>;
+    };
+
+export async function loadDinerMenuPayload(rawSlug: string): Promise<DinerMenuLoadResult> {
+  const slug = (rawSlug || '').trim();
+  if (!slug) {
+    return { status: 'NOT_FOUND' };
+  }
+
+  const cache = getCache();
+  const cacheKey = `menu:slug:${slug}`;
+
+  // Run subscription check and Redis/memory cache lookup concurrently
+  const [subAccess, cached] = await Promise.all([
+    checkRestaurantSubscriptionAccess(slug, { bySlug: true }),
+    cache.get(cacheKey).catch(() => null),
+  ]);
+
+  if (!subAccess.found || !subAccess.restaurant) {
+    return { status: 'NOT_FOUND' };
+  }
+
+  if (!subAccess.access.allowed) {
+    return {
+      status: 'PAUSED',
+      pausedPayload: buildSubscriptionExpiredPayload(subAccess.access, {
+        restaurantId: subAccess.restaurant.id,
+        restaurantSlug: subAccess.restaurant.slug,
+        restaurantName: subAccess.restaurant.displayName,
+        audience: 'DINER',
+      }),
+    };
+  }
+
+  if (cached) {
+    try {
+      return {
+        status: 'OK',
+        data: JSON.parse(cached),
+      };
+    } catch {
+      // Corrupted cache entry — regenerate from DB cleanly
+    }
+  }
+
+  const restaurant = await prisma.restaurant.findUnique({
+    where: { slug },
+    select: {
+      id: true,
+      slug: true,
+      displayName: true,
+      description: true,
+      country: true,
+      city: true,
+      currency: true,
+      address: true,
+      phone: true,
+      logoUrl: true,
+      coverUrl: true,
+      googleReviewUrl: true,
+      publicationState: true,
+      settings: {
+        select: {
+          id: true,
+          restaurantId: true,
+          welcomeMessage: true,
+          aiTone: true,
+          allowDinerChat: true,
+          allowPairings: true,
+          maxDinerChatPerSession: true,
+        },
+      },
+      theme: {
+        select: {
+          id: true,
+          presetKey: true,
+          backgroundColor: true,
+          surfaceColor: true,
+          primaryTextColor: true,
+          secondaryTextColor: true,
+          accentColor: true,
+          secondaryAccentColor: true,
+          headingFont: true,
+          bodyFont: true,
+          layoutMode: true,
+          cardRadius: true,
+          buttonStyle: true,
+          imageProportions: true,
+          texture: true,
+        },
+      },
+      orderingSettings: {
+        select: {
+          notificationSettings: true,
+        },
+      },
+      menus: {
+        where: { active: true },
+        orderBy: { sortOrder: 'asc' },
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          visibility: true,
+          sortOrder: true,
+          active: true,
+          categories: {
+            orderBy: { sortOrder: 'asc' },
+            select: {
+              id: true,
+              name: true,
+              sortOrder: true,
+              items: {
+                where: { isPublished: true },
+                orderBy: { sortOrder: 'asc' },
+                select: {
+                  id: true,
+                  categoryId: true,
+                  canonicalId: true,
+                  customName: true,
+                  priceMinor: true,
+                  currency: true,
+                  restaurantDescription: true,
+                  ingredients: true,
+                  portionSize: true,
+                  dietaryStatus: true,
+                  allergenVerification: true,
+                  nutritionFields: true,
+                  nutritionSource: true,
+                  chefRecommended: true,
+                  isPopular: true,
+                  isAvailable: true,
+                  sortOrder: true,
+                  imageOverride: {
+                    select: {
+                      publicUrl: true,
+                    },
+                  },
+                  canonical: {
+                    select: {
+                      id: true,
+                      normalizedName: true,
+                      imageAsset: {
+                        select: {
+                          publicUrl: true,
+                        },
+                      },
+                    },
+                  },
+                  variants: {
+                    orderBy: { sortOrder: 'asc' },
+                    select: {
+                      id: true,
+                      name: true,
+                      choiceGroup: true,
+                      supplementalPriceMinor: true,
+                      isRequired: true,
+                      sortOrder: true,
+                    },
+                  },
+                  modifierGroups: {
+                    orderBy: { sortOrder: 'asc' },
+                    select: {
+                      id: true,
+                      name: true,
+                      required: true,
+                      minSelections: true,
+                      maxSelections: true,
+                      sortOrder: true,
+                      options: {
+                        orderBy: { sortOrder: 'asc' },
+                        select: {
+                          id: true,
+                          name: true,
+                          priceMinor: true,
+                          isAvailable: true,
+                          sortOrder: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!restaurant) {
+    return { status: 'NOT_FOUND' };
+  }
+
+  const notifSettings =
+    (restaurant.orderingSettings?.notificationSettings as Record<string, any>) || {};
+  const wifiConfig = isWifiVisibleToDiners(notifSettings?.wifi) ? notifSettings.wifi : null;
+  const tableSessionConfig = extractTableSessionConfig(notifSettings);
+
+  const normalizedTheme = restaurant.theme
+    ? {
+        ...restaurant.theme,
+        headingFont: normalizeThemeFont(restaurant.theme.headingFont, 'Plus Jakarta Sans'),
+        bodyFont: normalizeThemeFont(restaurant.theme.bodyFont, 'Inter'),
+      }
+    : null;
+
+  const responseData = {
+    restaurant: {
+      id: restaurant.id,
+      slug: restaurant.slug,
+      displayName: restaurant.displayName,
+      description: restaurant.description,
+      country: restaurant.country,
+      city: restaurant.city,
+      currency: restaurant.currency,
+      address: restaurant.address,
+      phone: restaurant.phone,
+      logoUrl: restaurant.logoUrl,
+      coverUrl: restaurant.coverUrl,
+      googleReviewUrl: restaurant.googleReviewUrl,
+      publicationState: restaurant.publicationState,
+      theme: normalizedTheme,
+    },
+    settings: restaurant.settings,
+    theme: normalizedTheme,
+    tableSession: tableSessionConfig,
+    wifi: wifiConfig,
+    menus: restaurant.menus,
+  };
+
+  // Warm cache without blocking response if remote Redis is momentarily slow
+  await Promise.race([
+    cache.set(cacheKey, JSON.stringify(responseData), 'EX', 60).catch(() => 'ERR'),
+    new Promise((resolve) => setTimeout(resolve, 80)),
+  ]);
+
+  return {
+    status: 'OK',
+    data: responseData,
+  };
+}
+
+const wrapPerRequestCache =
+  typeof (React as any).cache === 'function'
+    ? ((React as any).cache as typeof loadDinerMenuPayload extends infer F ? (fn: F) => F : never)
+    : <T extends (...args: any[]) => any>(fn: T) => fn;
+
+export const loadDinerMenuPayloadCached = wrapPerRequestCache(loadDinerMenuPayload);

@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { ThinkingLevel } from '@google/genai';
+import { createPartFromUri, ThinkingLevel } from '@google/genai';
+import { resolveMenuMimeForExtraction } from '../menu/menu-file-validator';
 import {
   getGenAIClient,
   getTextModelCandidates,
@@ -262,8 +263,8 @@ export function normalizeExtractedMenuResponse(parsedRaw: any, defaultCurrency: 
   };
 }
 
-const EXTRACTION_SYSTEM_PROMPT = `You are a precise restaurant-menu extraction engine. Read the supplied menu image(s) or PDF exactly.
-Extract all menu categories, dishes, prices, descriptions, and dietary indicators. Preserve dish names and groupings.
+const EXTRACTION_SYSTEM_PROMPT = `You are a precise restaurant-menu extraction engine. Read ALL supplied menu photos and ALL pages of any supplied PDF document completely.
+Extract every menu category, dish, price, portion/variant, description, and dietary indicator across every page without stopping after the first page or skipping columns/sidebars. Preserve exact dish names and category groupings, and set sourcePage (1-indexed page or image number) accurately.
 
 Dietary indicator guidelines:
 - For Indian menus, detect standard FSSAI symbols and labels:
@@ -288,7 +289,9 @@ Output format: Return ONLY a valid JSON object matching this structure:
           "category": "Category Name",
           "description": "Item description or ingredients listed under dish",
           "price": 435,
+          "variants": [{ "name": "Half", "price": 250 }],
           "dietaryLabels": ["VEG"],
+          "sourcePage": 1,
           "isPopular": false,
           "chefRecommended": false,
           "visualDescription": "Brief description of the dish appearance"
@@ -297,6 +300,80 @@ Output format: Return ONLY a valid JSON object matching this structure:
     }
   ]
 }`;
+
+const INLINE_PAYLOAD_MAX_BYTES = 12 * 1024 * 1024; // Switch to Gemini Files API above 12 MB raw bytes
+
+async function buildGeminiMediaParts(
+  client: any,
+  files: Array<{ buffer: Buffer; mimeType: string }>
+): Promise<{ parts: any[]; uploadedFileNames: string[] }> {
+  const totalBytes = files.reduce((sum, f) => sum + f.buffer.length, 0);
+  const canUploadFiles = typeof client?.files?.upload === 'function';
+  const uploadedFileNames: string[] = [];
+
+  if (totalBytes <= INLINE_PAYLOAD_MAX_BYTES || !canUploadFiles) {
+    return {
+      parts: files.map((img) => ({
+        inlineData: {
+          data: img.buffer.toString('base64'),
+          mimeType: img.mimeType,
+        },
+      })),
+      uploadedFileNames,
+    };
+  }
+
+  const parts: any[] = [];
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    // Upload large payloads (e.g., big scanned PDFs) via Gemini Files API; keep small images inline
+    if (file.buffer.length > 3 * 1024 * 1024) {
+      try {
+        const blob = new Blob([new Uint8Array(file.buffer)], { type: file.mimeType });
+        let uploaded = await client.files.upload({
+          file: blob,
+          config: {
+            mimeType: file.mimeType,
+            displayName: `menu-upload-${i + 1}${file.mimeType === 'application/pdf' ? '.pdf' : ''}`,
+          },
+        });
+
+        if (uploaded?.name) {
+          uploadedFileNames.push(uploaded.name);
+        }
+
+        if (uploaded?.name && uploaded?.state === 'PROCESSING' && typeof client.files.get === 'function') {
+          for (let attempt = 0; attempt < 8; attempt++) {
+            await new Promise((r) => setTimeout(r, 750));
+            const checked = await client.files.get({ name: uploaded.name });
+            uploaded = checked;
+            if (checked?.state !== 'PROCESSING') break;
+          }
+        }
+
+        if (uploaded?.state === 'FAILED') {
+          throw new Error('Gemini could not process the uploaded PDF file.');
+        }
+
+        if (uploaded?.uri) {
+          parts.push(createPartFromUri(uploaded.uri, uploaded.mimeType || file.mimeType));
+          continue;
+        }
+      } catch (uploadErr) {
+        console.warn('[VisionExtractor] Gemini Files API upload fallback to inlineData:', uploadErr);
+      }
+    }
+
+    parts.push({
+      inlineData: {
+        data: file.buffer.toString('base64'),
+        mimeType: file.mimeType,
+      },
+    });
+  }
+
+  return { parts, uploadedFileNames };
+}
 
 export async function extractMenuFromImages(params: {
   images: Array<{ buffer: Buffer; mimeType: string }>;
@@ -328,14 +405,27 @@ export async function extractMenuFromImages(params: {
     throw new Error('Menu extraction service is currently unavailable. Please check system credentials and try again later.');
   }
 
-  if (!params.images || params.images.length === 0) {
-    throw new Error('No readable menu image files were provided. Please upload valid image files (JPG, PNG, WebP) or PDF.');
+  const normalizedFiles: Array<{ buffer: Buffer; mimeType: string }> = [];
+  for (const img of params.images || []) {
+    if (!img?.buffer || img.buffer.length === 0) continue;
+    const resolvedMime = resolveMenuMimeForExtraction(img.buffer, img.mimeType);
+    if (!resolvedMime) {
+      throw new Error('Unsupported menu file format detected. Please upload clear menu photos (JPG, PNG, WebP, HEIC) or a PDF.');
+    }
+    normalizedFiles.push({ buffer: img.buffer, mimeType: resolvedMime });
   }
 
-  const extractionUserPrompt = `Extract all menu categories, dishes, prices (in minor units cents/paise), dietary indicators and visual descriptions according to the JSON schema. Use currency: ${currency}. Return ONLY a JSON object.`;
-  const timeoutMs = Number(process.env.GEMINI_EXTRACTION_TIMEOUT_MS) || 45000;
+  if (normalizedFiles.length === 0) {
+    throw new Error('No readable menu photos or PDF files were provided. Please upload valid images (JPG, PNG, WebP, HEIC) or a PDF.');
+  }
 
-  const parseAndValidateResponse = (responseText: string): ExtractedMenuResult => {
+  const extractionUserPrompt = `Extract EVERY menu category, dish, numeric printed price (e.g. 435 or 14.50), variants, dietary indicators, and visual descriptions across ALL pages/photos provided. Currency default: ${currency}. Return ONLY a valid JSON object.`;
+  const timeoutMs = Number(process.env.GEMINI_EXTRACTION_TIMEOUT_MS) || 52000;
+
+  const parseAndValidateResponse = (
+    responseText: string,
+    finishReason?: string
+  ): ExtractedMenuResult => {
     if (!responseText.trim()) {
       throw new Error('Empty response received from vision model.');
     }
@@ -349,6 +439,11 @@ export async function extractMenuFromImages(params: {
         .trim();
       parsedRaw = JSON.parse(cleanedJson);
     } catch {
+      if (finishReason === 'MAX_TOKENS') {
+        throw new Error(
+          'Your menu contains too many items to extract in a single pass. Please upload 2–4 pages at a time or split large PDFs.'
+        );
+      }
       throw new Error('Vision model returned malformed output that could not be parsed.');
     }
 
@@ -357,7 +452,9 @@ export async function extractMenuFromImages(params: {
     const validated = ExtractedMenuResultSchema.parse(normalized);
 
     if (!validated.items || validated.items.length === 0) {
-      throw new Error('No dishes or menu entries could be detected in the uploaded image. Please ensure the menu photo is clear, focused, and well-lit.');
+      throw new Error(
+        'No dishes or menu entries could be detected in the uploaded photos or PDF. Please ensure the text and prices are clear and legible.'
+      );
     }
 
     return validated;
@@ -367,17 +464,6 @@ export async function extractMenuFromImages(params: {
   let usedModel = modelName;
 
   try {
-    const parts: any[] = params.images.map((img) => ({
-      inlineData: {
-        data: img.buffer.toString('base64'),
-        mimeType: img.mimeType,
-      },
-    }));
-
-    parts.push({
-      text: extractionUserPrompt,
-    });
-
     const invalidKeySet = new Set<string>();
     let abortModelCascade = false;
 
@@ -396,11 +482,18 @@ export async function extractMenuFromImages(params: {
           controller.abort(new Error('GEMINI_EXTRACTION_TIMEOUT'));
         }, timeoutMs);
         let raceTimer: ReturnType<typeof setTimeout> | undefined;
+        let uploadedFileNames: string[] = [];
 
         try {
+          const mediaResult = await buildGeminiMediaParts(entry.client, normalizedFiles);
+          uploadedFileNames = mediaResult.uploadedFileNames;
+          const parts = [...mediaResult.parts, { text: extractionUserPrompt }];
+
           const modelConfig: Record<string, any> = {
             systemInstruction: EXTRACTION_SYSTEM_PROMPT,
             responseMimeType: 'application/json',
+            maxOutputTokens: 32768,
+            temperature: 0.1,
             abortSignal: controller.signal,
             httpOptions: { timeout: Math.max(10_000, timeoutMs) },
           };
@@ -421,7 +514,7 @@ export async function extractMenuFromImages(params: {
                 () =>
                   reject(
                     new Error(
-                      'Menu extraction timed out. Please try again with a clearer or smaller menu photo.'
+                      'Menu extraction timed out. For large multi-page PDFs or high-res photos, try uploading 2–4 pages at a time.'
                     )
                   ),
                 timeoutMs + 250
@@ -429,7 +522,8 @@ export async function extractMenuFromImages(params: {
             }),
           ]);
 
-          const validated = parseAndValidateResponse(response?.text || '');
+          const finishReason = response?.candidates?.[0]?.finishReason;
+          const validated = parseAndValidateResponse(response?.text || '', finishReason);
 
           const latencyMs = Date.now() - startTime;
           await prisma.aIUsageEvent.create({
@@ -476,6 +570,11 @@ export async function extractMenuFromImages(params: {
         } finally {
           clearTimeout(timeoutHandle);
           if (raceTimer) clearTimeout(raceTimer);
+          if (uploadedFileNames.length > 0 && typeof (entry.client as any)?.files?.delete === 'function') {
+            for (const fname of uploadedFileNames) {
+              (entry.client as any).files.delete({ name: fname }).catch(() => {});
+            }
+          }
         }
       }
     }
@@ -485,7 +584,7 @@ export async function extractMenuFromImages(params: {
         const openAiRes = await callOpenAIVisionMenuExtraction({
           systemPrompt: EXTRACTION_SYSTEM_PROMPT,
           userPrompt: extractionUserPrompt,
-          files: params.images,
+          files: normalizedFiles,
           timeoutMs,
         });
         usedModel = openAiRes.model;
@@ -517,7 +616,7 @@ export async function extractMenuFromImages(params: {
 
     throw lastError instanceof Error
       ? lastError
-      : new Error('Menu extraction failed. Please ensure the menu photo is clear and try again later.');
+      : new Error('Menu extraction failed. Please ensure the menu photos or PDF are clear and legible.');
   } catch (err: any) {
     console.error('Menu extraction error:', err);
     const latencyMs = Date.now() - startTime;
@@ -535,7 +634,7 @@ export async function extractMenuFromImages(params: {
     }).catch(() => {});
 
     // Convert raw Zod error JSON into human-friendly message if applicable
-    let friendlyMsg = err?.message || 'Menu extraction failed. Please ensure the menu photo is clear and try again later.';
+    let friendlyMsg = err?.message || 'Menu extraction failed. Please ensure the menu photos or PDF are clear and try again later.';
     if (typeof friendlyMsg === 'string' && friendlyMsg.trim().startsWith('[') && friendlyMsg.includes('"code"')) {
       try {
         const parsed = JSON.parse(friendlyMsg);

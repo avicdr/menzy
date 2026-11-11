@@ -8,7 +8,7 @@ import {
   TRIAL_PLAN,
   TRIAL_PLAN_KEY,
 } from '@/lib/payments/plans';
-import { SUPPORT_PHONE } from '@/lib/support/contact';
+import { SUPPORT_EMAIL } from '@/lib/support/contact';
 
 type PrismaTransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
@@ -60,7 +60,7 @@ export interface OrganizationAccessStatus {
   paidThrough: string | null;
   daysRemaining: number | null;
   hoursRemaining: number | null;
-  supportPhone: string;
+  supportEmail: string;
 }
 
 function toValidDate(input: Date | string | null | undefined): Date | null {
@@ -150,7 +150,7 @@ export function evaluateOrganizationAccess(params: {
       paidThrough: null,
       daysRemaining: null,
       hoursRemaining: null,
-      supportPhone: SUPPORT_PHONE,
+      supportEmail: SUPPORT_EMAIL,
     };
   }
 
@@ -170,7 +170,7 @@ export function evaluateOrganizationAccess(params: {
       paidThrough: null,
       daysRemaining: 0,
       hoursRemaining: 0,
-      supportPhone: SUPPORT_PHONE,
+      supportEmail: SUPPORT_EMAIL,
     };
   }
 
@@ -208,7 +208,7 @@ export function evaluateOrganizationAccess(params: {
         paidThrough: subPaidThroughIso,
         daysRemaining: remainingMs !== null ? Math.max(1, Math.ceil(remainingMs / 86_400_000)) : null,
         hoursRemaining: remainingMs !== null ? Math.max(1, Math.ceil(remainingMs / 3_600_000)) : null,
-        supportPhone: SUPPORT_PHONE,
+        supportEmail: SUPPORT_EMAIL,
       };
     }
   }
@@ -255,7 +255,7 @@ export function evaluateOrganizationAccess(params: {
       paidThrough: effectiveEndIso,
       daysRemaining: Math.max(1, Math.ceil(remainingMs / 86_400_000)),
       hoursRemaining: Math.max(1, Math.ceil(remainingMs / 3_600_000)),
-      supportPhone: SUPPORT_PHONE,
+      supportEmail: SUPPORT_EMAIL,
     };
   }
 
@@ -290,7 +290,7 @@ export function evaluateOrganizationAccess(params: {
         paidThrough: subPaidThroughIso,
         daysRemaining: Math.max(1, Math.ceil(remainingMs / 86_400_000)),
         hoursRemaining: Math.max(1, Math.ceil(remainingMs / 3_600_000)),
-        supportPhone: SUPPORT_PHONE,
+        supportEmail: SUPPORT_EMAIL,
       };
     }
 
@@ -309,7 +309,7 @@ export function evaluateOrganizationAccess(params: {
       paidThrough: subPaidThroughIso,
       daysRemaining: 0,
       hoursRemaining: 0,
-      supportPhone: SUPPORT_PHONE,
+      supportEmail: SUPPORT_EMAIL,
     };
   }
 
@@ -335,7 +335,7 @@ export function evaluateOrganizationAccess(params: {
     paidThrough: subPaidThroughIso,
     daysRemaining: 0,
     hoursRemaining: 0,
-    supportPhone: SUPPORT_PHONE,
+    supportEmail: SUPPORT_EMAIL,
   };
 }
 
@@ -471,8 +471,8 @@ export function buildSubscriptionExpiredPayload(
     billingUrl: options?.restaurantId
       ? `/dashboard/${options.restaurantId}?tab=billing`
       : '/login',
-    supportPhone: SUPPORT_PHONE,
-    supportMessage: `For setup-related queries or assistance activating your plan, contact ${SUPPORT_PHONE}.`,
+    supportEmail: SUPPORT_EMAIL,
+    supportMessage: `For setup-related queries or assistance activating your plan, email ${SUPPORT_EMAIL}.`,
     ...(options?.restaurantName || options?.restaurantSlug
       ? {
           restaurant: {

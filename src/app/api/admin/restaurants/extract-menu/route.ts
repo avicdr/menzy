@@ -1,29 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getAdminSession } from '@/lib/auth/admin-auth';
 import { extractMenuFromImages } from '@/lib/gemini/vision-extractor';
+import {
+  MAX_MENU_FILES_PER_UPLOAD,
+  validateAndNormalizeMenuFile,
+} from '@/lib/menu/menu-file-validator';
 
-const ALLOWED_MIME_TYPES = new Set([
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/webp',
-  'image/gif',
-  'application/pdf',
-]);
-
-function resolveMimeType(file: File): string | null {
-  const rawType = (file.type || '').toLowerCase();
-  if (ALLOWED_MIME_TYPES.has(rawType)) {
-    return rawType === 'image/jpg' ? 'image/jpeg' : rawType;
-  }
-  const lowerName = (file.name || '').toLowerCase();
-  if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) return 'image/jpeg';
-  if (lowerName.endsWith('.png')) return 'image/png';
-  if (lowerName.endsWith('.webp')) return 'image/webp';
-  if (lowerName.endsWith('.gif')) return 'image/gif';
-  if (lowerName.endsWith('.pdf')) return 'application/pdf';
-  return null;
-}
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   const session = await getAdminSession();
@@ -36,18 +20,18 @@ export async function POST(req: Request) {
     const rawFiles = formData.getAll('files');
     const singleFile = formData.get('file');
     const allEntries = [...rawFiles, ...(singleFile ? [singleFile] : [])];
-    const files = allEntries.filter((f): f is File => f instanceof File && f.size > 0);
+    const files = allEntries.filter((f): f is File => f instanceof File);
 
     if (files.length === 0) {
       return NextResponse.json(
-        { error: 'Please upload at least one JPG, PNG, WebP, or PDF menu file.' },
+        { error: 'Please upload at least one menu photo (JPG, PNG, WebP, HEIC) or PDF file.' },
         { status: 400 }
       );
     }
 
-    if (files.length > 5) {
+    if (files.length > MAX_MENU_FILES_PER_UPLOAD) {
       return NextResponse.json(
-        { error: 'Please upload at most 5 menu pages per demo extraction.' },
+        { error: `Please upload at most ${MAX_MENU_FILES_PER_UPLOAD} menu photos or PDF files per extraction.` },
         { status: 400 }
       );
     }
@@ -57,21 +41,12 @@ export async function POST(req: Request) {
 
     const images: Array<{ buffer: Buffer; mimeType: string }> = [];
     for (const file of files) {
-      if (file.size > 10 * 1024 * 1024) {
-        return NextResponse.json(
-          { error: `File "${file.name}" exceeds the 10MB limit.` },
-          { status: 400 }
-        );
-      }
-      const mimeType = resolveMimeType(file);
-      if (!mimeType) {
-        return NextResponse.json(
-          { error: `Unsupported file format for "${file.name}". Use JPG, PNG, WebP, or PDF.` },
-          { status: 400 }
-        );
-      }
       const buffer = Buffer.from(await file.arrayBuffer());
-      images.push({ buffer, mimeType });
+      const validation = validateAndNormalizeMenuFile(buffer, file.name, file.type);
+      if (!validation.ok) {
+        return NextResponse.json({ error: validation.error }, { status: 400 });
+      }
+      images.push({ buffer, mimeType: validation.mimeType });
     }
 
     const extracted = await extractMenuFromImages({
@@ -103,4 +78,3 @@ export async function POST(req: Request) {
     );
   }
 }
-

@@ -2,9 +2,9 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Check, Sparkles, ShieldCheck, Phone } from 'lucide-react';
+import { ArrowRight, Check, Sparkles, ShieldCheck, Mail } from 'lucide-react';
 import { TRIAL_PLAN, type PlanDefinition } from '@/lib/payments/plans';
-import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
+import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 import { trackConversionEvent } from '@/lib/analytics/events';
 
 interface PricingCardsClientProps {
@@ -131,13 +131,13 @@ export function PricingCardsClient({
             Sign up or claim your pre-built demo menu to get instant full access (up to {TRIAL_PLAN.itemLimit} dishes, {TRIAL_PLAN.imageCreditsMonthly} 3D credits, {TRIAL_PLAN.aiQuestionsMonthly.toLocaleString()} AI queries, Table QR ordering &amp; Live KDS). After {TRIAL_PLAN.trialDays} days, access pauses cleanly until you buy a paid subscription inside Billing.
           </p>
           <div className="flex flex-wrap items-center gap-2 text-xs text-taupe-700 pt-0.5">
-            <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" aria-hidden="true" />
-            <span>Setup queries? Call or WhatsApp</span>
+            <Mail className="w-3.5 h-3.5 text-terracotta shrink-0" aria-hidden="true" />
+            <span>Setup queries? Email</span>
             <a
-              href={SUPPORT_PHONE_HREF}
+              href={SUPPORT_EMAIL_HREF}
               className="font-semibold text-espresso-900 hover:text-terracotta underline underline-offset-2"
             >
-              {SUPPORT_PHONE_DISPLAY}
+              {SUPPORT_EMAIL_DISPLAY}
             </a>
           </div>
         </div>

@@ -11,6 +11,10 @@ import {
   normalizeCategoryKey,
   resolvePrimaryDietaryBucket,
 } from '@/lib/menu/deduplicate';
+import { resolveMenuMimeForExtraction } from '@/lib/menu/menu-file-validator';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
@@ -29,20 +33,29 @@ export async function POST(req: Request) {
       where: { id: uploadId },
     });
 
-    if (!upload) {
+    if (!upload || upload.restaurantId !== restaurantId) {
       return NextResponse.json({ error: 'Upload not found' }, { status: 404 });
     }
 
     const restaurant = auth.restaurant;
     const fileKeys = upload.fileKeys as string[];
 
-    // Read files (from S3/Supabase Storage or local fallback)
+    // Read files (from S3/Supabase Storage or local fallback) and normalize MIME via magic bytes
     const images: Array<{ buffer: Buffer; mimeType: string }> = [];
     for (const fileUrl of fileKeys) {
       try {
         const loaded = await readAssetFromUrl(fileUrl);
-        if (loaded) {
-          images.push(loaded);
+        if (loaded && loaded.buffer.length > 0) {
+          const resolvedMime = resolveMenuMimeForExtraction(
+            loaded.buffer,
+            loaded.mimeType,
+            fileUrl
+          );
+          if (resolvedMime) {
+            images.push({ buffer: loaded.buffer, mimeType: resolvedMime });
+          } else {
+            console.warn('Skipping unsupported uploaded menu file:', fileUrl, loaded.mimeType);
+          }
         }
       } catch (err) {
         console.warn('Failed to load uploaded menu file:', fileUrl, err);
@@ -57,12 +70,12 @@ export async function POST(req: Request) {
       if (jobId) {
         await prisma.extractionJob.update({
           where: { id: jobId },
-          data: { status: 'FAILED', error: 'No readable images found in uploaded files' },
+          data: { status: 'FAILED', error: 'No readable menu photos or PDFs found in uploaded files' },
         });
       }
       return NextResponse.json({
         success: false,
-        error: 'No readable menu images found. Please upload a clear image (JPG, PNG) or PDF.',
+        error: 'No readable menu photos or PDFs found. Please upload clear menu photos (JPG, PNG, WebP, HEIC) or a PDF.',
       }, { status: 400 });
     }
 
@@ -100,12 +113,12 @@ export async function POST(req: Request) {
       if (jobId) {
         await prisma.extractionJob.update({
           where: { id: jobId },
-          data: { status: 'FAILED', error: 'No dishes detected in image' },
+          data: { status: 'FAILED', error: 'No dishes detected in menu upload' },
         });
       }
       return NextResponse.json({
         success: false,
-        error: 'No dishes or prices could be detected in the uploaded image. Please ensure your menu photo is clear, focused, and well-lit.',
+        error: 'No dishes or prices could be detected in the uploaded menu photos or PDF. Please ensure the menu is clear, focused, and not password-protected.',
       }, { status: 422 });
     }
 

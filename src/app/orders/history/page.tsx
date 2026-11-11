@@ -16,11 +16,11 @@ import {
   ChevronRight,
   Lock,
   CreditCard,
-  Phone,
+  Mail,
 } from 'lucide-react';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
 import { generateStaffTypographyVars } from '@/lib/theme/theme-presets';
-import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
+import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 
 export default function StaffOrderHistoryPage() {
   const router = useRouter();
@@ -28,7 +28,7 @@ export default function StaffOrderHistoryPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [subscriptionPaused, setSubscriptionPaused] = useState<{
     error?: string;
-    supportPhone?: string;
+    supportEmail?: string;
     restaurantName?: string;
   } | null>(null);
 
@@ -60,7 +60,7 @@ export default function StaffOrderHistoryPage() {
           error:
             pausedJson.error ||
             'Your 14-day free trial or subscription has ended. Ask the owner to activate a subscription in the Billing panel.',
-          supportPhone: pausedJson.supportPhone || SUPPORT_PHONE_DISPLAY,
+          supportEmail: pausedJson.supportEmail || SUPPORT_EMAIL_DISPLAY,
           restaurantName: pausedJson.restaurantName,
         });
         return;
@@ -85,7 +85,7 @@ export default function StaffOrderHistoryPage() {
           error:
             pausedJson.error ||
             'Your 14-day free trial or subscription has ended. Ask the owner to activate a subscription in the Billing panel.',
-          supportPhone: pausedJson.supportPhone || SUPPORT_PHONE_DISPLAY,
+          supportEmail: pausedJson.supportEmail || SUPPORT_EMAIL_DISPLAY,
           restaurantName: pausedJson.restaurantName || autoData?.restaurantName,
         });
         return;
@@ -146,7 +146,7 @@ export default function StaffOrderHistoryPage() {
   }
 
   if (subscriptionPaused) {
-    const supportPhone = subscriptionPaused.supportPhone || SUPPORT_PHONE_DISPLAY;
+    const supportEmail = subscriptionPaused.supportEmail || SUPPORT_EMAIL_DISPLAY;
     return (
       <div
         style={staffTypographyStyle}
@@ -186,13 +186,13 @@ export default function StaffOrderHistoryPage() {
             </button>
           </div>
           <div className="pt-3 border-t border-espresso-800/80 text-xs text-taupe-300">
-            <p className="text-[11px] text-taupe-400 mb-1">Setup & Billing Helpline</p>
+            <p className="text-[11px] text-taupe-400 mb-1">Setup & Billing Support</p>
             <a
-              href={SUPPORT_PHONE_HREF}
+              href={supportEmail ? `mailto:${supportEmail}` : SUPPORT_EMAIL_HREF}
               className="inline-flex items-center gap-1.5 text-amber-300 hover:text-amber-200 font-mono font-semibold"
             >
-              <Phone className="w-3.5 h-3.5" />
-              {supportPhone}
+              <Mail className="w-3.5 h-3.5" />
+              {supportEmail}
             </a>
           </div>
         </div>

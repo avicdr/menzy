@@ -1,6 +1,11 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import {
+  isGenericOrEmptyMime,
+  normalizeMenuMimeType,
+  sniffMenuFileMimeFromBytes,
+} from '@/lib/menu/menu-file-validator';
 
 export interface StorageUploadResult {
   storageKey: string;
@@ -24,6 +29,8 @@ const MIME_BY_EXT: Record<string, string> = {
   '.png': 'image/png',
   '.webp': 'image/webp',
   '.gif': 'image/gif',
+  '.heic': 'image/heic',
+  '.heif': 'image/heif',
   '.svg': 'image/svg+xml',
   '.pdf': 'application/pdf',
 };
@@ -32,6 +39,26 @@ export function inferMimeType(filePathOrUrl: string, fallback = 'application/oct
   const clean = filePathOrUrl.split('?')[0].split('#')[0];
   const ext = path.extname(clean).toLowerCase();
   return MIME_BY_EXT[ext] || fallback;
+}
+
+function resolveAssetContentType(
+  buffer: Buffer,
+  headerContentType: string | null | undefined,
+  filePathOrUrl: string,
+  fallback = 'application/octet-stream'
+): string {
+  const sniffed = sniffMenuFileMimeFromBytes(buffer);
+  if (sniffed) {
+    return sniffed;
+  }
+
+  const rawHeader = headerContentType?.split(';')[0]?.trim().toLowerCase() || '';
+  if (rawHeader && !isGenericOrEmptyMime(rawHeader)) {
+    const normalizedMenuMime = normalizeMenuMimeType(rawHeader);
+    return normalizedMenuMime || rawHeader;
+  }
+
+  return inferMimeType(filePathOrUrl, fallback);
 }
 
 export function sanitizeStorageKey(rawKey: string): string | null {
@@ -233,12 +260,14 @@ export async function getAssetBuffer(
   if (s3Config) {
     const res = await signedS3Fetch(s3Config, 'GET', storageKey);
     if (res.ok) {
-      const arrayBuffer = await res.arrayBuffer();
-      const contentType =
-        res.headers.get('content-type')?.split(';')[0]?.trim() ||
-        inferMimeType(storageKey);
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const contentType = resolveAssetContentType(
+        buffer,
+        res.headers.get('content-type'),
+        storageKey
+      );
       return {
-        buffer: Buffer.from(arrayBuffer),
+        buffer,
         contentType,
       };
     }
@@ -258,7 +287,7 @@ export async function getAssetBuffer(
     const buffer = await fs.promises.readFile(localPath);
     return {
       buffer,
-      contentType: inferMimeType(localPath),
+      contentType: resolveAssetContentType(buffer, null, localPath),
     };
   }
 
@@ -299,12 +328,15 @@ export async function readAssetFromUrl(
     if (!res.ok) {
       return null;
     }
-    const arrayBuffer = await res.arrayBuffer();
-    const mimeType =
-      res.headers.get('content-type')?.split(';')[0]?.trim() ||
-      inferMimeType(trimmed, 'image/jpeg');
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const mimeType = resolveAssetContentType(
+      buffer,
+      res.headers.get('content-type'),
+      trimmed,
+      'image/jpeg'
+    );
     return {
-      buffer: Buffer.from(arrayBuffer),
+      buffer,
       mimeType,
     };
   }

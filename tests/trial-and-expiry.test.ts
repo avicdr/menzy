@@ -44,7 +44,7 @@ import {
   redeemClaimWithinTransaction,
 } from '../src/lib/claims/claim-service';
 import { processRazorpayWebhookEvent } from '../src/lib/payments/razorpay';
-import { SUPPORT_PHONE } from '../src/lib/support/contact';
+import { SUPPORT_EMAIL } from '../src/lib/support/contact';
 import { TRIAL_PLAN_KEY } from '../src/lib/payments/plans';
 import { POST as signupPost } from '../src/app/api/auth/signup/route';
 import { GET as authMeGet } from '../src/app/api/auth/me/route';
@@ -58,7 +58,7 @@ import { POST as staffLoginPost } from '../src/app/api/staff/login/route';
 import { GET as staffAutoOrdersGet } from '../src/app/api/restaurants/_auto/orders/route';
 import { POST as adminGrantPost } from '../src/app/api/admin/entitlements/grant/route';
 
-describe('14-Day Free Trial, Hard Subscription Cutoff & Setup Support Helpline', () => {
+describe('14-Day Free Trial, Hard Subscription Cutoff & Setup Support Email', () => {
   const createdRestaurantSlugs: string[] = [];
   const createdRestaurantIds: string[] = [];
   const createdOrgIds: string[] = [];
@@ -156,7 +156,7 @@ describe('14-Day Free Trial, Hard Subscription Cutoff & Setup Support Helpline',
       days: 14,
       requiresPaymentMethod: false,
     });
-    expect(signupJson.supportPhone).toBe(SUPPORT_PHONE);
+    expect(signupJson.supportEmail).toBe(SUPPORT_EMAIL);
 
     const userId = signupJson.user.id as string;
     const restaurantId = signupJson.restaurant.id as string;
@@ -247,7 +247,7 @@ describe('14-Day Free Trial, Hard Subscription Cutoff & Setup Support Helpline',
       expired: false,
       mode: 'TRIAL',
       planName: 'Trial',
-      supportPhone: SUPPORT_PHONE,
+      supportEmail: SUPPORT_EMAIL,
     });
     expect(activeItemsRes.status).toBe(200);
     expect(activeDinerMenuRes.status).toBe(200);
@@ -275,7 +275,7 @@ describe('14-Day Free Trial, Hard Subscription Cutoff & Setup Support Helpline',
     expect(expiredMenuBody.code).toBe('TRIAL_EXPIRED');
     expect(expiredMenuBody.paused).toBe(true);
     expect(expiredMenuBody.subscriptionRequired).toBe(true);
-    expect(expiredMenuBody.supportPhone).toBe(SUPPORT_PHONE);
+    expect(expiredMenuBody.supportEmail).toBe(SUPPORT_EMAIL);
 
     const [
       expiredSessionRes,
@@ -328,14 +328,14 @@ describe('14-Day Free Trial, Hard Subscription Cutoff & Setup Support Helpline',
       allowed: false,
       expired: true,
       isTrialExpired: true,
-      supportPhone: SUPPORT_PHONE,
+      supportEmail: SUPPORT_EMAIL,
     });
 
     expect(billingWhileExpiredRes.status).toBe(200);
     const billingBody = await billingWhileExpiredRes.json();
     expect(billingBody.plan.name).toBe('Trial');
     expect(billingBody.access.expired).toBe(true);
-    expect(billingBody.supportPhone).toBe(SUPPORT_PHONE);
+    expect(billingBody.supportEmail).toBe(SUPPORT_EMAIL);
 
     expect(paidCheckoutRes.status).toBe(200);
     const paidCheckoutBody = await paidCheckoutRes.json();

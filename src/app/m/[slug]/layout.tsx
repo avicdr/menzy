@@ -1,3 +1,4 @@
+import * as React from 'react';
 import type { Metadata } from 'next';
 import prisma from '@/lib/db/prisma';
 import { generateSEOMetadata, SITE_NAME, SITE_URL } from '@/lib/seo';
@@ -11,7 +12,12 @@ interface MenuSlugLayoutProps {
   params: Promise<{ slug: string }>;
 }
 
-async function fetchPublicRestaurantMeta(slug: string) {
+const wrapCache =
+  typeof (React as any).cache === 'function'
+    ? (React as any).cache
+    : <T extends (...args: any[]) => any>(fn: T) => fn;
+
+const fetchPublicRestaurantMeta = wrapCache(async (slug: string) => {
   if (!slug) return null;
   try {
     const restaurant = await prisma.restaurant.findUnique({
@@ -32,7 +38,7 @@ async function fetchPublicRestaurantMeta(slug: string) {
   } catch {
     return null;
   }
-}
+});
 
 export async function generateMetadata({
   params,

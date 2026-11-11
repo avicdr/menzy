@@ -103,17 +103,25 @@ export async function POST(req: Request) {
     let existingSession: Awaited<ReturnType<typeof prisma.dinerSession.findUnique>> = null;
     let sessionToken = `ds_${crypto.randomBytes(16).toString('hex')}`;
 
+    const [foundSession, prefetchedResolvedTable] = await Promise.all([
+      rawCandidateToken && typeof rawCandidateToken === 'string'
+        ? prisma.dinerSession.findUnique({
+            where: { sessionToken: rawCandidateToken },
+          })
+        : Promise.resolve(null),
+      qrTokenCandidate
+        ? resolveTableFromToken(restaurantSlug, qrTokenCandidate)
+        : Promise.resolve(null),
+    ]);
+
     if (rawCandidateToken && typeof rawCandidateToken === 'string') {
-      const found = await prisma.dinerSession.findUnique({
-        where: { sessionToken: rawCandidateToken },
-      });
-      if (!found) {
+      if (!foundSession) {
         if (rawCandidateToken.startsWith('ds_')) {
           sessionToken = rawCandidateToken;
         }
-      } else if (found.restaurantId === restaurant.id) {
-        existingSession = found;
-        sessionToken = found.sessionToken;
+      } else if (foundSession.restaurantId === restaurant.id) {
+        existingSession = foundSession;
+        sessionToken = foundSession.sessionToken;
       }
     }
 
@@ -127,10 +135,7 @@ export async function POST(req: Request) {
     // Case 1: Explicit QR scan / cryptographic table token provided in URL
     // Note: Raw database `tableId` UUIDs are NEVER trusted or resolved directly.
     if (qrTokenCandidate || attemptedRawTableId) {
-      const resolved = qrTokenCandidate
-        ? await resolveTableFromToken(restaurantSlug, qrTokenCandidate)
-        : null;
-      const resolvedTable = resolved?.table || null;
+      const resolvedTable = prefetchedResolvedTable?.table || null;
 
       if (!resolvedTable) {
         // Explicit QR token or raw tableId failed to resolve -> do not bind or keep stale table access
@@ -172,37 +177,38 @@ export async function POST(req: Request) {
       }
 
       const now = new Date();
-      const session = existingSession
-        ? await prisma.dinerSession.update({
-            where: { id: existingSession.id },
-            data: {
-              lastActiveAt: now,
-              tableId: resolvedTable.id,
-              userAgent,
-              ipHash,
-            },
-          })
-        : await prisma.dinerSession.create({
-            data: {
-              sessionToken,
-              restaurantId: restaurant.id,
-              tableId: resolvedTable.id,
-              lastActiveAt: now,
-              userAgent,
-              ipHash,
-            },
-          });
-
-      await prisma.scanEvent.create({
-        data: {
-          restaurantId: restaurant.id,
-          tableId: resolvedTable.id,
-          sessionToken: session.sessionToken,
-          userAgent,
-          ipHash,
-          timestamp: now,
-        },
-      });
+      const [session] = await Promise.all([
+        existingSession
+          ? prisma.dinerSession.update({
+              where: { id: existingSession.id },
+              data: {
+                lastActiveAt: now,
+                tableId: resolvedTable.id,
+                userAgent,
+                ipHash,
+              },
+            })
+          : prisma.dinerSession.create({
+              data: {
+                sessionToken,
+                restaurantId: restaurant.id,
+                tableId: resolvedTable.id,
+                lastActiveAt: now,
+                userAgent,
+                ipHash,
+              },
+            }),
+        prisma.scanEvent.create({
+          data: {
+            restaurantId: restaurant.id,
+            tableId: resolvedTable.id,
+            sessionToken,
+            userAgent,
+            ipHash,
+            timestamp: now,
+          },
+        }),
+      ]);
 
       const expiresAt = new Date(now.getTime() + scanTimeoutMs);
       const res = NextResponse.json({
@@ -229,25 +235,26 @@ export async function POST(req: Request) {
     // Case 2: No table token passed (browse mode or page reload)
     // Never bump lastActiveAt or record a table scan on passive reloads.
     if (!existingSession) {
-      const session = await prisma.dinerSession.create({
-        data: {
-          sessionToken,
-          restaurantId: restaurant.id,
-          tableId: null,
-          userAgent,
-          ipHash,
-        },
-      });
-
-      await prisma.scanEvent.create({
-        data: {
-          restaurantId: restaurant.id,
-          tableId: null,
-          sessionToken: session.sessionToken,
-          userAgent,
-          ipHash,
-        },
-      });
+      const [session] = await Promise.all([
+        prisma.dinerSession.create({
+          data: {
+            sessionToken,
+            restaurantId: restaurant.id,
+            tableId: null,
+            userAgent,
+            ipHash,
+          },
+        }),
+        prisma.scanEvent.create({
+          data: {
+            restaurantId: restaurant.id,
+            tableId: null,
+            sessionToken,
+            userAgent,
+            ipHash,
+          },
+        }),
+      ]);
 
       const res = NextResponse.json({
         sessionId: session.id,

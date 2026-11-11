@@ -1,8 +1,8 @@
 import React from 'react';
 import Link from 'next/link';
-import { Phone } from 'lucide-react';
+import { Mail } from 'lucide-react';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
-import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
+import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 
 export function MarketingFooter() {
   return (
@@ -22,11 +22,11 @@ export function MarketingFooter() {
             </p>
             <div className="pt-1">
               <a
-                href={SUPPORT_PHONE_HREF}
+                href={SUPPORT_EMAIL_HREF}
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-espresso-900 hover:text-terracotta transition-colors"
               >
-                <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" aria-hidden="true" />
-                <span>Setup Queries: {SUPPORT_PHONE_DISPLAY}</span>
+                <Mail className="w-3.5 h-3.5 text-terracotta shrink-0" aria-hidden="true" />
+                <span>Setup Queries: {SUPPORT_EMAIL_DISPLAY}</span>
               </a>
             </div>
           </div>

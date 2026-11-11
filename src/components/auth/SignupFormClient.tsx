@@ -3,14 +3,14 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowRight, AlertCircle, Sparkles, Eye, EyeOff, ShieldCheck, Phone } from 'lucide-react';
+import { ArrowRight, AlertCircle, Sparkles, Eye, EyeOff, ShieldCheck, Mail } from 'lucide-react';
 import {
   BillingRegion,
   detectRegionFromTimezoneAndLocale,
 } from '@/lib/geo/region-shared';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
 import { trackConversionEvent } from '@/lib/analytics/events';
-import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
+import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 
 interface SignupFormClientProps {
   initialRegion: BillingRegion;
@@ -308,10 +308,10 @@ function SignupFormInner({ initialRegion, authoritativeGeo }: SignupFormClientPr
           </Link>
         </div>
         <div className="pt-2 border-t border-cream-200 flex items-center justify-center gap-1.5 text-[11px] text-taupe-600">
-          <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" />
-          <span>Setup queries? Call</span>
-          <a href={SUPPORT_PHONE_HREF} className="font-semibold text-espresso-900 hover:text-terracotta underline underline-offset-2">
-            {SUPPORT_PHONE_DISPLAY}
+          <Mail className="w-3.5 h-3.5 text-terracotta shrink-0" />
+          <span>Setup queries? Email</span>
+          <a href={SUPPORT_EMAIL_HREF} className="font-semibold text-espresso-900 hover:text-terracotta underline underline-offset-2">
+            {SUPPORT_EMAIL_DISPLAY}
           </a>
         </div>
       </div>

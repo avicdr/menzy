@@ -28,10 +28,10 @@ import {
   FileText,
   Lock,
   CreditCard,
-  Phone,
+  Mail,
 } from 'lucide-react';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
-import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
+import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 import { Portal } from '@/components/ui/Portal';
 import { generateStaffTypographyVars } from '@/lib/theme/theme-presets';
 
@@ -80,7 +80,7 @@ export default function StaffOrderPortalPage() {
   const [subscriptionPaused, setSubscriptionPaused] = useState<{
     error?: string;
     code?: string;
-    supportPhone?: string;
+    supportEmail?: string;
     restaurantName?: string;
   } | null>(null);
 
@@ -153,7 +153,7 @@ export default function StaffOrderPortalPage() {
             pausedJson.error ||
             'Your 14-day free trial or subscription has ended. Ask the owner to activate a plan in Owner Billing.',
           code: pausedJson.code,
-          supportPhone: pausedJson.supportPhone || SUPPORT_PHONE_DISPLAY,
+          supportEmail: pausedJson.supportEmail || SUPPORT_EMAIL_DISPLAY,
           restaurantName: pausedJson.restaurantName,
         });
         return;
@@ -166,7 +166,7 @@ export default function StaffOrderPortalPage() {
             pausedJson.error ||
             'Your 14-day free trial or subscription has ended. Ask the owner to activate a plan in Owner Billing.',
           code: pausedJson.code,
-          supportPhone: pausedJson.supportPhone || SUPPORT_PHONE_DISPLAY,
+          supportEmail: pausedJson.supportEmail || SUPPORT_EMAIL_DISPLAY,
           restaurantName: pausedJson.restaurantName,
         });
         return;
@@ -271,7 +271,7 @@ export default function StaffOrderPortalPage() {
             pausedJson.error ||
             'Your 14-day free trial or subscription has ended. Ask the owner to activate a plan in Owner Billing.',
           code: pausedJson.code,
-          supportPhone: pausedJson.supportPhone || SUPPORT_PHONE_DISPLAY,
+          supportEmail: pausedJson.supportEmail || SUPPORT_EMAIL_DISPLAY,
           restaurantName: pausedJson.restaurantName || restaurantData?.restaurantName,
         });
         return;
@@ -354,7 +354,7 @@ export default function StaffOrderPortalPage() {
             data.error ||
             'Your 14-day free trial or subscription has ended. Ask the owner to activate a plan in Owner Billing.',
           code: data.code,
-          supportPhone: data.supportPhone || SUPPORT_PHONE_DISPLAY,
+          supportEmail: data.supportEmail || SUPPORT_EMAIL_DISPLAY,
           restaurantName: data.restaurantName || restaurantData?.restaurantName,
         });
         throw new Error(data.error || 'Subscription required');
@@ -453,7 +453,7 @@ export default function StaffOrderPortalPage() {
   }
 
   if (subscriptionPaused) {
-    const pausedSupportPhone = subscriptionPaused.supportPhone || SUPPORT_PHONE_DISPLAY;
+    const pausedSupportEmail = subscriptionPaused.supportEmail || SUPPORT_EMAIL_DISPLAY;
     const pausedVenueName =
       subscriptionPaused.restaurantName || restaurantData?.restaurantName || 'this venue';
 
@@ -503,11 +503,11 @@ export default function StaffOrderPortalPage() {
               Setup &amp; billing queries? Contact support:
             </span>
             <a
-              href={SUPPORT_PHONE_HREF}
+              href={pausedSupportEmail ? `mailto:${pausedSupportEmail}` : SUPPORT_EMAIL_HREF}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-espresso-900 border border-espresso-700 text-amber-300 hover:text-amber-200 font-mono font-semibold transition-colors"
             >
-              <Phone className="w-3.5 h-3.5" />
-              <span>{pausedSupportPhone}</span>
+              <Mail className="w-3.5 h-3.5" />
+              <span>{pausedSupportEmail}</span>
             </a>
             <button
               type="button"

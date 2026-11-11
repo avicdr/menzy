@@ -4,7 +4,7 @@ import { getOwnerSession } from '@/lib/auth/owner-auth';
 import { getCache } from '@/lib/cache/redis';
 import { ClaimRedeemError, redeemClaimWithinTransaction } from '@/lib/claims/claim-service';
 import { FREE_TRIAL_DAYS, TRIAL_PLAN, TRIAL_PLAN_KEY } from '@/lib/payments/plans';
-import { SUPPORT_PHONE } from '@/lib/support/contact';
+import { SUPPORT_EMAIL } from '@/lib/support/contact';
 
 export async function POST(req: Request) {
   try {
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
           ? result.subscription.paidThrough.toISOString()
           : null,
       },
-      supportPhone: SUPPORT_PHONE,
+      supportEmail: SUPPORT_EMAIL,
     });
   } catch (error: any) {
     if (error instanceof ClaimRedeemError) {

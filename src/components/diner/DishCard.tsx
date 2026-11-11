@@ -68,6 +68,7 @@ export function DishCard({ item, layoutMode = 'GRID', onSelect }: DishCardProps)
             }}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
+            decoding="async"
           />
           {!item.isAvailable && (
             <div className="absolute inset-0 bg-espresso-900/60 backdrop-blur-[1px] flex items-center justify-center">
@@ -97,6 +98,7 @@ export function DishCard({ item, layoutMode = 'GRID', onSelect }: DishCardProps)
           }}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           loading="lazy"
+          decoding="async"
         />
 
         {/* Floating Badges */}

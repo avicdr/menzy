@@ -127,9 +127,9 @@ export const THEME_PRESETS: Record<string, ThemeConfig> = {
 /**
  * Calculates relative luminance for WCAG contrast checks
  */
-function getLuminance(hex: string): number {
+export function getLuminance(hex: string): number {
   const cleanHex = hex.replace('#', '');
-  if (cleanHex.length !== 6) return 0.5;
+  if (!/^[0-9a-fA-F]{6}$/.test(cleanHex)) return 0.5;
   const rgb = [
     parseInt(cleanHex.substring(0, 2), 16) / 255,
     parseInt(cleanHex.substring(2, 4), 16) / 255,
@@ -148,6 +148,84 @@ export function getContrastRatio(hex1: string, hex2: string): number {
   const lighter = Math.max(l1, l2);
   const darker = Math.min(l1, l2);
   return (lighter + 0.05) / (darker + 0.05);
+}
+
+/**
+ * Picks high-contrast foreground ink (`#FFFFFF` or `#171310`) for a filled color background.
+ */
+export function pickContrastForeground(
+  hex: string,
+  darkInk = '#171310',
+  lightInk = '#FFFFFF'
+): string {
+  const normalized = (hex || '').trim();
+  if (!/^#[0-9a-fA-F]{6}$/.test(normalized)) {
+    return lightInk;
+  }
+  const lightRatio = getContrastRatio(normalized, lightInk);
+  const darkRatio = getContrastRatio(normalized, darkInk);
+  return lightRatio >= darkRatio ? lightInk : darkInk;
+}
+
+export function getThemeSignature(theme: Partial<ThemeConfig>): string {
+  const bg = (theme.backgroundColor || '').trim().toUpperCase();
+  const accent = (theme.accentColor || '').trim().toUpperCase();
+  return `${bg}|${accent}`;
+}
+
+const VALID_PRESET_KEYS = new Set<ThemeConfig['presetKey']>([
+  'WARM_EDITORIAL',
+  'MIDNIGHT_ESPRESSO',
+  'BOTANICAL_CAFE',
+  'PASTEL_PATISSERIE',
+  'CUSTOM',
+]);
+
+const VALID_LAYOUT_MODES = new Set<ThemeConfig['layoutMode']>(['GRID', 'LIST']);
+const VALID_BUTTON_STYLES = new Set<ThemeConfig['buttonStyle']>(['rounded', 'pill', 'sharp']);
+const VALID_IMAGE_PROPORTIONS = new Set<ThemeConfig['imageProportions']>(['square', 'wide', 'compact']);
+const VALID_TEXTURES = new Set<ThemeConfig['texture']>(['none', 'paper', 'gradient']);
+
+/**
+ * Filters arbitrary payload objects down to valid persisted ThemeConfig fields.
+ */
+export function sanitizeThemePersistenceInput(raw: Record<string, any>): Partial<ThemeConfig> {
+  const out: Partial<ThemeConfig> = {};
+
+  if (VALID_PRESET_KEYS.has(raw.presetKey)) out.presetKey = raw.presetKey;
+  if (typeof raw.backgroundColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.backgroundColor.trim())) {
+    out.backgroundColor = raw.backgroundColor.trim().toUpperCase();
+  }
+  if (typeof raw.surfaceColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.surfaceColor.trim())) {
+    out.surfaceColor = raw.surfaceColor.trim().toUpperCase();
+  }
+  if (typeof raw.primaryTextColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.primaryTextColor.trim())) {
+    out.primaryTextColor = raw.primaryTextColor.trim().toUpperCase();
+  }
+  if (typeof raw.secondaryTextColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.secondaryTextColor.trim())) {
+    out.secondaryTextColor = raw.secondaryTextColor.trim().toUpperCase();
+  }
+  if (typeof raw.accentColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.accentColor.trim())) {
+    out.accentColor = raw.accentColor.trim().toUpperCase();
+  }
+  if (typeof raw.secondaryAccentColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.secondaryAccentColor.trim())) {
+    out.secondaryAccentColor = raw.secondaryAccentColor.trim().toUpperCase();
+  }
+  if (raw.headingFont !== undefined) {
+    out.headingFont = normalizeThemeFont(raw.headingFont, 'Plus Jakarta Sans');
+  }
+  if (raw.bodyFont !== undefined) {
+    out.bodyFont = normalizeThemeFont(raw.bodyFont, 'Inter');
+  }
+  if (VALID_LAYOUT_MODES.has(raw.layoutMode)) out.layoutMode = raw.layoutMode;
+  if (typeof raw.cardRadius === 'string' && /^\d{1,2}px$/.test(raw.cardRadius.trim())) {
+    out.cardRadius = raw.cardRadius.trim();
+  }
+  if (VALID_BUTTON_STYLES.has(raw.buttonStyle)) out.buttonStyle = raw.buttonStyle;
+  if (VALID_IMAGE_PROPORTIONS.has(raw.imageProportions)) out.imageProportions = raw.imageProportions;
+  if (VALID_TEXTURES.has(raw.texture)) out.texture = raw.texture;
+
+  return out;
 }
 
 /**
@@ -196,6 +274,7 @@ export function generateThemeVariables(theme: ThemeConfig): CSSProperties {
     '--dishora-text': theme.primaryTextColor,
     '--dishora-muted-text': theme.secondaryTextColor,
     '--dishora-accent': theme.accentColor,
+    '--dishora-accent-fg': pickContrastForeground(theme.accentColor || '#B86D52'),
     '--dishora-secondary-accent': theme.secondaryAccentColor,
     '--dishora-border': border,
     '--dishora-hover': isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',

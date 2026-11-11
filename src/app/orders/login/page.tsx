@@ -3,10 +3,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ChefHat, Lock, AlertCircle, ArrowLeft, KeyRound, Sparkles, UserCheck, CreditCard, Phone } from 'lucide-react';
+import { ChefHat, Lock, AlertCircle, ArrowLeft, KeyRound, Sparkles, UserCheck, CreditCard, Mail } from 'lucide-react';
 import { generateStaffTypographyVars } from '@/lib/theme/theme-presets';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
-import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
+import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 
 export default function StaffLoginPage() {
   return (
@@ -34,7 +34,7 @@ function StaffLoginContent() {
   const [error, setError] = useState<string | null>(null);
   const [pausedInfo, setPausedInfo] = useState<{
     message: string;
-    supportPhone: string;
+    supportEmail: string;
     restaurantName?: string;
   } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -51,7 +51,7 @@ function StaffLoginContent() {
               message:
                 pausedJson.error ||
                 'Your 14-day free trial or subscription has ended. Ask the owner to activate a subscription in the Billing panel.',
-              supportPhone: pausedJson.supportPhone || SUPPORT_PHONE_DISPLAY,
+              supportEmail: pausedJson.supportEmail || SUPPORT_EMAIL_DISPLAY,
               restaurantName: pausedJson.restaurantName,
             });
           }
@@ -94,7 +94,7 @@ function StaffLoginContent() {
           message:
             data.error ||
             'Your 14-day free trial or subscription has ended. Ask the owner to activate a subscription in the Billing panel.',
-          supportPhone: data.supportPhone || SUPPORT_PHONE_DISPLAY,
+          supportEmail: data.supportEmail || SUPPORT_EMAIL_DISPLAY,
           restaurantName: data.restaurantName,
         });
         return;
@@ -181,11 +181,11 @@ function StaffLoginContent() {
                 Owner Billing Console
               </Link>
               <a
-                href={SUPPORT_PHONE_HREF}
+                href={pausedInfo.supportEmail ? `mailto:${pausedInfo.supportEmail}` : SUPPORT_EMAIL_HREF}
                 className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-200 hover:text-white underline underline-offset-2"
               >
-                <Phone className="w-3 h-3" />
-                Setup & Billing Queries: {pausedInfo.supportPhone || SUPPORT_PHONE_DISPLAY}
+                <Mail className="w-3 h-3" />
+                Setup & Billing Queries: {pausedInfo.supportEmail || SUPPORT_EMAIL_DISPLAY}
               </a>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createOwnerAccessDeniedResponse, requireRestaurantAccess } from '@/lib/auth/owner-auth';
-import { normalizeThemeFont, validateThemeAccessibility } from '@/lib/theme/theme-presets';
+import { sanitizeThemePersistenceInput, validateThemeAccessibility } from '@/lib/theme/theme-presets';
 import prisma from '@/lib/db/prisma';
 import { getCache } from '@/lib/cache/redis';
 
@@ -18,15 +18,7 @@ export async function POST(req: Request) {
       return createOwnerAccessDeniedResponse(auth, 403);
     }
 
-    const themeFields = {
-      ...rawThemeFields,
-      ...(rawThemeFields.headingFont !== undefined
-        ? { headingFont: normalizeThemeFont(rawThemeFields.headingFont, 'Plus Jakarta Sans') }
-        : {}),
-      ...(rawThemeFields.bodyFont !== undefined
-        ? { bodyFont: normalizeThemeFont(rawThemeFields.bodyFont, 'Inter') }
-        : {}),
-    };
+    const themeFields = sanitizeThemePersistenceInput(rawThemeFields);
 
     // Check accessibility & contrast
     const accessCheck = validateThemeAccessibility(themeFields);

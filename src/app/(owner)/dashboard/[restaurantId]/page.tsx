@@ -34,15 +34,27 @@ import {
   HelpCircle,
   Search,
   Image as ImageIcon,
+  FileText,
   Wifi,
   Clock,
   Lock,
-  Phone,
+  Mail,
   CreditCard,
   ShieldCheck,
+  Wand2,
+  RotateCcw,
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Portal } from '@/components/ui/Portal';
+import {
+  MENU_PDF_ACCEPT,
+  MENU_PHOTO_ACCEPT,
+} from '@/lib/menu/menu-file-validator';
+import {
+  readApiErrorMessage,
+  uploadMenuFilesInBatches,
+  validateAndPrepareMenuFiles,
+} from '@/lib/menu/client-menu-upload';
 import {
   formatCurrencyMinor,
   FREE_TRIAL_DAYS,
@@ -50,7 +62,7 @@ import {
   type PlanDefinition,
   type TrialPlanDefinition,
 } from '@/lib/payments/plans';
-import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
+import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 import {
   DEFAULT_ORDER_EXTENSION_MINUTES,
   DEFAULT_SCAN_TIMEOUT_MINUTES,
@@ -64,6 +76,8 @@ import {
   validateThemeAccessibility,
   generateThemeVariables,
   normalizeThemeFont,
+  pickContrastForeground,
+  getThemeSignature,
   HEADING_FONT_OPTIONS,
   BODY_FONT_OPTIONS,
 } from '@/lib/theme/theme-presets';
@@ -139,6 +153,9 @@ function RestaurantDashboardContent() {
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [extractionError, setExtractionError] = useState<string | null>(null);
   const [extractionSuccess, setExtractionSuccess] = useState<string | null>(null);
+  const [isDraggingMenuFiles, setIsDraggingMenuFiles] = useState(false);
+  const menuPhotoInputRef = React.useRef<HTMLInputElement | null>(null);
+  const menuPdfInputRef = React.useRef<HTMLInputElement | null>(null);
   const [extractionToast, setExtractionToast] = useState<{
     id: number;
     title: string;
@@ -161,6 +178,9 @@ function RestaurantDashboardContent() {
     return () => {
       if (extractionToastTimerRef.current) {
         clearTimeout(extractionToastTimerRef.current);
+      }
+      if (themeSavedTimerRef.current) {
+        clearTimeout(themeSavedTimerRef.current);
       }
     };
   }, []);
@@ -199,6 +219,31 @@ function RestaurantDashboardContent() {
   const [themeState, setThemeState] = useState<ThemeConfig>(THEME_PRESETS.WARM_EDITORIAL);
   const [themeWarnings, setThemeWarnings] = useState<string[]>([]);
   const [themeSavedToast, setThemeSavedToast] = useState(false);
+  const [themeSavedToastMode, setThemeSavedToastMode] = useState<'draft' | 'publish' | null>(null);
+  const [savingThemeAction, setSavingThemeAction] = useState<'draft' | 'publish' | null>(null);
+  const [themeSaveError, setThemeSaveError] = useState<string | null>(null);
+  const themeSavedTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [themePrompt, setThemePrompt] = useState('');
+  const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
+  const [themeGenError, setThemeGenError] = useState<string | null>(null);
+  const [generatedThemeBanner, setGeneratedThemeBanner] = useState<{
+    name: string;
+    rationale: string;
+    mode: 'prompt' | 'random';
+    savedStatus?: 'draft' | 'published';
+  } | null>(null);
+  const [themeHistory, setThemeHistory] = useState<
+    Array<{
+      theme: ThemeConfig;
+      banner: {
+        name: string;
+        rationale: string;
+        mode: 'prompt' | 'random';
+        savedStatus?: 'draft' | 'published';
+      } | null;
+    }>
+  >([]);
+  const seenThemeSignaturesRef = React.useRef<string[]>([]);
 
   // Illustration Lab State
   const [isGeneratingImg, setIsGeneratingImg] = useState<string | null>(null);
@@ -884,60 +929,67 @@ function RestaurantDashboardContent() {
     }
   };
 
-  // OCR Menu Extraction
-  const handleMenuFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || !files.length) return;
+  // OCR Menu Extraction (supports photos & multi-page PDFs)
+  const processMenuFiles = async (rawFiles: FileList | File[] | null | undefined) => {
+    if (!rawFiles || rawFiles.length === 0 || isUploadingMenu) return;
+
+    if (currentTabRef.current !== 'menu') {
+      router.push(`/dashboard/${restaurant.id}?tab=menu`);
+    }
 
     setIsUploadingMenu(true);
     setExtractionError(null);
     setExtractionSuccess(null);
-    setUploadProgress('Uploading menu files to secure storage...');
+    setUploadProgress('Checking & optimizing menu files...');
 
     try {
-      const formData = new FormData();
-      formData.append('restaurantId', restaurant.id);
-      for (let i = 0; i < files.length; i++) {
-        formData.append('files', files[i]);
-      }
+      const prepared = await validateAndPrepareMenuFiles(rawFiles);
+      setUploadProgress(`Uploading ${prepared.summaryLabel} to secure storage...`);
 
-      const uploadRes = await fetch('/api/menus/upload', {
-        method: 'POST',
-        body: formData,
+      const uploadResult = await uploadMenuFilesInBatches({
+        restaurantId: restaurant.id,
+        files: prepared.files,
+        onProgress: (msg) => setUploadProgress(msg),
       });
 
-      if (uploadRes.status === 402) {
-        const payload = await uploadRes.json().catch(() => ({}));
-        handleSubscriptionExpired(payload);
+      if (uploadResult.expired) {
+        handleSubscriptionExpired(uploadResult.payload);
         return;
       }
 
-      if (!uploadRes.ok) {
-        const uploadErrData = await uploadRes.json().catch(() => ({}));
-        throw new Error(uploadErrData.error || 'Upload failed. Please try again later.');
-      }
-      const uploadData = await uploadRes.json();
-
-      setUploadProgress('Gemini analyzing menu dishes & matching with canonical library...');
+      setUploadProgress(
+        prepared.pdfCount > 0
+          ? 'AI reading PDF menu pages, dishes, prices & canonical 3D matches...'
+          : 'AI reading menu photos, dishes, prices & canonical 3D matches...'
+      );
 
       const extractRes = await fetch('/api/menus/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           restaurantId: restaurant.id,
-          uploadId: uploadData.uploadId,
-          jobId: uploadData.jobId,
+          uploadId: uploadResult.uploadId,
+          jobId: uploadResult.jobId,
         }),
       });
 
-      const extractData = await extractRes.json().catch(() => ({}));
       if (extractRes.status === 402) {
-        handleSubscriptionExpired(extractData);
+        const payload = await extractRes.json().catch(() => ({}));
+        handleSubscriptionExpired(payload);
         return;
       }
 
-      if (!extractRes.ok || !extractData.success) {
-        throw new Error(extractData.error || 'Menu extraction failed. Please try again later.');
+      if (!extractRes.ok) {
+        const msg = await readApiErrorMessage(
+          extractRes,
+          'Menu extraction failed. Please try again later.'
+        );
+        throw new Error(msg);
+      }
+
+      const extractData = await extractRes.json().catch(() => ({}));
+      if (!extractData?.success) {
+        throw new Error(extractData?.error || 'Menu extraction failed. Please try again later.');
       }
 
       setExtractionError(null);
@@ -984,7 +1036,7 @@ function RestaurantDashboardContent() {
           ? ` — ${duplicatesSkipped} duplicate${duplicatesSkipped === 1 ? '' : 's'} skipped`
           : '';
       setExtractionSuccess(
-        `Extracted ${addedCount} ${addedCount === 1 ? 'dish' : 'dishes'} successfully${linkedMsg}${skippedMsg}!`
+        `Extracted ${addedCount} ${addedCount === 1 ? 'dish' : 'dishes'} from ${prepared.summaryLabel} successfully${linkedMsg}${skippedMsg}!`
       );
       // Reload items
       const itemsRes = await fetch(`/api/menus/items?restaurantId=${restaurant.id}`, {
@@ -998,14 +1050,47 @@ function RestaurantDashboardContent() {
       console.error('Menu extraction failed:', err);
       setExtractionSuccess(null);
       setExtractionError(
-        err.message || 'Menu extraction failed. Please ensure the menu photo is clear and legible, and please try again later.'
+        err.message || 'Menu extraction failed. Please ensure the menu photos or PDF are clear and legible, and please try again later.'
       );
     } finally {
       setIsUploadingMenu(false);
       setUploadProgress(null);
-      if (e.target) {
-        e.target.value = '';
-      }
+    }
+  };
+
+  const handleMenuFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || !files.length) return;
+    const selected = Array.from(files);
+    e.target.value = '';
+    await processMenuFiles(selected);
+  };
+
+  const handleMenuDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isUploadingMenu && !isDraggingMenuFiles) {
+      setIsDraggingMenuFiles(true);
+    }
+  };
+
+  const handleMenuDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) {
+      return;
+    }
+    setIsDraggingMenuFiles(false);
+  };
+
+  const handleMenuDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingMenuFiles(false);
+    if (isUploadingMenu) return;
+    const dropped = e.dataTransfer?.files;
+    if (dropped && dropped.length > 0) {
+      await processMenuFiles(Array.from(dropped));
     }
   };
 
@@ -1238,35 +1323,156 @@ function RestaurantDashboardContent() {
     }
   };
 
+  const applyThemeWithHistory = (
+    nextTheme: ThemeConfig,
+    nextBanner: {
+      name: string;
+      rationale: string;
+      mode: 'prompt' | 'random';
+      savedStatus?: 'draft' | 'published';
+    } | null
+  ) => {
+    setThemeHistory((prev) => [
+      ...prev.slice(-19),
+      { theme: themeState, banner: generatedThemeBanner },
+    ]);
+    setThemeState(nextTheme);
+    setGeneratedThemeBanner(nextBanner);
+    setThemeSavedToast(false);
+    setThemeWarnings(validateThemeAccessibility(nextTheme).warnings);
+  };
+
+  const handleGenerateTheme = async (mode: 'prompt' | 'random', overridePrompt?: string) => {
+    if (!restaurant?.id || isGeneratingTheme) return;
+
+    const cleanPrompt = (overridePrompt ?? themePrompt).trim();
+    if (mode === 'prompt' && !cleanPrompt) {
+      setThemeGenError('Enter a vibe or cuisine prompt, or click Surprise Me to craft a random theme.');
+      return;
+    }
+
+    if (overridePrompt !== undefined) {
+      setThemePrompt(overridePrompt);
+    }
+
+    setIsGeneratingTheme(true);
+    setThemeGenError(null);
+
+    try {
+      const currentSig = getThemeSignature(themeState);
+      const excludeSignatures = Array.from(
+        new Set([...seenThemeSignaturesRef.current, currentSig].filter(Boolean))
+      ).slice(-14);
+
+      const res = await fetch('/api/themes/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+          mode,
+          prompt: mode === 'prompt' ? cleanPrompt : undefined,
+          excludeSignatures,
+        }),
+      });
+
+      const payload = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        handleSubscriptionExpired(payload);
+        return;
+      }
+
+      if (!res.ok || !payload?.theme) {
+        throw new Error(payload?.error || 'Could not generate a theme right now. Please try again.');
+      }
+
+      const generatedSig = getThemeSignature(payload.theme);
+      seenThemeSignaturesRef.current = Array.from(
+        new Set([...seenThemeSignaturesRef.current, currentSig, generatedSig].filter(Boolean))
+      ).slice(-14);
+
+      applyThemeWithHistory(payload.theme, {
+        name: payload.themeName || (mode === 'prompt' ? 'Prompt-Styled Look' : 'Curated Studio Look'),
+        rationale:
+          payload.rationale ||
+          'Automatically applied to your live preview with readable typography and contrast.',
+        mode,
+      });
+    } catch (err: any) {
+      setThemeGenError(err?.message || 'Unable to generate theme right now.');
+    } finally {
+      setIsGeneratingTheme(false);
+    }
+  };
+
+  const handleReturnToPreviousTheme = () => {
+    if (themeHistory.length === 0) return;
+    const previousSnapshot = themeHistory[themeHistory.length - 1];
+    setThemeHistory((prev) => prev.slice(0, -1));
+    setThemeState(previousSnapshot.theme);
+    setGeneratedThemeBanner(previousSnapshot.banner);
+    setThemeGenError(null);
+    setThemeSavedToast(false);
+    setThemeWarnings(validateThemeAccessibility(previousSnapshot.theme).warnings);
+  };
+
   // Save / Publish Theme
   const handleSaveTheme = async (isPublishing: boolean) => {
+    if (!restaurant?.id || savingThemeAction) return;
+
+    const actionMode: 'draft' | 'publish' = isPublishing ? 'publish' : 'draft';
     const access = validateThemeAccessibility(themeState);
     setThemeWarnings(access.warnings);
+    setThemeSaveError(null);
+    setThemeSavedToast(false);
+
+    if (themeSavedTimerRef.current) {
+      clearTimeout(themeSavedTimerRef.current);
+    }
 
     if (!access.isValid && isPublishing) {
-      alert('Cannot publish theme: Low text/background contrast fails accessibility standards.');
+      setThemeSaveError(
+        'Cannot publish theme: Low text/background contrast fails accessibility standards. Adjust colors or generate a balanced theme.'
+      );
       return;
     }
 
-    const res = await fetch('/api/themes/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        restaurantId: restaurant.id,
-        isPublishing,
-        ...themeState,
-      }),
-    });
+    setSavingThemeAction(actionMode);
+    try {
+      const res = await fetch('/api/themes/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+          isPublishing,
+          ...themeState,
+        }),
+      });
 
-    if (res.status === 402) {
       const payload = await res.json().catch(() => ({}));
-      handleSubscriptionExpired(payload);
-      return;
-    }
+      if (res.status === 402) {
+        handleSubscriptionExpired(payload);
+        return;
+      }
 
-    if (res.ok) {
+      if (!res.ok) {
+        throw new Error(
+          payload?.message || payload?.error || 'Could not save theme changes. Please try again.'
+        );
+      }
+
+      setGeneratedThemeBanner((prev) =>
+        prev ? { ...prev, savedStatus: isPublishing ? 'published' : 'draft' } : null
+      );
+      setThemeSavedToastMode(actionMode);
       setThemeSavedToast(true);
-      setTimeout(() => setThemeSavedToast(false), 3000);
+      themeSavedTimerRef.current = setTimeout(() => {
+        setThemeSavedToast(false);
+        setThemeSavedToastMode(null);
+      }, 3500);
+    } catch (err: any) {
+      setThemeSaveError(err?.message || 'Unable to save theme right now.');
+    } finally {
+      setSavingThemeAction(null);
     }
   };
 
@@ -1563,12 +1769,12 @@ function RestaurantDashboardContent() {
         expiredGate?.code === 'TRIAL_EXPIRED')
   );
   const planName = billingUsage?.plan?.name || effectiveAccess?.planName || 'Trial';
-  const supportPhone =
-    billingUsage?.supportPhone ||
-    effectiveAccess?.supportPhone ||
-    expiredGate?.supportPhone ||
-    SUPPORT_PHONE_DISPLAY;
-  const supportTelHref = `tel:${supportPhone.replace(/[^+\d]/g, '')}` || SUPPORT_PHONE_HREF;
+  const supportEmail =
+    billingUsage?.supportEmail ||
+    effectiveAccess?.supportEmail ||
+    expiredGate?.supportEmail ||
+    SUPPORT_EMAIL_DISPLAY;
+  const supportMailHref = `mailto:${supportEmail}` || SUPPORT_EMAIL_HREF;
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-cream-100/40 w-full">
@@ -1582,7 +1788,7 @@ function RestaurantDashboardContent() {
         subscriptionExpired={isSubscriptionExpired}
         isTrial={isTrialActive}
         daysRemaining={effectiveAccess?.daysRemaining ?? null}
-        supportPhone={supportPhone}
+        supportEmail={supportEmail}
       />
 
       {/* Main Content Area */}
@@ -1664,12 +1870,12 @@ function RestaurantDashboardContent() {
                   {(effectiveAccess?.daysRemaining ?? FREE_TRIAL_DAYS) === 1 ? 'day' : 'days'} remaining
                 </div>
                 <p className="text-xs text-taupe-600 mt-0.5 leading-relaxed">
-                  No payment method or credit card required during trial. After day {FREE_TRIAL_DAYS}, workspace &amp; diner menu pause until a subscription is purchased. Setup-related queries? Call{' '}
+                  No payment method or credit card required during trial. After day {FREE_TRIAL_DAYS}, workspace &amp; diner menu pause until a subscription is purchased. Setup-related queries? Email{' '}
                   <a
-                    href={supportTelHref}
+                    href={supportMailHref}
                     className="font-mono font-bold text-espresso-900 underline hover:text-terracotta"
                   >
-                    {supportPhone}
+                    {supportEmail}
                   </a>
                   .
                 </p>
@@ -1739,15 +1945,15 @@ function RestaurantDashboardContent() {
                     Setup &amp; Activation Assistance
                   </h3>
                   <p className="text-xs text-taupe-600 mt-1">
-                    Have setup-related queries, GST invoicing questions, or need help activating your restaurant? Reach us directly on phone or WhatsApp.
+                    Have setup-related queries, GST invoicing questions, or need help activating your restaurant? Reach us directly by email.
                   </p>
                 </div>
                 <a
-                  href={supportTelHref}
+                  href={supportMailHref}
                   className="w-full sm:w-fit inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-cream-300 hover:border-espresso-900 text-espresso-900 text-xs sm:text-sm font-mono font-bold transition-colors"
                 >
-                  <Phone className="w-4 h-4 text-terracotta" />
-                  <span>{supportPhone}</span>
+                  <Mail className="w-4 h-4 text-terracotta" />
+                  <span>{supportEmail}</span>
                 </a>
               </div>
             </div>
@@ -1756,6 +1962,28 @@ function RestaurantDashboardContent() {
 
         {!isSubscriptionExpired && (
           <>
+            <input
+              ref={menuPhotoInputRef}
+              type="file"
+              multiple
+              accept={MENU_PHOTO_ACCEPT}
+              onChange={handleMenuFileUpload}
+              disabled={isUploadingMenu}
+              tabIndex={-1}
+              aria-label="Upload menu photos"
+              className="sr-only"
+            />
+            <input
+              ref={menuPdfInputRef}
+              type="file"
+              multiple
+              accept={MENU_PDF_ACCEPT}
+              onChange={handleMenuFileUpload}
+              disabled={isUploadingMenu}
+              tabIndex={-1}
+              aria-label="Upload menu PDF"
+              className="sr-only"
+            />
         {/* =========================================================================
             TAB 1: OVERVIEW
         ========================================================================= */}
@@ -1828,16 +2056,18 @@ function RestaurantDashboardContent() {
               </div>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full md:w-auto shrink-0">
                 <button
+                  type="button"
                   onClick={() => router.push(`/dashboard/${restaurant.id}?tab=qr`)}
                   className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-espresso-900 text-white text-xs sm:text-sm font-semibold hover:bg-espresso-800 transition-colors shadow-sm flex items-center gap-2"
                 >
                   <QrCode className="w-4 h-4 text-terracotta" /> Download QR Studio
                 </button>
                 <button
+                  type="button"
                   onClick={() => router.push(`/dashboard/${restaurant.id}?tab=menu`)}
                   className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-white border border-cream-300 text-espresso-800 text-xs sm:text-sm font-semibold hover:bg-cream-100 transition-colors shadow-sm flex items-center gap-2"
                 >
-                  <Upload className="w-4 h-4 text-espresso-700" /> Upload New Menu
+                  <Upload className="w-4 h-4 text-espresso-700" /> Import Menu (Photos / PDF)
                 </button>
               </div>
             </div>
@@ -1847,6 +2077,7 @@ function RestaurantDashboardContent() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-serif text-lg font-bold text-espresso-900">Your Menu Highlights</h3>
                 <button
+                  type="button"
                   onClick={() => router.push(`/dashboard/${restaurant.id}?tab=menu`)}
                   className="text-xs font-semibold text-terracotta hover:underline"
                 >
@@ -1854,9 +2085,9 @@ function RestaurantDashboardContent() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {secondaryLoading.items && menuItems.length === 0 ? (
-                  [0, 1, 2].map((idx) => (
+              {secondaryLoading.items && menuItems.length === 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {[0, 1, 2].map((idx) => (
                     <div
                       key={idx}
                       className="flex items-center gap-3 p-3 rounded-2xl bg-cream-50 border border-cream-200 animate-pulse motion-reduce:animate-none"
@@ -1868,9 +2099,53 @@ function RestaurantDashboardContent() {
                         <div className="h-4 bg-cream-200 rounded w-16" />
                       </div>
                     </div>
-                  ))
-                ) : (
-                  menuItems.slice(0, 3).map((item) => {
+                  ))}
+                </div>
+              ) : menuItems.length === 0 ? (
+                <div
+                  onDragOver={handleMenuDragOver}
+                  onDragLeave={handleMenuDragLeave}
+                  onDrop={handleMenuDrop}
+                  className={`rounded-2xl border-2 border-dashed p-5 sm:p-6 transition-colors ${
+                    isDraggingMenuFiles
+                      ? 'border-terracotta bg-terracotta-50/40'
+                      : 'border-cream-300 bg-cream-50/70'
+                  }`}
+                >
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <h4 className="font-semibold text-sm text-espresso-900">
+                        Upload your menu photos or PDF to get started
+                      </h4>
+                      <p className="text-xs text-taupe-600 mt-1 max-w-xl">
+                        Choose multiple menu photos (JPG, PNG, WebP, HEIC) or a PDF menu — AI automatically extracts dishes, categories, prices, and Veg/Non-Veg indicators.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                      <button
+                        type="button"
+                        disabled={isUploadingMenu}
+                        onClick={() => menuPhotoInputRef.current?.click()}
+                        className="px-3.5 py-2 rounded-xl bg-espresso-900 text-white text-xs font-semibold hover:bg-espresso-800 disabled:opacity-50 transition-colors inline-flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                      >
+                        <Camera className="w-3.5 h-3.5 text-terracotta" />
+                        <span>Upload Menu Photos</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isUploadingMenu}
+                        onClick={() => menuPdfInputRef.current?.click()}
+                        className="px-3.5 py-2 rounded-xl bg-white border border-cream-300 text-espresso-900 text-xs font-semibold hover:bg-cream-100 disabled:opacity-50 transition-colors inline-flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-terracotta" />
+                        <span>Upload Menu PDF</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {menuItems.slice(0, 3).map((item) => {
                     const img = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
                     return (
                       <div key={item.id} className="flex items-center gap-3 p-3 rounded-2xl bg-cream-50 border border-cream-200">
@@ -1888,32 +2163,32 @@ function RestaurantDashboardContent() {
                         </div>
                       </div>
                     );
-                  })
-                )}
-              </div>
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Setup Assistance Strip */}
             <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-cream-100 text-terracotta flex items-center justify-center shrink-0">
-                  <Phone className="w-4 h-4" />
+                  <Mail className="w-4 h-4" />
                 </div>
                 <div>
                   <div className="font-semibold text-xs sm:text-sm text-espresso-900">
-                    Setup &amp; Onboarding Helpline
+                    Setup &amp; Onboarding Support
                   </div>
                   <p className="text-xs text-taupe-500">
-                    For menu import, QR printing, or setup-related queries, contact us anytime.
+                    For menu import, QR printing, or setup-related queries, email us anytime.
                   </p>
                 </div>
               </div>
               <a
-                href={supportTelHref}
+                href={supportMailHref}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cream-100 hover:bg-cream-200 border border-cream-300 text-xs font-mono font-bold text-espresso-900 shrink-0 transition-colors"
               >
-                <Phone className="w-3.5 h-3.5 text-terracotta" />
-                <span>{supportPhone}</span>
+                <Mail className="w-3.5 h-3.5 text-terracotta" />
+                <span>{supportEmail}</span>
               </a>
             </div>
           </div>
@@ -1932,22 +2207,30 @@ function RestaurantDashboardContent() {
               </div>
 
               <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full sm:w-auto">
-                <label className="flex-1 sm:flex-none justify-center cursor-pointer px-4 py-2 rounded-xl bg-cream-200 text-espresso-800 text-xs sm:text-sm font-semibold hover:bg-cream-300 transition-colors flex items-center gap-2 whitespace-nowrap">
-                  <Upload className="w-4 h-4 text-terracotta" />
-                  <span>Upload Menu PDF/Photos</span>
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*,.pdf"
-                    onChange={handleMenuFileUpload}
-                    className="hidden"
-                    disabled={isUploadingMenu}
-                  />
-                </label>
+                <button
+                  type="button"
+                  onClick={() => menuPhotoInputRef.current?.click()}
+                  disabled={isUploadingMenu}
+                  className="flex-1 sm:flex-none justify-center px-3.5 py-2 rounded-xl bg-cream-200 text-espresso-900 text-xs sm:text-sm font-semibold hover:bg-cream-300 disabled:opacity-50 transition-colors flex items-center gap-2 whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                >
+                  <Camera className="w-4 h-4 text-terracotta" />
+                  <span>Upload Photos</span>
+                </button>
 
                 <button
+                  type="button"
+                  onClick={() => menuPdfInputRef.current?.click()}
+                  disabled={isUploadingMenu}
+                  className="flex-1 sm:flex-none justify-center px-3.5 py-2 rounded-xl bg-cream-200 text-espresso-900 text-xs sm:text-sm font-semibold hover:bg-cream-300 disabled:opacity-50 transition-colors flex items-center gap-2 whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                >
+                  <FileText className="w-4 h-4 text-terracotta" />
+                  <span>Upload PDF</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setIsAddDishOpen(true)}
-                  className="flex-1 sm:flex-none justify-center px-4 py-2 rounded-xl bg-[var(--dishora-accent)] text-white text-xs sm:text-sm font-semibold hover:opacity-95 transition-opacity flex items-center gap-2 whitespace-nowrap"
+                  className="flex-1 sm:flex-none justify-center px-4 py-2 rounded-xl bg-[var(--dishora-accent)] text-white text-xs sm:text-sm font-semibold hover:opacity-95 transition-opacity flex items-center gap-2 whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
                 >
                   <Plus className="w-4 h-4" /> Add Dish
                 </button>
@@ -1964,7 +2247,11 @@ function RestaurantDashboardContent() {
 
             {/* Menu Extraction Error Notification */}
             {extractionError && (
-              <div className="p-4 sm:p-5 bg-red-50 border border-red-200 rounded-2xl flex items-start justify-between gap-3 text-xs sm:text-sm text-red-900 animate-fade-in shadow-xs">
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="p-4 sm:p-5 bg-red-50 border border-red-200 rounded-2xl flex items-start justify-between gap-3 text-xs sm:text-sm text-red-900 animate-fade-in shadow-xs"
+              >
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-xl bg-red-100 border border-red-200 text-red-700 flex items-center justify-center shrink-0 mt-0.5">
                     <AlertCircle className="w-5 h-5 text-red-600" />
@@ -1973,11 +2260,12 @@ function RestaurantDashboardContent() {
                     <h4 className="font-semibold text-red-950 text-sm">Menu Extraction Failed</h4>
                     <p className="text-red-800 mt-1 leading-relaxed">{extractionError}</p>
                     <p className="text-red-700/80 text-[11px] mt-1.5 font-medium">
-                      Notice: Your menu was not modified and no dummy dishes were added. Please ensure the menu photo is clear, focused, and well-lit, and please try again later.
+                      Notice: Your menu was not modified and no dummy dishes were added. For photos, ensure good lighting and crisp text; for PDFs, ensure the file is unlocked and uncorrupted.
                     </p>
                   </div>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setExtractionError(null)}
                   className="p-1.5 rounded-lg text-red-500 hover:text-red-800 hover:bg-red-100 transition-colors shrink-0"
                   title="Dismiss error"
@@ -1989,12 +2277,17 @@ function RestaurantDashboardContent() {
 
             {/* Menu Extraction Success Notification */}
             {extractionSuccess && (
-              <div className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center justify-between gap-3 animate-fade-in shadow-xs">
+              <div
+                role="status"
+                aria-live="polite"
+                className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center justify-between gap-3 animate-fade-in shadow-xs"
+              >
                 <div className="flex items-center gap-2.5">
                   <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
                   <span className="font-medium">{extractionSuccess}</span>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setExtractionSuccess(null)}
                   className="p-1 rounded-lg text-sage-600 hover:bg-sage-100 transition-colors shrink-0"
                   title="Dismiss"
@@ -2006,11 +2299,91 @@ function RestaurantDashboardContent() {
 
             {/* Upload Progress Alert */}
             {isUploadingMenu && (
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3 text-xs sm:text-sm text-amber-900 animate-fade-in">
+              <div
+                role="status"
+                aria-live="polite"
+                className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3 text-xs sm:text-sm text-amber-900 animate-fade-in"
+              >
                 <RefreshCw className="w-5 h-5 animate-spin text-amber-700 shrink-0" />
                 <span>{uploadProgress}</span>
               </div>
             )}
+
+            {/* Drag & Drop Menu Import Area (Full Hero when Empty, Compact Strip when Dishes Exist) */}
+            <div
+              onDragOver={handleMenuDragOver}
+              onDragLeave={handleMenuDragLeave}
+              onDrop={handleMenuDrop}
+              className={`rounded-2xl border-2 border-dashed transition-all ${
+                isDraggingMenuFiles
+                  ? 'border-terracotta bg-terracotta-50/40 shadow-sm'
+                  : 'border-cream-300 bg-white/80 hover:border-cream-400'
+              } ${menuItems.length === 0 && !secondaryLoading.items ? 'p-6 sm:p-8 text-center' : 'px-4 py-3'}`}
+            >
+              {menuItems.length === 0 && !secondaryLoading.items ? (
+                <div className="max-w-xl mx-auto space-y-4">
+                  <div className="w-12 h-12 rounded-2xl bg-cream-100 border border-cream-200 text-terracotta flex items-center justify-center mx-auto">
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-serif text-lg font-bold text-espresso-900">
+                      Import Your Menu from Photos or a PDF
+                    </h3>
+                    <p className="text-xs sm:text-sm text-taupe-600 mt-1">
+                      Drag &amp; drop menu files here, or pick either <strong className="text-espresso-800">menu photos</strong> (JPG, PNG, WebP, HEIC — multiple pages OK) or a <strong className="text-espresso-800">menu PDF</strong> (up to 20 MB).
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+                    <button
+                      type="button"
+                      disabled={isUploadingMenu}
+                      onClick={() => menuPhotoInputRef.current?.click()}
+                      className="px-4 py-2.5 rounded-xl bg-espresso-900 text-white text-xs sm:text-sm font-semibold hover:bg-espresso-800 disabled:opacity-50 transition-colors inline-flex items-center gap-2 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                    >
+                      <Camera className="w-4 h-4 text-terracotta" />
+                      <span>Upload Menu Photos</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isUploadingMenu}
+                      onClick={() => menuPdfInputRef.current?.click()}
+                      className="px-4 py-2.5 rounded-xl bg-cream-100 border border-cream-300 text-espresso-900 text-xs sm:text-sm font-semibold hover:bg-cream-200 disabled:opacity-50 transition-colors inline-flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                    >
+                      <FileText className="w-4 h-4 text-terracotta" />
+                      <span>Upload Menu PDF</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-taupe-600">
+                  <div className="flex items-center gap-2">
+                    <Upload className="w-4 h-4 text-terracotta shrink-0" />
+                    <span>
+                      Drag &amp; drop more <strong className="text-espresso-800">menu photos</strong> or a <strong className="text-espresso-800">PDF</strong> here to append additional pages (existing dishes won&apos;t be duplicated).
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={isUploadingMenu}
+                      onClick={() => menuPhotoInputRef.current?.click()}
+                      className="font-semibold text-espresso-800 hover:text-terracotta underline-offset-2 hover:underline disabled:opacity-50"
+                    >
+                      Browse Photos
+                    </button>
+                    <span className="text-cream-400">|</span>
+                    <button
+                      type="button"
+                      disabled={isUploadingMenu}
+                      onClick={() => menuPdfInputRef.current?.click()}
+                      className="font-semibold text-espresso-800 hover:text-terracotta underline-offset-2 hover:underline disabled:opacity-50"
+                    >
+                      Browse PDF
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Dishes Data Table */}
             <div className="bg-white rounded-3xl border border-cream-200 shadow-soft overflow-hidden">
@@ -3176,24 +3549,69 @@ function RestaurantDashboardContent() {
 
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <button
+                  type="button"
+                  disabled={savingThemeAction !== null || isGeneratingTheme}
+                  aria-busy={savingThemeAction === 'draft'}
                   onClick={() => handleSaveTheme(false)}
-                  className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-cream-200 text-espresso-800 font-semibold text-xs sm:text-sm hover:bg-cream-300 transition-colors"
+                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-cream-200 text-espresso-800 font-semibold text-xs sm:text-sm hover:bg-cream-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Save Draft
+                  {savingThemeAction === 'draft' && (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  )}
+                  <span>{savingThemeAction === 'draft' ? 'Saving Draft...' : 'Save Draft'}</span>
                 </button>
                 <button
+                  type="button"
+                  disabled={savingThemeAction !== null || isGeneratingTheme}
+                  aria-busy={savingThemeAction === 'publish'}
                   onClick={() => handleSaveTheme(true)}
-                  className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-espresso-900 text-white font-semibold text-xs sm:text-sm hover:bg-espresso-800 transition-colors shadow-sm"
+                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-espresso-900 text-white font-semibold text-xs sm:text-sm hover:bg-espresso-800 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Publish Theme
+                  {savingThemeAction === 'publish' && (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  )}
+                  <span>{savingThemeAction === 'publish' ? 'Publishing...' : 'Publish Theme'}</span>
                 </button>
               </div>
             </div>
 
+            {savingThemeAction !== null && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="p-3.5 bg-cream-50 border border-cream-300 text-espresso-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2.5 animate-fade-in"
+              >
+                <RefreshCw className="w-4 h-4 text-terracotta animate-spin shrink-0" />
+                <span>
+                  {savingThemeAction === 'publish'
+                    ? 'Publishing theme and refreshing the live diner menu...'
+                    : 'Saving theme draft...'}
+                </span>
+              </div>
+            )}
+
+            {themeSaveError && (
+              <div
+                role="alert"
+                className="p-3.5 bg-red-50 border border-red-200 text-red-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in"
+              >
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{themeSaveError}</span>
+              </div>
+            )}
+
             {themeSavedToast && (
-              <div className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in">
-                <CheckCircle2 className="w-4 h-4 text-sage-600" />
-                Theme saved & published! Public diner menu cache updated.
+              <div
+                role="status"
+                aria-live="polite"
+                className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in"
+              >
+                <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
+                <span>
+                  {themeSavedToastMode === 'draft'
+                    ? 'Theme draft saved!'
+                    : 'Theme saved & published! Public diner menu cache updated.'}
+                </span>
               </div>
             )}
 
@@ -3201,6 +3619,154 @@ function RestaurantDashboardContent() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               {/* Left Config Controls */}
               <div className="lg:col-span-7 space-y-6">
+                {/* AI & Random Nice Theme Studio */}
+                <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-2xl bg-terracotta/10 border border-terracotta/20 text-terracotta flex items-center justify-center shrink-0 mt-0.5">
+                        <Sparkles className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-espresso-900">AI Theme Designer</h3>
+                        <p className="text-xs text-taupe-500 mt-0.5">
+                          Describe a vibe or click Surprise Me to craft and preview a fresh look instantly.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isGeneratingTheme}
+                      onClick={() => handleGenerateTheme('random')}
+                      className="shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold shadow-sm transition-all disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                    >
+                      {isGeneratingTheme ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Wand2 className="w-3.5 h-3.5 text-amber-300" />
+                      )}
+                      <span>{isGeneratingTheme ? 'Crafting Theme...' : 'Surprise Me'}</span>
+                    </button>
+                  </div>
+
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleGenerateTheme('prompt');
+                    }}
+                    className="space-y-2"
+                  >
+                    <label
+                      htmlFor="theme-ai-prompt"
+                      className="block text-xs font-semibold text-taupe-600 uppercase tracking-wider"
+                    >
+                      Describe your restaurant vibe
+                    </label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        id="theme-ai-prompt"
+                        type="text"
+                        maxLength={240}
+                        disabled={isGeneratingTheme}
+                        value={themePrompt}
+                        onChange={(e) => {
+                          setThemePrompt(e.target.value);
+                          if (themeGenError) setThemeGenError(null);
+                        }}
+                        placeholder="e.g. Candlelit Tuscan wine bar, Kyoto matcha café, coastal bistro..."
+                        className="flex-1 px-3.5 py-2.5 rounded-xl border border-cream-300 bg-cream-50/40 text-xs sm:text-sm text-espresso-900 placeholder:text-taupe-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta transition-all"
+                      />
+                      <button
+                        type="submit"
+                        disabled={isGeneratingTheme || !themePrompt.trim()}
+                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-terracotta hover:bg-terracotta/90 text-white text-xs font-semibold shadow-2xs transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                      >
+                        {isGeneratingTheme ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Palette className="w-3.5 h-3.5" />
+                        )}
+                        <span>Style from Prompt</span>
+                      </button>
+                    </div>
+                  </form>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] text-taupe-500 font-medium mr-1">Try:</span>
+                    {[
+                      'Candlelit Italian wine bar',
+                      'Kyoto matcha café',
+                      'Sunlit coastal bistro',
+                      'Minimal Nordic bakery',
+                    ].map((idea) => (
+                      <button
+                        key={idea}
+                        type="button"
+                        disabled={isGeneratingTheme}
+                        onClick={() => handleGenerateTheme('prompt', idea)}
+                        className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-cream-100 hover:bg-cream-200 text-espresso-800 border border-cream-200 transition-colors disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-terracotta"
+                      >
+                        {idea}
+                      </button>
+                    ))}
+                  </div>
+
+                  {themeGenError && (
+                    <div
+                      role="alert"
+                      className="p-3 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-800 flex items-center gap-2"
+                    >
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                      <span>{themeGenError}</span>
+                    </div>
+                  )}
+
+                  {(generatedThemeBanner || themeHistory.length > 0) && (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="p-3.5 rounded-2xl bg-cream-50 border border-cream-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in"
+                    >
+                      <div className="min-w-0 space-y-0.5">
+                        {generatedThemeBanner ? (
+                          <>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-espresso-900">
+                                {generatedThemeBanner.name}
+                              </span>
+                              <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-terracotta/15 text-terracotta">
+                                {generatedThemeBanner.savedStatus === 'published'
+                                  ? 'Applied & Published'
+                                  : generatedThemeBanner.savedStatus === 'draft'
+                                  ? 'Applied • Draft Saved'
+                                  : 'Applied to Preview • Unsaved'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-taupe-600 leading-relaxed">
+                              {generatedThemeBanner.rationale}
+                            </p>
+                          </>
+                        ) : (
+                          <div className="text-xs text-taupe-600">
+                            Showing previous look • <span className="font-semibold text-espresso-900">{themeHistory.length}</span> earlier {themeHistory.length === 1 ? 'version' : 'versions'} in history
+                          </div>
+                        )}
+                      </div>
+
+                      {themeHistory.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleReturnToPreviousTheme}
+                          className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-cream-100 text-espresso-900 border border-cream-300 text-xs font-semibold shadow-2xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 text-terracotta" />
+                          <span>Return to Previous</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {/* 4 Curated Hospitality Presets */}
                 <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-3">
                   <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
@@ -3209,8 +3775,13 @@ function RestaurantDashboardContent() {
                   <div className="grid grid-cols-2 gap-3">
                     {Object.entries(THEME_PRESETS).map(([key, preset]) => (
                       <button
+                        type="button"
                         key={key}
-                        onClick={() => setThemeState(preset)}
+                        onClick={() => {
+                          if (themeState.presetKey !== key || generatedThemeBanner !== null) {
+                            applyThemeWithHistory(preset, null);
+                          }
+                        }}
                         className={`p-3.5 rounded-2xl border text-left transition-all ${
                           themeState.presetKey === key
                             ? 'border-terracotta ring-2 ring-terracotta/20 bg-cream-50'
@@ -3455,11 +4026,38 @@ function RestaurantDashboardContent() {
               </div>
 
               {/* Right Live Phone Preview (Fully Reactive) */}
-              <div className="lg:col-span-5 flex justify-center w-full sticky top-6 self-start">
+              <div className="lg:col-span-5 flex flex-col items-center gap-3 w-full sticky top-6 self-start">
+                {(themeHistory.length > 0 || generatedThemeBanner) && (
+                  <div className="w-full max-w-[310px] sm:max-w-[340px] px-3.5 py-2.5 rounded-2xl bg-white border border-cream-200 shadow-soft flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-taupe-500">
+                        Live Preview
+                      </div>
+                      <div className="text-xs font-bold text-espresso-900 truncate">
+                        {generatedThemeBanner?.name || themeState.presetKey.replace(/_/g, ' ')}
+                      </div>
+                    </div>
+                    {themeHistory.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleReturnToPreviousTheme}
+                        className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cream-100 hover:bg-cream-200 text-espresso-900 border border-cream-300 text-[11px] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-terracotta"
+                      >
+                        <RotateCcw className="w-3 h-3 text-terracotta" />
+                        <span>Return to Previous</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 <div
                   className="w-full max-w-[310px] sm:max-w-[340px] rounded-[36px] sm:rounded-[44px] border-[8px] sm:border-[10px] border-espresso-900 shadow-lifted overflow-hidden flex flex-col h-[580px] sm:h-[640px] relative mx-auto transition-colors duration-300"
                   style={{
                     backgroundColor: themeState.backgroundColor,
+                    backgroundImage:
+                      themeState.texture === 'gradient'
+                        ? `radial-gradient(circle at top right, ${themeState.accentColor}1F, transparent 60%)`
+                        : undefined,
                     fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
                     ...generateThemeVariables(themeState),
                   }}
@@ -3525,7 +4123,7 @@ function RestaurantDashboardContent() {
                         style={{
                           borderRadius: themeState.buttonStyle === 'pill' ? '9999px' : themeState.buttonStyle === 'sharp' ? '4px' : '10px',
                           backgroundColor: idx === 0 ? themeState.accentColor : themeState.surfaceColor,
-                          color: idx === 0 ? '#FFFFFF' : themeState.primaryTextColor,
+                          color: idx === 0 ? pickContrastForeground(themeState.accentColor) : themeState.primaryTextColor,
                           border: `1px solid ${idx === 0 ? themeState.accentColor : 'var(--dishora-border)'}`,
                           fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
                         }}
@@ -3559,7 +4157,7 @@ function RestaurantDashboardContent() {
                                     className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-xs"
                                     style={{
                                       backgroundColor: themeState.accentColor,
-                                      color: '#FFFFFF',
+                                      color: pickContrastForeground(themeState.accentColor),
                                       fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
                                     }}
                                   >
@@ -4865,13 +5463,13 @@ function RestaurantDashboardContent() {
               </div>
 
               <div className="p-4 rounded-2xl bg-cream-50 border border-cream-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-taupe-600">
-                <span>Need help configuring your menu, tables, or QR timers? Call for setup queries:</span>
+                <span>Need help configuring your menu, tables, or QR timers? Email for setup queries:</span>
                 <a
-                  href={supportTelHref}
+                  href={supportMailHref}
                   className="inline-flex items-center gap-1.5 font-mono font-bold text-espresso-900 hover:text-terracotta shrink-0"
                 >
-                  <Phone className="w-3.5 h-3.5 text-terracotta" />
-                  <span>{supportPhone}</span>
+                  <Mail className="w-3.5 h-3.5 text-terracotta" />
+                  <span>{supportEmail}</span>
                 </a>
               </div>
 
@@ -4931,11 +5529,11 @@ function RestaurantDashboardContent() {
                   </div>
                 </div>
                 <a
-                  href={supportTelHref}
+                  href={supportMailHref}
                   className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-red-200 text-xs font-mono font-bold text-red-900 hover:bg-red-100 transition-colors"
                 >
-                  <Phone className="w-3.5 h-3.5 text-red-600" />
-                  <span>{supportPhone}</span>
+                  <Mail className="w-3.5 h-3.5 text-red-600" />
+                  <span>{supportEmail}</span>
                 </a>
               </div>
             )}
@@ -5140,7 +5738,7 @@ function RestaurantDashboardContent() {
                                 });
                                 setCheckoutNotice({
                                   type: 'success',
-                                  message: `Razorpay subscription initialized for ${plan.name} (Sub ID: ${data.subscriptionId}). Need billing help? Call ${supportPhone}.`,
+                                  message: `Razorpay subscription initialized for ${plan.name} (Sub ID: ${data.subscriptionId}). Need billing help? Email ${supportEmail}.`,
                                 });
                               }}
                               className={`w-full py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
@@ -5163,15 +5761,15 @@ function RestaurantDashboardContent() {
                         Setup-Related Queries &amp; Assisted Activation
                       </h4>
                       <p className="text-xs text-taupe-600 mt-0.5">
-                        Call or message us for help importing your menu, setting up table QRs, or choosing a plan.
+                        Email us for help importing your menu, setting up table QRs, or choosing a plan.
                       </p>
                     </div>
                     <a
-                      href={supportTelHref}
+                      href={supportMailHref}
                       className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cream-100 hover:bg-cream-200 border border-cream-300 text-xs sm:text-sm font-mono font-bold text-espresso-900 transition-colors"
                     >
-                      <Phone className="w-4 h-4 text-terracotta" />
-                      <span>{supportPhone}</span>
+                      <Mail className="w-4 h-4 text-terracotta" />
+                      <span>{supportEmail}</span>
                     </a>
                   </div>
                 </div>

@@ -13,10 +13,10 @@ import {
   UtensilsCrossed,
   Coffee,
   Zap,
-  Phone,
+  Mail,
 } from 'lucide-react';
 import type { PlanDefinition } from '@/lib/payments/plans';
-import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
+import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 import { HOMEPAGE_FAQS } from '@/content/seo-pages';
 import { MarketingHeader } from './MarketingHeader';
 import { MarketingFooter } from './MarketingFooter';
@@ -71,11 +71,11 @@ export function LandingPageClient({ authoritativeGeo, initialPlans }: LandingPag
             <span>Includes 14-day free &quot;Trial&quot; plan • No payment method required</span>
             <span className="hidden sm:inline text-taupe-400">•</span>
             <a
-              href={SUPPORT_PHONE_HREF}
+              href={SUPPORT_EMAIL_HREF}
               className="inline-flex items-center gap-1.5 font-semibold text-espresso-900 hover:text-terracotta transition-colors"
             >
-              <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" aria-hidden="true" />
-              <span>Setup queries: {SUPPORT_PHONE_DISPLAY}</span>
+              <Mail className="w-3.5 h-3.5 text-terracotta shrink-0" aria-hidden="true" />
+              <span>Setup queries: {SUPPORT_EMAIL_DISPLAY}</span>
             </a>
           </div>
 

@@ -1,4 +1,3 @@
-export const SUPPORT_PHONE = '+918948006900';
-export const SUPPORT_PHONE_DISPLAY = '+918948006900';
-export const SUPPORT_PHONE_HREF = 'tel:+918948006900';
-
+export const SUPPORT_EMAIL = 'support@arenova.in';
+export const SUPPORT_EMAIL_DISPLAY = 'support@arenova.in';
+export const SUPPORT_EMAIL_HREF = 'mailto:support@arenova.in';

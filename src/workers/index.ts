@@ -3,6 +3,7 @@ import prisma from '../lib/db/prisma';
 import { extractMenuFromImages } from '../lib/gemini/vision-extractor';
 import { generateOrReuseDishIllustration } from '../lib/gemini/illustration-generator';
 import { readAssetFromUrl } from '../lib/storage/adapter';
+import { resolveMenuMimeForExtraction } from '../lib/menu/menu-file-validator';
 
 async function runWorkerLoop() {
   console.log('🚀 Menzy Background Worker running...');
@@ -28,8 +29,15 @@ async function runWorkerLoop() {
         for (const fileUrl of fileKeys) {
           try {
             const loaded = await readAssetFromUrl(fileUrl);
-            if (loaded) {
-              images.push(loaded);
+            if (loaded && loaded.buffer.length > 0) {
+              const resolvedMime = resolveMenuMimeForExtraction(
+                loaded.buffer,
+                loaded.mimeType,
+                fileUrl
+              );
+              if (resolvedMime) {
+                images.push({ buffer: loaded.buffer, mimeType: resolvedMime });
+              }
             }
           } catch (err) {
             console.warn('[Worker] Failed to read uploaded menu asset:', fileUrl, err);

@@ -1,5 +1,5 @@
 import type { PlanDefinition } from '@/lib/payments/plans';
-import { SUPPORT_PHONE_DISPLAY } from '@/lib/support/contact';
+import { SUPPORT_EMAIL_DISPLAY } from '@/lib/support/contact';
 import {
   GLOBAL_OG_IMAGE,
   SITE_NAME,
@@ -20,7 +20,7 @@ export function buildOrganizationSchema() {
     areaServed: ['IN', 'US'],
     contactPoint: {
       '@type': 'ContactPoint',
-      telephone: SUPPORT_PHONE_DISPLAY,
+      email: SUPPORT_EMAIL_DISPLAY,
       contactType: 'customer support',
       areaServed: ['IN', 'US'],
     },

@@ -14,6 +14,7 @@ import {
 import { MarketingHeader } from '@/components/marketing/MarketingHeader';
 import { MarketingFooter } from '@/components/marketing/MarketingFooter';
 import { PricingCardsClient } from '@/components/marketing/PricingCardsClient';
+import { SUPPORT_EMAIL_DISPLAY } from '@/lib/support/contact';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,7 +45,7 @@ const PRICING_FAQS = [
   {
     question: 'Who can I contact for setup or onboarding queries?',
     answer:
-      'For setup assistance, demo menu migration, or billing help, call or WhatsApp our setup helpline at +918948006900.',
+      `For setup assistance, demo menu migration, or billing help, email our setup support team at ${SUPPORT_EMAIL_DISPLAY}.`,
   },
   {
     question: 'Are canonical 3D dish illustrations counted against monthly image credits?',

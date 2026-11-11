@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getOwnerSession } from '@/lib/auth/owner-auth';
 import { getClaimPreviewByToken } from '@/lib/claims/claim-service';
 import { FREE_TRIAL_DAYS, TRIAL_PLAN } from '@/lib/payments/plans';
-import { SUPPORT_PHONE } from '@/lib/support/contact';
+import { SUPPORT_EMAIL } from '@/lib/support/contact';
 
 export async function GET(
   _req: Request,
@@ -32,7 +32,7 @@ export async function GET(
           days: FREE_TRIAL_DAYS,
           requiresPaymentMethod: false,
         },
-        supportPhone: SUPPORT_PHONE,
+        supportEmail: SUPPORT_EMAIL,
         currentUser: session
           ? {
               userId: session.userId,

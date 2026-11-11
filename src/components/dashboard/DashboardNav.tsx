@@ -21,9 +21,9 @@ import {
   ChefHat,
   Users,
   Lock,
-  Phone,
+  Mail,
 } from 'lucide-react';
-import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
+import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 
 interface DashboardNavProps {
   currentRestaurant: any;
@@ -34,7 +34,7 @@ interface DashboardNavProps {
   subscriptionExpired?: boolean;
   isTrial?: boolean;
   daysRemaining?: number | null;
-  supportPhone?: string;
+  supportEmail?: string;
 }
 
 const NAV_ITEMS = [
@@ -60,7 +60,7 @@ interface SidebarContentProps {
   subscriptionExpired: boolean;
   isTrial: boolean;
   daysRemaining: number | null;
-  supportPhone: string;
+  supportEmail: string;
   onSelectTab: (tab: string) => void;
   onSelectRestaurant: (restaurantId: string) => void;
   onCloseMobileMenu: () => void;
@@ -76,7 +76,7 @@ function SidebarContent({
   subscriptionExpired,
   isTrial,
   daysRemaining,
-  supportPhone,
+  supportEmail,
   onSelectTab,
   onSelectRestaurant,
   onCloseMobileMenu,
@@ -197,17 +197,17 @@ function SidebarContent({
         })}
       </nav>
 
-      {/* Setup Queries Helpline */}
+      {/* Setup Queries Support */}
       <div className="shrink-0 px-4 py-2.5 border-t border-cream-200 bg-cream-50">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-taupe-500">
-          Setup Queries Helpline
+          Setup Queries Support
         </p>
         <a
-          href={SUPPORT_PHONE_HREF}
+          href={supportEmail ? `mailto:${supportEmail}` : SUPPORT_EMAIL_HREF}
           className="mt-0.5 inline-flex items-center gap-1.5 text-xs font-mono font-bold text-espresso-900 hover:text-terracotta transition-colors"
         >
-          <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" />
-          <span>{supportPhone}</span>
+          <Mail className="w-3.5 h-3.5 text-terracotta shrink-0" />
+          <span>{supportEmail}</span>
         </a>
       </div>
 
@@ -242,7 +242,7 @@ export function DashboardNav({
   subscriptionExpired = false,
   isTrial = false,
   daysRemaining = null,
-  supportPhone = SUPPORT_PHONE_DISPLAY,
+  supportEmail = SUPPORT_EMAIL_DISPLAY,
 }: DashboardNavProps) {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -282,7 +282,7 @@ export function DashboardNav({
     subscriptionExpired,
     isTrial,
     daysRemaining,
-    supportPhone,
+    supportEmail,
     onSelectTab: handleTabClick,
     onSelectRestaurant: handleRestaurantChange,
     onCloseMobileMenu: () => setMobileMenuOpen(false),

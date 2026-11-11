@@ -3,9 +3,9 @@
 import React, { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowRight, AlertCircle, Sparkles, Eye, EyeOff, Phone } from 'lucide-react';
+import { ArrowRight, AlertCircle, Sparkles, Eye, EyeOff, Mail } from 'lucide-react';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
-import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
+import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 
 function LoginForm() {
   const router = useRouter();
@@ -157,10 +157,10 @@ function LoginForm() {
           </Link>
         </div>
         <div className="pt-2 border-t border-cream-200 flex items-center justify-center gap-1.5 text-[11px] text-taupe-600">
-          <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" />
-          <span>Setup queries? Call</span>
-          <a href={SUPPORT_PHONE_HREF} className="font-semibold text-espresso-900 hover:text-terracotta underline underline-offset-2">
-            {SUPPORT_PHONE_DISPLAY}
+          <Mail className="w-3.5 h-3.5 text-terracotta shrink-0" />
+          <span>Setup queries? Email</span>
+          <a href={SUPPORT_EMAIL_HREF} className="font-semibold text-espresso-900 hover:text-terracotta underline underline-offset-2">
+            {SUPPORT_EMAIL_DISPLAY}
           </a>
         </div>
       </div>

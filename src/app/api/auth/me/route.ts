@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { clearOwnerSessionCookie, getVerifiedOwnerCookie } from '@/lib/auth/owner-auth';
 import prisma from '@/lib/db/prisma';
 import { evaluateOrganizationAccess } from '@/lib/billing/subscription-access';
-import { SUPPORT_PHONE } from '@/lib/support/contact';
+import { SUPPORT_EMAIL } from '@/lib/support/contact';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,7 +92,7 @@ export async function GET() {
     return NextResponse.json(
       {
         authenticated: true,
-        supportPhone: SUPPORT_PHONE,
+        supportEmail: SUPPORT_EMAIL,
         user: {
           id: user.id,
           email: user.email,

@@ -34,8 +34,18 @@ import {
   KeyRound,
   X,
   Image as ImageIcon,
+  Camera,
+  FileText,
 } from 'lucide-react';
 import { Portal } from '@/components/ui/Portal';
+import {
+  MENU_PDF_ACCEPT,
+  MENU_PHOTO_ACCEPT,
+} from '@/lib/menu/menu-file-validator';
+import {
+  readApiErrorMessage,
+  validateAndPrepareMenuFiles,
+} from '@/lib/menu/client-menu-upload';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
 import { sortCanonicalCategories } from '@/lib/canonical/catalog';
 import {
@@ -247,6 +257,9 @@ export default function SuperAdminPortalPage() {
   }, [demoDishes]);
   const [demoLoading, setDemoLoading] = useState(false);
   const [demoExtracting, setDemoExtracting] = useState(false);
+  const [isDraggingDemoMenu, setIsDraggingDemoMenu] = useState(false);
+  const demoMenuPhotoInputRef = React.useRef<HTMLInputElement | null>(null);
+  const demoMenuPdfInputRef = React.useRef<HTMLInputElement | null>(null);
   const [demoError, setDemoError] = useState<string | null>(null);
   const [generatedDemoResult, setGeneratedDemoResult] = useState<{
     claimUrl: string;
@@ -544,28 +557,33 @@ export default function SuperAdminPortalPage() {
     if (generatedDemoResult) setGeneratedDemoResult(null);
   };
 
-  const handleExtractDemoDishes = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  const processDemoMenuFiles = async (rawFiles: FileList | File[] | null | undefined) => {
+    if (!rawFiles || rawFiles.length === 0 || demoExtracting) return;
 
     setDemoExtracting(true);
     setDemoError(null);
 
     try {
+      const prepared = await validateAndPrepareMenuFiles(rawFiles);
       const formData = new FormData();
       formData.append('currency', demoCountry === 'US' ? 'USD' : 'INR');
-      for (let i = 0; i < files.length; i++) {
-        formData.append('files', files[i]);
+      for (const file of prepared.files) {
+        formData.append('files', file);
       }
 
       const res = await fetch('/api/admin/restaurants/extract-menu', {
         method: 'POST',
         body: formData,
       });
-      const data = await res.json();
 
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to extract dishes from menu upload.');
+      if (!res.ok) {
+        const msg = await readApiErrorMessage(res, 'Failed to extract dishes from menu upload.');
+        throw new Error(msg);
+      }
+
+      const data = await res.json().catch(() => ({}));
+      if (!data?.success) {
+        throw new Error(data?.error || 'Failed to extract dishes from menu upload.');
       }
 
       if (data.restaurantName && !demoName.trim()) {
@@ -622,15 +640,22 @@ export default function SuperAdminPortalPage() {
       } else {
         showExtractionToast(
           '0 items extracted',
-          'No legible dishes detected. Try a clearer crop or add dishes manually.'
+          'No legible dishes detected. Try a clearer photo/PDF crop or add dishes manually.'
         );
       }
     } catch (err: any) {
       setDemoError(err.message || 'Menu extraction failed. You can still add dishes manually below.');
     } finally {
       setDemoExtracting(false);
-      e.target.value = '';
     }
+  };
+
+  const handleExtractDemoDishes = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const selected = Array.from(files);
+    e.target.value = '';
+    await processDemoMenuFiles(selected);
   };
 
   const handleAddDemoDishRow = () => {
@@ -2462,7 +2487,56 @@ export default function SuperAdminPortalPage() {
                 </div>
 
                 {/* Starter Dishes Builder + AI Upload Extraction */}
-                <div className="p-3.5 bg-[#110C09] rounded-2xl border border-espresso-800 space-y-3">
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!demoExtracting && !isDraggingDemoMenu) setIsDraggingDemoMenu(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) {
+                      return;
+                    }
+                    setIsDraggingDemoMenu(false);
+                  }}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingDemoMenu(false);
+                    if (demoExtracting) return;
+                    const dropped = e.dataTransfer?.files;
+                    if (dropped && dropped.length > 0) {
+                      await processDemoMenuFiles(Array.from(dropped));
+                    }
+                  }}
+                  className={`p-3.5 bg-[#110C09] rounded-2xl border space-y-3 transition-colors ${
+                    isDraggingDemoMenu ? 'border-terracotta bg-[#1B120C]' : 'border-espresso-800'
+                  }`}
+                >
+                  <input
+                    ref={demoMenuPhotoInputRef}
+                    type="file"
+                    accept={MENU_PHOTO_ACCEPT}
+                    multiple
+                    disabled={demoExtracting}
+                    onChange={handleExtractDemoDishes}
+                    tabIndex={-1}
+                    aria-label="Scan demo menu photos"
+                    className="sr-only"
+                  />
+                  <input
+                    ref={demoMenuPdfInputRef}
+                    type="file"
+                    accept={MENU_PDF_ACCEPT}
+                    multiple
+                    disabled={demoExtracting}
+                    onChange={handleExtractDemoDishes}
+                    tabIndex={-1}
+                    aria-label="Scan demo menu PDF"
+                    className="sr-only"
+                  />
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-2">
@@ -2476,7 +2550,7 @@ export default function SuperAdminPortalPage() {
                         )}
                       </div>
                       <div className="text-[11px] text-taupe-400">
-                        Customize items below or upload menu photos/PDFs in batches — duplicates are merged automatically
+                        Customize items below, or drop / scan menu photos or a PDF — duplicates merge automatically
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -2490,18 +2564,24 @@ export default function SuperAdminPortalPage() {
                           Clear List
                         </button>
                       )}
-                      <label className="px-2.5 py-1.5 rounded-lg bg-espresso-800 hover:bg-espresso-700 border border-espresso-700 text-cream-100 text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1.5">
-                        <Upload className="w-3 h-3 text-terracotta" />
-                        <span>{demoExtracting ? 'Extracting...' : 'Scan Menu Photo/PDF'}</span>
-                        <input
-                          type="file"
-                          accept="image/*,.pdf"
-                          multiple
-                          disabled={demoExtracting}
-                          onChange={handleExtractDemoDishes}
-                          className="hidden"
-                        />
-                      </label>
+                      <button
+                        type="button"
+                        disabled={demoExtracting}
+                        onClick={() => demoMenuPhotoInputRef.current?.click()}
+                        className="px-2.5 py-1.5 rounded-lg bg-espresso-800 hover:bg-espresso-700 border border-espresso-700 text-cream-100 text-[11px] font-semibold disabled:opacity-50 inline-flex items-center gap-1.5"
+                      >
+                        <Camera className="w-3 h-3 text-terracotta" />
+                        <span>{demoExtracting ? 'Extracting...' : 'Scan Photos'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={demoExtracting}
+                        onClick={() => demoMenuPdfInputRef.current?.click()}
+                        className="px-2.5 py-1.5 rounded-lg bg-espresso-800 hover:bg-espresso-700 border border-espresso-700 text-cream-100 text-[11px] font-semibold disabled:opacity-50 inline-flex items-center gap-1.5"
+                      >
+                        <FileText className="w-3 h-3 text-terracotta" />
+                        <span>{demoExtracting ? 'Extracting...' : 'Scan PDF'}</span>
+                      </button>
                       <button
                         type="button"
                         onClick={handleAddDemoDishRow}

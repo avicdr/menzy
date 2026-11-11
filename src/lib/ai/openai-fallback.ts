@@ -100,6 +100,7 @@ export async function callOpenAIChatJson(params: {
   userPrompt: string;
   timeoutMs?: number;
   model?: string;
+  temperature?: number;
 }): Promise<{
   text: string;
   model: string;
@@ -128,7 +129,7 @@ export async function callOpenAIChatJson(params: {
             { role: 'user', content: params.userPrompt },
           ],
           response_format: { type: 'json_object' },
-          temperature: 0.3,
+          temperature: params.temperature ?? 0.3,
         }),
         signal: controller.signal,
       });
@@ -177,8 +178,15 @@ export async function callOpenAIVisionMenuExtraction(params: {
   ];
 
   params.files.forEach((file, idx) => {
+    const lowerMime = (file.mimeType || '').toLowerCase();
+    if (lowerMime === 'image/heic' || lowerMime === 'image/heif') {
+      throw new Error(
+        'HEIC/HEIF photos require Gemini Vision or JPG/PNG conversion. Please convert the photo to JPG/PNG or PDF and try again.'
+      );
+    }
+
     const base64 = file.buffer.toString('base64');
-    if (file.mimeType === 'application/pdf') {
+    if (lowerMime === 'application/pdf') {
       userContent.push({
         type: 'file',
         file: {
@@ -190,7 +198,7 @@ export async function callOpenAIVisionMenuExtraction(params: {
       userContent.push({
         type: 'image_url',
         image_url: {
-          url: `data:${file.mimeType};base64,${base64}`,
+          url: `data:${lowerMime || 'image/jpeg'};base64,${base64}`,
           detail: 'high',
         },
       });
@@ -202,21 +210,26 @@ export async function callOpenAIVisionMenuExtraction(params: {
     const timer = setTimeout(() => controller.abort(new Error('OPENAI_EXTRACTION_TIMEOUT')), timeoutMs);
 
     try {
+      const payload: Record<string, any> = {
+        model,
+        messages: [
+          { role: 'system', content: params.systemPrompt },
+          { role: 'user', content: userContent },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+      };
+      if (!model.startsWith('o1') && !model.startsWith('o3') && !model.startsWith('gpt-5')) {
+        payload.max_tokens = 16384;
+      }
+
       const res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: params.systemPrompt },
-            { role: 'user', content: userContent },
-          ],
-          response_format: { type: 'json_object' },
-          temperature: 0.1,
-        }),
+        body: JSON.stringify(payload),
         signal: controller.signal,
       });
 

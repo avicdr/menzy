@@ -7,7 +7,7 @@ import { ClaimRedeemError, redeemClaimWithinTransaction } from '@/lib/claims/cla
 import { resolveVisitorRegion } from '@/lib/geo/region-server';
 import { provisionTrialSubscriptionWithinTx } from '@/lib/billing/subscription-access';
 import { FREE_TRIAL_DAYS, TRIAL_PLAN, TRIAL_PLAN_KEY } from '@/lib/payments/plans';
-import { SUPPORT_PHONE } from '@/lib/support/contact';
+import { SUPPORT_EMAIL } from '@/lib/support/contact';
 import { ThemePreset, LayoutMode } from '@prisma/client';
 
 export async function POST(req: Request) {
@@ -258,7 +258,7 @@ export async function POST(req: Request) {
           ? result.subscription.paidThrough.toISOString()
           : null,
       },
-      supportPhone: SUPPORT_PHONE,
+      supportEmail: SUPPORT_EMAIL,
     });
   } catch (error: any) {
     if (error instanceof ClaimRedeemError) {
