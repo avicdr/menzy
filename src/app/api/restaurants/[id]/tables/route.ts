@@ -24,7 +24,16 @@ export async function GET(
         isArchived: false,
       },
       orderBy: { name: 'asc' },
-      include: {
+      select: {
+        id: true,
+        restaurantId: true,
+        name: true,
+        section: true,
+        capacity: true,
+        qrTokenHash: true,
+        qrVersion: true,
+        isActive: true,
+        createdAt: true,
         _count: {
           select: {
             orders: {
@@ -55,7 +64,10 @@ export async function GET(
       };
     });
 
-    return NextResponse.json({ tables: formatted });
+    return NextResponse.json(
+      { tables: formatted },
+      { headers: { 'Cache-Control': 'private, no-store, max-age=0' } }
+    );
   } catch (error: any) {
     console.error('Tables GET error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

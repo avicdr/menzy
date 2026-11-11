@@ -1,8 +1,11 @@
-import crypto from 'crypto';
+import { ThinkingLevel } from '@google/genai';
 import {
   getGenAIClient,
   getImageModelCandidates,
   getImageModelName,
+  getOrderedGeminiClients,
+  getTextModelCandidates,
+  isGeminiKeyCooledDown,
   markGeminiKeyCooldown,
   resolveGeminiAttemptClients,
 } from './client';
@@ -10,15 +13,215 @@ import { generateOpenAIDishImage, hasOpenAIFallback } from '../ai/openai-fallbac
 import { uploadAsset } from '../storage/adapter';
 import prisma from '../db/prisma';
 import { AssetType, ModerationStatus } from '@prisma/client';
+import { sniffMenuFileMimeFromBytes } from '../menu/menu-file-validator';
 
 export const MAX_BATCH_GENERATION = 5;
 
-export function buildIllustrationPrompt(dishDescription: string, ownerTweaks?: string): string {
-  const baseDescription = ownerTweaks
-    ? `${dishDescription}. Additional plating details: ${ownerTweaks}`
-    : dishDescription;
+export interface DishVisualPromptInput {
+  dishName: string;
+  visualDescription?: string | null;
+  category?: string | null;
+  ingredients?: string[] | null;
+  dietaryLabels?: string[] | null;
+  portionSize?: string | null;
+  ownerTweaks?: string | null;
+}
 
-  return `Create a premium 3D-clay-style culinary illustration of ${baseDescription}. Use an elegant three-quarter perspective, contemporary café editorial art direction, carefully composed tableware, soft warm studio lighting, dimensional shapes, refined food styling, neutral background, and consistent framing. Accurately depict known ingredients when provided. Avoid extraneous objects, labels, text, logos, and decorative clutter. This is a stylized conceptual illustration, not a claim about the restaurant's exact plating.`;
+function buildDietaryConstraintCue(dietaryLabels?: string[] | null): string | null {
+  if (!Array.isArray(dietaryLabels) || dietaryLabels.length === 0) {
+    return null;
+  }
+  const normalized = new Set(dietaryLabels.map((l) => String(l || '').trim().toUpperCase()));
+  const cues: string[] = [];
+
+  if (normalized.has('JAIN')) {
+    cues.push('strictly Jain pure vegetarian food without onion, garlic, meat, seafood, or egg');
+  } else if (normalized.has('VEGAN')) {
+    cues.push('100% plant-based vegan dish with no meat, dairy, or egg');
+  } else if (
+    (normalized.has('VEG') || normalized.has('VEGETARIAN') || normalized.has('PURE_VEG')) &&
+    !normalized.has('NON_VEG') &&
+    !normalized.has('NON-VEG') &&
+    !normalized.has('NONVEG')
+  ) {
+    if (normalized.has('EGG') || normalized.has('CONTAINS_EGG') || normalized.has('EGGETARIAN')) {
+      cues.push('vegetarian eggetarian dish containing no meat, poultry, or seafood');
+    } else {
+      cues.push('strictly vegetarian dish with no meat, poultry, fish, or seafood');
+    }
+  }
+
+  return cues.length > 0 ? cues.join('; ') : null;
+}
+
+function composeDishSubject(
+  dishInput: string | DishVisualPromptInput,
+  ownerTweaks?: string
+): { subject: string; dishName: string } {
+  if (typeof dishInput === 'string') {
+    const clean = dishInput.trim() || 'chef special plated restaurant dish';
+    const tweak = ownerTweaks?.trim();
+    return {
+      dishName: clean,
+      subject: tweak ? `${clean}. Plating & visual details: ${tweak}` : clean,
+    };
+  }
+
+  const cleanName = dishInput.dishName?.trim() || 'Restaurant Dish';
+  const cleanDesc = dishInput.visualDescription?.trim() || '';
+  const cleanCategory = dishInput.category?.trim() || '';
+  const cleanPortion = dishInput.portionSize?.trim() || '';
+  const cleanTweak = (ownerTweaks ?? dishInput.ownerTweaks)?.trim() || '';
+
+  const ingredientsList = Array.isArray(dishInput.ingredients)
+    ? dishInput.ingredients.map((i) => String(i || '').trim()).filter(Boolean).slice(0, 8)
+    : [];
+
+  // Never drop the dish name when a terse/ingredient-only description is provided
+  const parts: string[] = [];
+  if (cleanDesc) {
+    const nameAlreadyInDesc = cleanDesc.toLowerCase().includes(cleanName.toLowerCase());
+    parts.push(nameAlreadyInDesc ? cleanDesc : `${cleanName} — ${cleanDesc}`);
+  } else {
+    parts.push(cleanName);
+  }
+
+  if (cleanCategory && !cleanName.toLowerCase().includes(cleanCategory.toLowerCase())) {
+    parts.push(`Course/category: ${cleanCategory}`);
+  }
+  if (ingredientsList.length > 0) {
+    const descLower = `${cleanName} ${cleanDesc}`.toLowerCase();
+    const missingIngredients = ingredientsList.filter((ing) => !descLower.includes(ing.toLowerCase()));
+    if (missingIngredients.length > 0) {
+      parts.push(`Key visible ingredients: ${missingIngredients.join(', ')}`);
+    }
+  }
+  if (cleanPortion) {
+    parts.push(`Portion framing: ${cleanPortion}`);
+  }
+  const dietaryCue = buildDietaryConstraintCue(dishInput.dietaryLabels);
+  if (dietaryCue) {
+    parts.push(`Dietary requirement: ${dietaryCue}`);
+  }
+  if (cleanTweak) {
+    parts.push(`Additional plating & styling notes: ${cleanTweak}`);
+  }
+
+  return {
+    dishName: cleanName,
+    subject: parts.join('. '),
+  };
+}
+
+export function buildIllustrationPrompt(
+  dishDescriptionOrInput: string | DishVisualPromptInput,
+  ownerTweaks?: string
+): string {
+  const { subject } = composeDishSubject(dishDescriptionOrInput, ownerTweaks);
+
+  return `High-resolution photorealistic editorial food photography of ${subject}. Shot on a 50mm macro lens from an appetizing 45-degree dining table angle, showcasing authentic cooked food textures, glistening natural sauces or sear marks, fresh garnishes, realistic ceramic or stoneware tableware on a warm neutral wood or linen cafe table, soft natural directional daylight, and gentle depth of field. Strictly real appetizing food only — NO 3D clay, NO plasticine, NO toy or CGI cartoon look, NO floating objects, NO text, NO menu labels, NO logos, and NO watermarks.`;
+}
+
+async function enrichDishVisualDescriptionWithGeminiText(
+  input: DishVisualPromptInput
+): Promise<string | null> {
+  if (process.env.VITEST) {
+    return null;
+  }
+
+  const descWordCount = (input.visualDescription || '').trim().split(/\s+/).filter(Boolean).length;
+  const hasFullName = Boolean(
+    input.visualDescription &&
+      input.visualDescription.toLowerCase().includes(input.dishName.trim().toLowerCase())
+  );
+  if (hasFullName && descWordCount >= 14) {
+    return null;
+  }
+
+  const textClients = getOrderedGeminiClients('text').filter(
+    (entry) => !isGeminiKeyCooledDown(entry.key, 'text')
+  );
+  if (textClients.length === 0) {
+    return null;
+  }
+
+  const primaryModel = getTextModelCandidates()[0] || 'gemini-3-flash-preview';
+  const entry = textClients[0];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error('VISUAL_BRIEF_TIMEOUT')), 3500);
+
+  try {
+    const contextLines = [
+      `Dish name: ${input.dishName}`,
+      input.category ? `Category: ${input.category}` : null,
+      input.visualDescription ? `Menu description: ${input.visualDescription}` : null,
+      Array.isArray(input.ingredients) && input.ingredients.length > 0
+        ? `Ingredients: ${input.ingredients.slice(0, 8).join(', ')}`
+        : null,
+      input.portionSize ? `Serving size: ${input.portionSize}` : null,
+      buildDietaryConstraintCue(input.dietaryLabels)
+        ? `Dietary rule: ${buildDietaryConstraintCue(input.dietaryLabels)}`
+        : null,
+      input.ownerTweaks ? `Owner styling request: ${input.ownerTweaks}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const config: Record<string, any> = {
+      temperature: 0.3,
+      abortSignal: controller.signal,
+      httpOptions: { timeout: 3500 },
+    };
+    if (primaryModel.startsWith('gemini-3')) {
+      config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
+    }
+
+    const res: any = await Promise.race([
+      entry.client.models.generateContent({
+        model: primaryModel,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: `You are a food stylist writing a concise 1-to-2 sentence photographic visual description for a food photographer so they capture the exact authentic prepared dish accurately (never ingredients alone, never raw/uncooked unless specified, respecting dietary rules).\n\n${contextLines}\n\nReturn ONLY a plain-text visual description under 60 words describing the finished plated food, vessel/bowl/plate, visible textures, toppings, and natural garnishes.`,
+              },
+            ],
+          },
+        ],
+        config,
+      }),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
+    ]);
+
+    const brief = typeof res?.text === 'string' ? res.text.replace(/\s+/g, ' ').trim() : '';
+    if (brief.length >= 20 && brief.length <= 450) {
+      return brief;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function isRasterImageBuffer(buffer: Buffer | null | undefined, minBytes = 6): boolean {
+  if (!buffer || buffer.length < minBytes) {
+    return false;
+  }
+  const sniffed = sniffMenuFileMimeFromBytes(buffer);
+  if (sniffed === 'image/jpeg' || sniffed === 'image/png' || sniffed === 'image/webp') {
+    return true;
+  }
+  // Allow tiny PNG/JPEG headers produced in unit tests when magic bytes are valid
+  if (buffer.length >= 4 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
+    return true;
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return true;
+  }
+  return false;
 }
 
 export async function generateOrReuseDishIllustration(params: {
@@ -26,10 +229,15 @@ export async function generateOrReuseDishIllustration(params: {
   organizationId: string;
   menuItemId?: string;
   dishName: string;
-  visualDescription: string;
+  visualDescription?: string;
+  category?: string | null;
+  ingredients?: string[] | null;
+  dietaryLabels?: string[] | null;
+  portionSize?: string | null;
   canonicalId?: string | null;
   customInstructions?: string;
   forceRegenerate?: boolean;
+  enrichWithTextModel?: boolean;
 }): Promise<{ asset: any; isReused: boolean; creditsCharged: number }> {
   // 1. Check for approved canonical asset reuse first (if not forcing new generation)
   if (!params.forceRegenerate && params.canonicalId) {
@@ -78,7 +286,28 @@ export async function generateOrReuseDishIllustration(params: {
     }
   }
 
-  const prompt = buildIllustrationPrompt(params.visualDescription, params.customInstructions);
+  const visualInput: DishVisualPromptInput = {
+    dishName: params.dishName,
+    visualDescription: params.visualDescription,
+    category: params.category,
+    ingredients: params.ingredients,
+    dietaryLabels: params.dietaryLabels,
+    portionSize: params.portionSize,
+    ownerTweaks: params.customInstructions,
+  };
+
+  let promptInput: DishVisualPromptInput = visualInput;
+  if (params.enrichWithTextModel !== false) {
+    const enrichedBrief = await enrichDishVisualDescriptionWithGeminiText(visualInput);
+    if (enrichedBrief) {
+      promptInput = {
+        ...visualInput,
+        visualDescription: enrichedBrief,
+      };
+    }
+  }
+
+  const prompt = buildIllustrationPrompt(promptInput, params.customInstructions);
   const modelName = getImageModelName();
   const modelCandidates = getImageModelCandidates();
 
@@ -94,22 +323,31 @@ export async function generateOrReuseDishIllustration(params: {
     },
   });
 
-  const geminiClients = resolveGeminiAttemptClients(getGenAIClient('image'), 'image');
+  const allGeminiClients = resolveGeminiAttemptClients(getGenAIClient('image'), 'image');
+  const healthyGeminiClients = allGeminiClients.filter(
+    (entry) => entry.key === 'mock-injected-client' || !isGeminiKeyCooledDown(entry.key, 'image')
+  );
+  // Avoid hammering 45 dead free-tier limit:0 requests repeatedly once all keys are cooled down
+  const geminiAttemptClients =
+    healthyGeminiClients.length > 0 ? healthyGeminiClients : allGeminiClients.slice(0, 1);
+
   let imageBuffer: Buffer | null = null;
   let mimeType = 'image/jpeg';
   let ext = 'jpg';
   let usedModel = modelName;
   let usedSource = 'GEMINI_GEN';
+  const providerErrors: string[] = [];
 
   // Tier 1: Try official Google GenAI across image models x configured Gemini API keys
   const invalidKeySet = new Set<string>();
+  const zeroQuotaModelCount = new Map<string, number>();
   let abortModelCascade = false;
 
   for (let mIdx = 0; mIdx < modelCandidates.length && !imageBuffer && !abortModelCascade; mIdx++) {
     const candidateModel = modelCandidates[mIdx];
 
-    for (let idx = 0; idx < geminiClients.length; idx++) {
-      const entry = geminiClients[idx];
+    for (let idx = 0; idx < geminiAttemptClients.length; idx++) {
+      const entry = geminiAttemptClients[idx];
       if (invalidKeySet.has(entry.key)) {
         continue;
       }
@@ -128,12 +366,15 @@ export async function generateOrReuseDishIllustration(params: {
 
           const generatedImage = response.generatedImages?.[0];
           if (generatedImage?.image?.imageBytes) {
-            imageBuffer = Buffer.from(generatedImage.image.imageBytes, 'base64');
-            mimeType = 'image/jpeg';
-            ext = 'jpg';
-            usedModel = candidateModel;
-            usedSource = 'GEMINI_GEN';
-            break;
+            const candidateBuf = Buffer.from(generatedImage.image.imageBytes, 'base64');
+            if (isRasterImageBuffer(candidateBuf)) {
+              imageBuffer = candidateBuf;
+              mimeType = 'image/jpeg';
+              ext = 'jpg';
+              usedModel = candidateModel;
+              usedSource = 'GEMINI_GEN';
+              break;
+            }
           }
         } else {
           const response: any = await entry.client.models.generateContent({
@@ -148,12 +389,15 @@ export async function generateOrReuseDishIllustration(params: {
           const parts = response?.candidates?.[0]?.content?.parts || [];
           const imgPart = parts.find((p: any) => p?.inlineData?.data);
           if (imgPart?.inlineData?.data) {
-            imageBuffer = Buffer.from(imgPart.inlineData.data, 'base64');
-            mimeType = imgPart.inlineData.mimeType || 'image/jpeg';
-            ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
-            usedModel = candidateModel;
-            usedSource = 'GEMINI_GEN';
-            break;
+            const candidateBuf = Buffer.from(imgPart.inlineData.data, 'base64');
+            if (isRasterImageBuffer(candidateBuf)) {
+              imageBuffer = candidateBuf;
+              mimeType = imgPart.inlineData.mimeType || 'image/jpeg';
+              ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+              usedModel = candidateModel;
+              usedSource = 'GEMINI_GEN';
+              break;
+            }
           }
         }
       } catch (err: any) {
@@ -168,6 +412,12 @@ export async function generateOrReuseDishIllustration(params: {
           msg.includes('leaked')
         ) {
           invalidKeySet.add(entry.key);
+        } else if (msg.includes('limit: 0') || msg.includes('free_tier_requests')) {
+          const misses = (zeroQuotaModelCount.get(entry.key) ?? 0) + 1;
+          zeroQuotaModelCount.set(entry.key, misses);
+          if (misses >= 2) {
+            invalidKeySet.add(entry.key);
+          }
         }
 
         if (entry.key !== 'mock-injected-client') {
@@ -175,8 +425,9 @@ export async function generateOrReuseDishIllustration(params: {
         } else {
           abortModelCascade = true;
         }
+        providerErrors.push(`Gemini(${candidateModel}): ${String(err?.message || err).slice(0, 140)}`);
         console.warn(
-          `GenAI image generation failed (${candidateModel}, key ${entry.maskedKey}, ${idx + 1}/${geminiClients.length}):`,
+          `GenAI image generation failed (${candidateModel}, key ${entry.maskedKey}, ${idx + 1}/${geminiAttemptClients.length}):`,
           err?.message || err
         );
         if (abortModelCascade) {
@@ -190,46 +441,81 @@ export async function generateOrReuseDishIllustration(params: {
   if (!imageBuffer && hasOpenAIFallback()) {
     try {
       const openAiImg = await generateOpenAIDishImage({ prompt, timeoutMs: 45000 });
-      imageBuffer = openAiImg.buffer;
-      mimeType = openAiImg.mimeType;
-      ext = openAiImg.ext;
-      usedModel = openAiImg.model;
-      usedSource = 'OPENAI_GEN';
+      if (isRasterImageBuffer(openAiImg.buffer)) {
+        imageBuffer = openAiImg.buffer;
+        mimeType = openAiImg.mimeType;
+        ext = openAiImg.ext;
+        usedModel = openAiImg.model;
+        usedSource = 'OPENAI_GEN';
+      }
     } catch (openAiErr: any) {
+      providerErrors.push(`OpenAI: ${String(openAiErr?.message || openAiErr).slice(0, 160)}`);
       console.warn('OpenAI image generation fallback failed:', openAiErr?.message || openAiErr);
     }
   }
 
-  // Tier 2: Real AI 3D-Clay Culinary Image via high-availability AI endpoint
-  if (!imageBuffer) {
+  // Tier 2: Authenticated Flux endpoint ONLY when POLLINATIONS_API_KEY is explicitly configured
+  const pollinationsKey = process.env.POLLINATIONS_API_KEY?.trim();
+  if (!imageBuffer && pollinationsKey) {
     try {
-      const cleanDish = params.dishName.replace(/[^a-zA-Z0-9\s]/g, '').trim();
-      const clayPrompt = `3d clay style delicious ${cleanDish}, contemporary food presentation, ceramic plate, studio lighting, soft shadows, warm editorial culinary aesthetic`;
-      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(clayPrompt)}?width=512&height=512&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
-
-      const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
-      if (res.ok) {
+      const url = `https://gen.pollinations.ai/image/${encodeURIComponent(prompt)}?model=flux&width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${pollinationsKey}`,
+        },
+        signal: AbortSignal.timeout(25000),
+      });
+      const contentType = res.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() || '';
+      if (res.ok && (contentType === 'image/jpeg' || contentType === 'image/png' || contentType === 'image/webp')) {
         const ab = await res.arrayBuffer();
-        if (ab.byteLength > 2000) {
-          imageBuffer = Buffer.from(ab);
-          mimeType = res.headers.get('content-type') || 'image/jpeg';
-          ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+        const candidateBuf = Buffer.from(ab);
+        if (isRasterImageBuffer(candidateBuf, 4000)) {
+          imageBuffer = candidateBuf;
+          mimeType = contentType;
+          ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
           usedModel = 'pollinations-flux';
           usedSource = 'POLLINATIONS_GEN';
         }
+      } else {
+        providerErrors.push(`Pollinations: HTTP ${res.status}`);
       }
     } catch (aiErr: any) {
-      console.warn('AI image service fallback unavailable, generating vector clay illustration...', aiErr?.message || aiErr);
+      providerErrors.push(`Pollinations: ${String(aiErr?.message || aiErr).slice(0, 120)}`);
+      console.warn('Authenticated Flux image generation failed:', aiErr?.message || aiErr);
     }
   }
 
-  // Tier 3: Guaranteed Valid, Appetite-Focused 3D Clay Vector SVG Illustration
+  // Never store fake SVG circle blobs or unauthenticated watermarked thumbnails as paid AI food photos
   if (!imageBuffer) {
-    imageBuffer = createPlaceholderIllustrationBuffer(params.dishName);
-    mimeType = 'image/svg+xml';
-    ext = 'svg';
-    usedModel = 'svg-clay-fallback';
-    usedSource = 'SVG_PLACEHOLDER';
+    const joinedErrors = providerErrors.join(' | ').toLowerCase();
+    const friendlyMessage =
+      joinedErrors.includes('limit: 0') || joinedErrors.includes('credit_balance_exhausted') || joinedErrors.includes('insufficient_quota')
+        ? 'AI food image generation is unavailable because configured Gemini image quota (free tier limit: 0) or OpenAI image billing credits are exhausted. Upload your own dish photo or pick from the Canonical Library.'
+        : 'AI food image generation providers are currently unavailable. No credits were deducted — please try again shortly or upload your own dish photo.';
+
+    await Promise.allSettled([
+      prisma.generationJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'FAILED',
+          error: (providerErrors[0] || friendlyMessage).slice(0, 500),
+        },
+      }),
+      prisma.aIUsageEvent.create({
+        data: {
+          organizationId: params.organizationId,
+          restaurantId: params.restaurantId,
+          operationType: 'IMAGE_GENERATION',
+          modelId: usedModel,
+          requestId: job.id,
+          imageCount: 0,
+          estimatedCostUsd: 0,
+          status: 'FAILED',
+        },
+      }),
+    ]);
+
+    throw new Error(`IMAGE_PROVIDER_UNAVAILABLE: ${friendlyMessage}`);
   }
 
   // Store asset with correct MIME type and matching file extension
@@ -283,7 +569,7 @@ export async function generateOrReuseDishIllustration(params: {
       creditType: 'IMAGE_GENERATION',
       delta: -1,
       balanceAfter: Math.max(0, totalCredits - 1),
-      reason: `3D Illustration generated for "${params.dishName}"`,
+      reason: `AI food photo generated for "${params.dishName}"`,
       generationJobId: job.id,
       idempotencyKey,
     },
@@ -308,86 +594,5 @@ export async function generateOrReuseDishIllustration(params: {
     isReused: false,
     creditsCharged: 1,
   };
-}
-
-/**
- * Creates a beautiful warm SVG clay-style food illustration placeholder with 100% valid XML tags
- */
-function createPlaceholderIllustrationBuffer(dishName: string): Buffer {
-  const safeName = (dishName || 'Menzy Dish')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-  const lower = dishName.toLowerCase();
-  let foodColor1 = '#C86843'; // rich terracotta
-  let foodColor2 = '#E69C24'; // saffron / curry
-  let foodColor3 = '#4E6E58'; // herb sage
-  let garnishColor = '#6A8E4E'; // fresh coriander
-
-  if (lower.includes('biryani') || lower.includes('rice') || lower.includes('pulao')) {
-    foodColor1 = '#F3C053';
-    foodColor2 = '#C6753B';
-    foodColor3 = '#883E1E';
-    garnishColor = '#4B7B44';
-  } else if (lower.includes('chicken') || lower.includes('mutton') || lower.includes('meat') || lower.includes('roast') || lower.includes('kebab') || lower.includes('meal')) {
-    foodColor1 = '#9E381C';
-    foodColor2 = '#BF572A';
-    foodColor3 = '#5D2414';
-    garnishColor = '#507D42';
-  } else if (lower.includes('paneer') || lower.includes('cheese') || lower.includes('pasta') || lower.includes('pizza')) {
-    foodColor1 = '#F4D279';
-    foodColor2 = '#D47E3A';
-    foodColor3 = '#EBD9B2';
-    garnishColor = '#3A6B35';
-  } else if (lower.includes('coffee') || lower.includes('chai') || lower.includes('tea') || lower.includes('drink')) {
-    foodColor1 = '#4A2E1F';
-    foodColor2 = '#8B5A3C';
-    foodColor3 = '#E8D3B7';
-    garnishColor = '#C18855';
-  } else if (lower.includes('dessert') || lower.includes('cake') || lower.includes('sweet') || lower.includes('tart')) {
-    foodColor1 = '#B73255';
-    foodColor2 = '#ECA3B6';
-    foodColor3 = '#FDF0D5';
-    garnishColor = '#944D62';
-  }
-
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
-    <defs>
-      <radialGradient id="bgGrad" cx="50%" cy="40%" r="60%">
-        <stop offset="0%" stop-color="#FCFAF7" />
-        <stop offset="100%" stop-color="#EDE4D6" />
-      </radialGradient>
-      <filter id="clayShadow" x="-20%" y="-20%" width="140%" height="140%">
-        <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#35271F" flood-opacity="0.15" />
-      </filter>
-      <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
-        <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.08" />
-      </filter>
-    </defs>
-    <rect width="600" height="600" rx="36" fill="url(#bgGrad)" />
-
-    <!-- Ceramic Plate Shadow & Base -->
-    <ellipse cx="300" cy="350" rx="210" ry="120" fill="#E2D7C5" opacity="0.4" filter="url(#clayShadow)" />
-    <ellipse cx="300" cy="340" rx="200" ry="110" fill="#FAF7F2" stroke="#DFD3C2" stroke-width="4" />
-    <ellipse cx="300" cy="340" rx="160" ry="85" fill="#F3ECE0" stroke="#DDD0BD" stroke-width="2" />
-
-    <!-- 3D Clay Food Composition -->
-    <ellipse cx="300" cy="325" rx="110" ry="60" fill="${foodColor1}" filter="url(#softGlow)" />
-    <circle cx="260" cy="305" r="48" fill="${foodColor2}" filter="url(#softGlow)" />
-    <circle cx="335" cy="315" r="40" fill="${foodColor3}" filter="url(#softGlow)" />
-    <circle cx="295" cy="285" r="32" fill="${foodColor1}" />
-    <circle cx="310" cy="330" r="24" fill="${foodColor2}" />
-
-    <!-- Herb Garnish Plating -->
-    <path d="M290 260 C 315 240, 330 250, 320 270 C 305 285, 275 275, 290 260 Z" fill="${garnishColor}" />
-    <path d="M270 290 C 285 280, 295 288, 290 300 C 280 308, 260 300, 270 290 Z" fill="${garnishColor}" opacity="0.9" />
-
-    <!-- 3D Clay Dish Title Badge -->
-    <rect x="70" y="480" width="460" height="64" rx="32" fill="#35271F" opacity="0.92" filter="url(#clayShadow)" />
-    <text x="300" y="520" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="19" font-weight="700" fill="#F7F3EC" text-anchor="middle" letter-spacing="0.5">${safeName}</text>
-  </svg>`;
-
-  return Buffer.from(svg, 'utf-8');
 }
 

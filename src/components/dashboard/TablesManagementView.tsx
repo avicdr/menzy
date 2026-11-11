@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   QrCode,
   Plus,
   Layers,
   RotateCw,
+  RefreshCw,
   Download,
   Trash2,
   CheckCircle2,
@@ -19,6 +20,16 @@ import {
   Eye,
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import {
+  SESSION_CACHE_TTLS,
+  cacheKeys,
+  clearAllDashboardSessionCaches,
+  dedupeClientRequest,
+  isCacheFresh,
+  readSessionCache,
+  removeSessionCache,
+  writeSessionCache,
+} from '@/lib/cache/dashboard-session-cache';
 
 interface TablesManagementViewProps {
   restaurant: any;
@@ -26,10 +37,18 @@ interface TablesManagementViewProps {
 }
 
 export function TablesManagementView({ restaurant, onSubscriptionExpired }: TablesManagementViewProps) {
-  const [tables, setTables] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const initialTablesEntry = restaurant?.id
+    ? readSessionCache<any[]>(cacheKeys.tables(restaurant.id), SESSION_CACHE_TTLS.TABLES_MAX_MS)
+    : null;
+
+  const [tables, setTables] = useState<any[]>(() => initialTablesEntry?.data ?? []);
+  const [loading, setLoading] = useState<boolean>(() => !initialTablesEntry);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const loadedRestaurantIdRef = useRef<string | null>(
+    initialTablesEntry && restaurant?.id ? restaurant.id : null
+  );
 
   // Individual Table Modal
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -57,28 +76,101 @@ export function TablesManagementView({ restaurant, onSubscriptionExpired }: Tabl
   const [exportData, setExportData] = useState<any | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
 
-  const loadTables = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await fetch(`/api/restaurants/${restaurant.id}/tables`);
-      if (res.status === 402) {
-        const payload = await res.json().catch(() => ({}));
-        onSubscriptionExpired?.(payload);
+  const loadTables = async (options?: { force?: boolean; silent?: boolean }) => {
+    const targetRestaurantId = restaurant?.id;
+    if (!targetRestaurantId) return;
+
+    const force = options?.force ?? false;
+    const cached = force
+      ? null
+      : readSessionCache<any[]>(
+          cacheKeys.tables(targetRestaurantId),
+          SESSION_CACHE_TTLS.TABLES_MAX_MS
+        );
+
+    if (cached) {
+      setTables(cached.data || []);
+      setLoading(false);
+      loadedRestaurantIdRef.current = targetRestaurantId;
+      if (isCacheFresh(cached, SESSION_CACHE_TTLS.TABLES_FRESH_MS)) {
         return;
       }
-      if (!res.ok) throw new Error('Failed to load tables');
-      const data = await res.json();
-      setTables(data.tables || []);
+    }
+
+    const silent = options?.silent ?? Boolean(cached);
+    try {
+      if (silent) {
+        setIsRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+
+      const result = await dedupeClientRequest(`tables:${targetRestaurantId}`, async () => {
+        const res = await fetch(`/api/restaurants/${targetRestaurantId}/tables`);
+        if (res.status === 402) {
+          const payload = await res.json().catch(() => ({}));
+          clearAllDashboardSessionCaches();
+          return { expired: true as const, payload };
+        }
+        if (res.status === 401 || res.status === 403) {
+          clearAllDashboardSessionCaches();
+        }
+        if (!res.ok) throw new Error('Failed to load tables');
+        const data = await res.json();
+        const nextTables = data.tables || [];
+        writeSessionCache(cacheKeys.tables(targetRestaurantId), nextTables);
+        return { expired: false as const, tables: nextTables };
+      });
+
+      if (result.expired) {
+        onSubscriptionExpired?.(result.payload);
+        return;
+      }
+
+      if (restaurant?.id === targetRestaurantId) {
+        setTables(result.tables);
+        loadedRestaurantIdRef.current = targetRestaurantId;
+      }
     } catch (err: any) {
-      setError(err.message || 'Error loading tables');
+      if (!silent) {
+        setError(err.message || 'Error loading tables');
+      }
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
-    if (restaurant?.id) loadTables();
+    if (!restaurant?.id) return;
+
+    if (loadedRestaurantIdRef.current && loadedRestaurantIdRef.current !== restaurant.id) {
+      setPreviewTable(null);
+      setPreviewQrDataUrl(null);
+      setIsExportOpen(false);
+      setExportData(null);
+    }
+
+    const cached = readSessionCache<any[]>(
+      cacheKeys.tables(restaurant.id),
+      SESSION_CACHE_TTLS.TABLES_MAX_MS
+    );
+
+    if (cached) {
+      setTables(cached.data || []);
+      setLoading(false);
+      loadedRestaurantIdRef.current = restaurant.id;
+      if (isCacheFresh(cached, SESSION_CACHE_TTLS.TABLES_FRESH_MS)) {
+        return;
+      }
+      loadTables({ silent: true });
+    } else {
+      if (loadedRestaurantIdRef.current !== restaurant.id) {
+        setTables([]);
+      }
+      loadTables({ force: true, silent: false });
+    }
   }, [restaurant?.id]);
 
   // Lock body scroll and listen for Escape key when any modal is open
@@ -129,6 +221,7 @@ export function TablesManagementView({ restaurant, onSubscriptionExpired }: Tabl
       const data = await res.json().catch(() => ({}));
       if (res.status === 402) {
         setIsCreateModalOpen(false);
+        clearAllDashboardSessionCaches();
         onSubscriptionExpired?.(data);
         return;
       }
@@ -136,8 +229,10 @@ export function TablesManagementView({ restaurant, onSubscriptionExpired }: Tabl
 
       setIsCreateModalOpen(false);
       setTableName('');
+      removeSessionCache(cacheKeys.qrExport(restaurant.id));
+      setExportData(null);
       showSuccess(`Table "${data.table.name}" created successfully!`);
-      await loadTables();
+      await loadTables({ force: true, silent: true });
     } catch (err: any) {
       alert(`Error: ${err.message}`);
     } finally {
@@ -164,14 +259,17 @@ export function TablesManagementView({ restaurant, onSubscriptionExpired }: Tabl
       const data = await res.json().catch(() => ({}));
       if (res.status === 402) {
         setIsBulkModalOpen(false);
+        clearAllDashboardSessionCaches();
         onSubscriptionExpired?.(data);
         return;
       }
       if (!res.ok) throw new Error(data.error || 'Failed to bulk generate tables');
 
       setIsBulkModalOpen(false);
+      removeSessionCache(cacheKeys.qrExport(restaurant.id));
+      setExportData(null);
       showSuccess(`Generated ${data.createdCount} tables successfully!`);
-      await loadTables();
+      await loadTables({ force: true, silent: true });
     } catch (err: any) {
       alert(`Error: ${err.message}`);
     } finally {
@@ -189,12 +287,15 @@ export function TablesManagementView({ restaurant, onSubscriptionExpired }: Tabl
 
       if (res.status === 402) {
         const payload = await res.json().catch(() => ({}));
+        clearAllDashboardSessionCaches();
         onSubscriptionExpired?.(payload);
         return;
       }
       if (res.ok) {
+        removeSessionCache(cacheKeys.qrExport(restaurant.id));
+        setExportData(null);
         showSuccess(`Table "${table.name}" ${!table.isActive ? 'activated' : 'disabled'}.`);
-        await loadTables();
+        await loadTables({ force: true, silent: true });
       }
     } catch (err: any) {
       alert(`Error: ${err.message}`);
@@ -213,12 +314,16 @@ export function TablesManagementView({ restaurant, onSubscriptionExpired }: Tabl
 
       const data = await res.json().catch(() => ({}));
       if (res.status === 402) {
+        clearAllDashboardSessionCaches();
         onSubscriptionExpired?.(data);
         return;
       }
       if (res.ok) {
+        removeSessionCache(cacheKeys.tableQrPreview(table.id, table.qrVersion));
+        removeSessionCache(cacheKeys.qrExport(restaurant.id));
+        setExportData(null);
         showSuccess(`QR code rotated for "${table.name}". New version active.`);
-        await loadTables();
+        await loadTables({ force: true, silent: true });
       } else {
         alert(data.error || 'Failed to rotate QR');
       }
@@ -239,12 +344,16 @@ export function TablesManagementView({ restaurant, onSubscriptionExpired }: Tabl
 
       if (res.status === 402) {
         const payload = await res.json().catch(() => ({}));
+        clearAllDashboardSessionCaches();
         onSubscriptionExpired?.(payload);
         return;
       }
       if (res.ok) {
+        removeSessionCache(cacheKeys.tableQrPreview(table.id, table.qrVersion));
+        removeSessionCache(cacheKeys.qrExport(restaurant.id));
+        setExportData(null);
         showSuccess(`Table "${table.name}" archived.`);
-        await loadTables();
+        await loadTables({ force: true, silent: true });
       }
     } catch (err: any) {
       alert(`Error: ${err.message}`);
@@ -253,23 +362,54 @@ export function TablesManagementView({ restaurant, onSubscriptionExpired }: Tabl
 
   const handleOpenPreview = async (table: any) => {
     setPreviewTable(table);
-    setPreviewLoading(true);
     setPreviewQrDataUrl(null);
     setPreviewScanUrl(table.scanUrl || null);
 
+    const previewCacheKey = cacheKeys.tableQrPreview(table.id, table.qrVersion);
+    const cached = readSessionCache<{ qrDataUrl: string; targetUrl?: string }>(
+      previewCacheKey,
+      SESSION_CACHE_TTLS.TABLES_MAX_MS
+    );
+    if (cached?.data?.qrDataUrl) {
+      setPreviewQrDataUrl(cached.data.qrDataUrl);
+      if (cached.data.targetUrl) {
+        setPreviewScanUrl(cached.data.targetUrl);
+      }
+      setPreviewLoading(false);
+      return;
+    }
+
+    setPreviewLoading(true);
     try {
-      const res = await fetch(`/api/qr/generate?slug=${restaurant.slug}&tableId=${table.id}&format=dataUrl`);
-      if (res.status === 402) {
-        const payload = await res.json().catch(() => ({}));
+      const result = await dedupeClientRequest(previewCacheKey, async () => {
+        const res = await fetch(
+          `/api/qr/generate?slug=${restaurant.slug}&tableId=${table.id}&format=dataUrl`
+        );
+        if (res.status === 402) {
+          const payload = await res.json().catch(() => ({}));
+          clearAllDashboardSessionCaches();
+          return { expired: true as const, payload };
+        }
+        if (!res.ok) return { expired: false as const, data: null };
+        const data = await res.json();
+        if (data?.qrDataUrl) {
+          writeSessionCache(previewCacheKey, {
+            qrDataUrl: data.qrDataUrl,
+            targetUrl: data.targetUrl,
+          });
+        }
+        return { expired: false as const, data };
+      });
+
+      if (result.expired) {
         setPreviewTable(null);
-        onSubscriptionExpired?.(payload);
+        onSubscriptionExpired?.(result.payload);
         return;
       }
-      if (res.ok) {
-        const data = await res.json();
-        setPreviewQrDataUrl(data.qrDataUrl);
-        if (data.targetUrl) {
-          setPreviewScanUrl(data.targetUrl);
+      if (result.data) {
+        setPreviewQrDataUrl(result.data.qrDataUrl);
+        if (result.data.targetUrl) {
+          setPreviewScanUrl(result.data.targetUrl);
         }
       }
     } finally {
@@ -279,18 +419,36 @@ export function TablesManagementView({ restaurant, onSubscriptionExpired }: Tabl
 
   const handleOpenBulkExport = async () => {
     setIsExportOpen(true);
+    const exportCacheKey = cacheKeys.qrExport(restaurant.id);
+    const cached = readSessionCache<any>(exportCacheKey, SESSION_CACHE_TTLS.TABLES_MAX_MS);
+    if (cached?.data) {
+      setExportData(cached.data);
+      setExportLoading(false);
+      return;
+    }
+
     setExportLoading(true);
     try {
-      const res = await fetch(`/api/restaurants/${restaurant.id}/tables/qr-export`);
-      if (res.status === 402) {
-        const payload = await res.json().catch(() => ({}));
+      const result = await dedupeClientRequest(exportCacheKey, async () => {
+        const res = await fetch(`/api/restaurants/${restaurant.id}/tables/qr-export`);
+        if (res.status === 402) {
+          const payload = await res.json().catch(() => ({}));
+          clearAllDashboardSessionCaches();
+          return { expired: true as const, payload };
+        }
+        if (!res.ok) return { expired: false as const, data: null };
+        const data = await res.json();
+        writeSessionCache(exportCacheKey, data);
+        return { expired: false as const, data };
+      });
+
+      if (result.expired) {
         setIsExportOpen(false);
-        onSubscriptionExpired?.(payload);
+        onSubscriptionExpired?.(result.payload);
         return;
       }
-      if (res.ok) {
-        const data = await res.json();
-        setExportData(data);
+      if (result.data) {
+        setExportData(result.data);
       }
     } finally {
       setExportLoading(false);
@@ -312,6 +470,18 @@ export function TablesManagementView({ restaurant, onSubscriptionExpired }: Tabl
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => loadTables({ force: true, silent: tables.length > 0 })}
+            disabled={isRefreshing || loading}
+            aria-label="Refresh tables"
+            title="Refresh tables"
+            className="px-3 py-2 rounded-xl bg-white border border-cream-300 hover:bg-cream-50 text-espresso-800 text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors disabled:opacity-60"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-taupe-600 ${isRefreshing ? 'animate-spin motion-reduce:animate-none' : ''}`} />
+            <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+
           <button
             onClick={handleOpenBulkExport}
             className="px-3.5 py-2 rounded-xl bg-white border border-cream-300 hover:bg-cream-50 text-espresso-800 text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"

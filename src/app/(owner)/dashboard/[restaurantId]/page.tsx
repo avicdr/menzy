@@ -34,6 +34,17 @@ import {
   DEFAULT_SERVICE_CHARGE_PERCENTAGE,
   DEFAULT_TAX_PERCENTAGE,
 } from '@/lib/orders/tax-config';
+import {
+  SESSION_CACHE_TTLS,
+  cacheKeys,
+  clearAllDashboardSessionCaches,
+  dedupeClientRequest,
+  invalidateRestaurantSessionCache,
+  isCacheFresh,
+  readSessionCache,
+  setSessionCacheScope,
+  writeSessionCache,
+} from '@/lib/cache/dashboard-session-cache';
 
 const TabLoadingFallback = () => (
   <div className="p-10 bg-white rounded-3xl border border-cream-200 shadow-soft flex items-center justify-center min-h-[260px]">
@@ -135,8 +146,13 @@ function RestaurantDashboardContent() {
     type: 'success' | 'error';
     message: string;
   } | null>(null);
+  const activeRestaurantIdRef = React.useRef<string | null>(null);
+  const activeRestaurantSlugRef = React.useRef<string | null>(null);
+  activeRestaurantIdRef.current = restaurant?.id ?? null;
+  activeRestaurantSlugRef.current = restaurant?.slug ?? null;
 
   const handleSubscriptionExpired = useCallback((payload?: any) => {
+    clearAllDashboardSessionCaches();
     setExpiredGate((prev: any) =>
       payload && typeof payload === 'object'
         ? payload
@@ -191,31 +207,55 @@ function RestaurantDashboardContent() {
   const analyticsRequestRef = React.useRef(0);
 
   const loadAnalytics = useCallback(
-    async (targetRestaurantId: string) => {
+    async (targetRestaurantId: string, options?: { force?: boolean }) => {
       const reqId = ++analyticsRequestRef.current;
-      try {
-        setAnalyticsLoading(true);
+      const cacheKey = cacheKeys.restaurantAnalytics(targetRestaurantId);
+      const cached = options?.force
+        ? null
+        : readSessionCache<any>(cacheKey, SESSION_CACHE_TTLS.ORDERS_ANALYTICS_MAX_MS);
+
+      if (cached?.data?.success) {
+        setAnalyticsData(cached.data);
         setAnalyticsError(null);
-        const res = await fetch(`/api/restaurant/analytics?restaurantId=${targetRestaurantId}`, {
-          cache: 'no-store',
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.status === 402) {
-          if (analyticsRequestRef.current === reqId) {
-            handleSubscriptionExpired(data);
-          }
+        setAnalyticsLoading(false);
+        if (isCacheFresh(cached, SESSION_CACHE_TTLS.ANALYTICS_FRESH_MS)) {
           return;
         }
-        if (!res.ok || !data?.success) {
-          throw new Error(data.error || 'Failed to load restaurant analytics');
+      }
+
+      try {
+        if (!cached?.data || options?.force) {
+          setAnalyticsLoading(true);
         }
-        if (analyticsRequestRef.current === reqId) {
-          setAnalyticsData(data);
+        setAnalyticsError(null);
+        const result = await dedupeClientRequest(cacheKey, async () => {
+          const res = await fetch(`/api/restaurant/analytics?restaurantId=${targetRestaurantId}`);
+          const data = await res.json().catch(() => ({}));
+          if (res.status === 402) {
+            return { expired: true as const, data };
+          }
+          if (res.status === 401 || res.status === 403) {
+            clearAllDashboardSessionCaches();
+          }
+          if (!res.ok || !data?.success) {
+            throw new Error(data.error || 'Failed to load restaurant analytics');
+          }
+          writeSessionCache(cacheKey, data);
+          return { expired: false as const, data };
+        });
+
+        if (analyticsRequestRef.current !== reqId) return;
+        if (result.expired) {
+          handleSubscriptionExpired(result.data);
+          return;
         }
+        setAnalyticsData(result.data);
       } catch (err: any) {
         if (analyticsRequestRef.current === reqId) {
           console.error('Analytics load error:', err);
-          setAnalyticsError(err.message || 'Unable to load analytics data.');
+          if (!cached?.data) {
+            setAnalyticsError(err.message || 'Unable to load analytics data.');
+          }
         }
       } finally {
         if (analyticsRequestRef.current === reqId) {
@@ -224,6 +264,11 @@ function RestaurantDashboardContent() {
       }
     },
     [handleSubscriptionExpired]
+  );
+
+  const handleRefreshAnalytics = useCallback(
+    (targetRestaurantId: string) => loadAnalytics(targetRestaurantId, { force: true }),
+    [loadAnalytics]
   );
 
   // Settings & Banner State (shared between Settings Tab & Theme Studio Banner section)
@@ -285,6 +330,123 @@ function RestaurantDashboardContent() {
   // Cached QR Studio State
   const [qrData, setQrData] = useState<{ qrDataUrl: string; targetUrl: string } | null>(null);
 
+  const applyRestaurantSettingsPayload = useCallback((rsData: any) => {
+    if (!rsData) return;
+
+    if (rsData.theme) {
+      setRawTheme(rsData.theme);
+    }
+
+    if (rsData.settings) {
+      setRawSettings(rsData.settings);
+    }
+
+    if (rsData.wifi) {
+      setWifiForm({
+        enabled: Boolean(rsData.wifi.enabled),
+        ssid: rsData.wifi.ssid || '',
+        password: rsData.wifi.password || '',
+        security: ['WPA', 'WEP', 'nopass'].includes(rsData.wifi.security)
+          ? rsData.wifi.security
+          : 'WPA',
+      });
+    }
+
+    if (rsData.tableSession) {
+      setTableSessionForm({
+        scanTimeoutMinutes: String(
+          rsData.tableSession.scanTimeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES
+        ),
+        orderExtensionMinutes: String(
+          rsData.tableSession.orderExtensionMinutes ?? DEFAULT_ORDER_EXTENSION_MINUTES
+        ),
+      });
+    }
+
+    if (rsData.taxPercentage !== undefined || rsData.serviceChargePercentage !== undefined) {
+      setTaxForm({
+        taxPercentage: String(rsData.taxPercentage ?? DEFAULT_TAX_PERCENTAGE),
+        serviceChargePercentage: String(
+          rsData.serviceChargePercentage ?? DEFAULT_SERVICE_CHARGE_PERCENTAGE
+        ),
+      });
+    }
+
+    if (rsData.restaurant) {
+      setRestaurant(rsData.restaurant);
+      setSettingsForm({
+        displayName: rsData.restaurant.displayName || '',
+        description: rsData.restaurant.description || '',
+        address: rsData.restaurant.address || '',
+        city: rsData.restaurant.city || '',
+        country: rsData.restaurant.country || 'IN',
+        currency: rsData.restaurant.currency || 'INR',
+        timezone: rsData.restaurant.timezone || 'Asia/Kolkata',
+        phone: rsData.restaurant.phone || '',
+        email: rsData.restaurant.email || '',
+        googleReviewUrl: rsData.restaurant.googleReviewUrl || '',
+        coverUrl: rsData.restaurant.coverUrl || '',
+      });
+    }
+  }, []);
+
+  const updateMenuItems: React.Dispatch<React.SetStateAction<any[]>> = useCallback((updater) => {
+    setMenuItems((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      const rid = activeRestaurantIdRef.current;
+      if (rid) {
+        writeSessionCache(cacheKeys.menuItems(rid), { items: next });
+      }
+      return next;
+    });
+  }, []);
+
+  const handleBillingUpdated: React.Dispatch<React.SetStateAction<any>> = useCallback((updater) => {
+    setBillingUsage((prev: any) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      const rid = activeRestaurantIdRef.current;
+      if (rid && next) {
+        writeSessionCache(cacheKeys.billingUsage(rid), next);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleThemeSaved = useCallback((nextRawTheme: any) => {
+    setRawTheme(nextRawTheme);
+    const rid = activeRestaurantIdRef.current;
+    if (!rid) return;
+    const key = cacheKeys.restaurantSettings(rid);
+    const existing = readSessionCache<any>(key, SESSION_CACHE_TTLS.TABLES_MAX_MS);
+    if (existing?.data) {
+      writeSessionCache(key, { ...existing.data, theme: nextRawTheme });
+    }
+  }, []);
+
+  const handleAiSettingsSaved = useCallback((nextSettings: any) => {
+    setRawSettings(nextSettings);
+    const rid = activeRestaurantIdRef.current;
+    if (!rid) return;
+    const key = cacheKeys.restaurantSettings(rid);
+    const existing = readSessionCache<any>(key, SESSION_CACHE_TTLS.TABLES_MAX_MS);
+    if (existing?.data) {
+      writeSessionCache(key, { ...existing.data, settings: nextSettings });
+    }
+  }, []);
+
+  const updateQrData: React.Dispatch<
+    React.SetStateAction<{ qrDataUrl: string; targetUrl: string } | null>
+  > = useCallback((updater) => {
+    setQrData((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      const slug = activeRestaurantSlugRef.current;
+      if (slug && next?.qrDataUrl) {
+        writeSessionCache(cacheKeys.qrStudio(slug), next);
+      }
+      return next;
+    });
+  }, []);
+
   // Progressive non-blocking background fetch state
   const [secondaryLoading, setSecondaryLoading] = useState({
     items: true,
@@ -297,49 +459,234 @@ function RestaurantDashboardContent() {
   useEffect(() => {
     let cancelled = false;
 
-    async function init() {
-      try {
-        setLoading(true);
-        setAnalyticsData(null);
-        setAnalyticsError(null);
-        setQrData(null);
-        setBillingUsage(null);
+    const resolveTargetFromMe = (meData: any) => {
+      const user = meData?.user || null;
+      let targetRest: any = null;
+      let targetOrg: any = null;
+      let exactMatch = false;
+
+      for (const org of user?.organizations || []) {
+        for (const r of org.restaurants || []) {
+          if (r.id === restaurantId || r.slug === restaurantId) {
+            targetRest = r;
+            targetOrg = org;
+            exactMatch = true;
+            break;
+          }
+        }
+        if (targetRest) break;
+      }
+
+      if (!targetRest) {
+        targetOrg = user?.organizations?.[0] || null;
+        targetRest = targetOrg?.restaurants?.[0] || null;
+      }
+
+      return { user, targetRest, targetOrg, exactMatch };
+    };
+
+    const hydrateRestaurantSlices = (targetRest: any, initialAccess: any) => {
+      const expired = Boolean(initialAccess?.expired);
+      const cachedItems = expired
+        ? null
+        : readSessionCache<any>(
+            cacheKeys.menuItems(targetRest.id),
+            SESSION_CACHE_TTLS.TABLES_MAX_MS
+          );
+      const cachedBilling = readSessionCache<any>(
+        cacheKeys.billingUsage(targetRest.id),
+        SESSION_CACHE_TTLS.TABLES_MAX_MS
+      );
+      const cachedSettings = expired
+        ? null
+        : readSessionCache<any>(
+            cacheKeys.restaurantSettings(targetRest.id),
+            SESSION_CACHE_TTLS.TABLES_MAX_MS
+          );
+      const cachedAnalytics = expired
+        ? null
+        : readSessionCache<any>(
+            cacheKeys.restaurantAnalytics(targetRest.id),
+            SESSION_CACHE_TTLS.ORDERS_ANALYTICS_MAX_MS
+          );
+      const cachedQr =
+        expired || !targetRest.slug
+          ? null
+          : readSessionCache<{ qrDataUrl: string; targetUrl: string }>(
+              cacheKeys.qrStudio(targetRest.slug),
+              SESSION_CACHE_TTLS.TABLES_MAX_MS
+            );
+
+      const itemsList = !expired && Array.isArray(cachedItems?.data?.items)
+        ? cachedItems.data.items
+        : null;
+      const hasItems = Boolean(itemsList);
+      if (itemsList) {
+        setMenuItems(itemsList);
+      } else {
         setMenuItems([]);
+      }
+
+      const billingData = cachedBilling?.data ?? null;
+      const hasBilling = Boolean(billingData);
+      if (billingData) {
+        setBillingUsage(billingData);
+        if (billingData.access) {
+          setTargetOrgAccess(billingData.access);
+          if (billingData.access.expired) {
+            handleSubscriptionExpired({
+              paused: true,
+              code: billingData.access.reason,
+              ...billingData.access,
+            });
+          } else {
+            setExpiredGate(null);
+          }
+        }
+      } else {
+        setBillingUsage(null);
+      }
+
+      const settingsData = !expired ? cachedSettings?.data ?? null : null;
+      const hasSettings = Boolean(settingsData);
+      if (settingsData) {
+        applyRestaurantSettingsPayload(settingsData);
+      } else {
         setRawTheme(null);
         setRawSettings(null);
-        setSecondaryLoading({ items: true, billing: true, settings: true });
+      }
 
-        const meRes = await fetch('/api/auth/me', { cache: 'no-store' });
-        if (cancelled) return;
-        if (!meRes.ok) {
+      if (!expired && cachedAnalytics?.data?.success) {
+        setAnalyticsData(cachedAnalytics.data);
+        setAnalyticsError(null);
+      } else {
+        setAnalyticsData(null);
+        setAnalyticsError(null);
+      }
+
+      if (!expired && cachedQr?.data?.qrDataUrl) {
+        setQrData(cachedQr.data);
+      } else {
+        setQrData(null);
+      }
+
+      setSecondaryLoading({
+        items: !(expired || hasItems),
+        billing: !hasBilling,
+        settings: !(expired || hasSettings),
+      });
+
+      return { cachedItems, cachedBilling, cachedSettings };
+    };
+
+    async function init() {
+      try {
+        const cachedMe = readSessionCache<any>(
+          cacheKeys.authMe(),
+          SESSION_CACHE_TTLS.AUTH_ME_MAX_MS
+        );
+
+        let hydratedFromCache = false;
+        let hydratedTargetId: string | null = null;
+        let sliceCaches: {
+          cachedItems: any;
+          cachedBilling: any;
+          cachedSettings: any;
+        } = { cachedItems: null, cachedBilling: null, cachedSettings: null };
+
+        if (cachedMe?.data?.user) {
+          setSessionCacheScope(cachedMe.data.user.id);
+          const resolvedCached = resolveTargetFromMe(cachedMe.data);
+          if (resolvedCached.targetRest && resolvedCached.exactMatch) {
+            const cachedRest = resolvedCached.targetRest;
+            const initialAccess = resolvedCached.targetOrg?.access || null;
+
+            setCurrentUser(resolvedCached.user);
+            setTargetOrgAccess(initialAccess);
+            setExpiredGate(
+              initialAccess?.expired
+                ? { paused: true, code: initialAccess.reason, ...initialAccess }
+                : null
+            );
+            setCheckoutNotice(null);
+            setRestaurant(cachedRest);
+            setSettingsForm({
+              displayName: cachedRest.displayName || '',
+              description: cachedRest.description || '',
+              address: cachedRest.address || '',
+              city: cachedRest.city || '',
+              country: cachedRest.country || 'IN',
+              currency: cachedRest.currency || 'INR',
+              timezone: cachedRest.timezone || 'Asia/Kolkata',
+              phone: cachedRest.phone || '',
+              email: cachedRest.email || '',
+              googleReviewUrl: cachedRest.googleReviewUrl || '',
+              coverUrl: cachedRest.coverUrl || '',
+            });
+
+            if (currentTabRef.current === 'settings') {
+              skipInitialSettingsEffectRef.current = cachedRest.id;
+            }
+
+            sliceCaches = hydrateRestaurantSlices(cachedRest, initialAccess);
+            hydratedFromCache = true;
+            hydratedTargetId = cachedRest.id;
+            setLoading(false);
+          }
+        }
+
+        if (!hydratedFromCache) {
+          setLoading(true);
+          setAnalyticsData(null);
+          setAnalyticsError(null);
+          setQrData(null);
+          setBillingUsage(null);
+          setMenuItems([]);
+          setRawTheme(null);
+          setRawSettings(null);
+          setSecondaryLoading({ items: true, billing: true, settings: true });
+        }
+
+        let meData = cachedMe?.data ?? null;
+        const needsMeFetch =
+          !cachedMe?.data?.user ||
+          !hydratedFromCache ||
+          !isCacheFresh(cachedMe, SESSION_CACHE_TTLS.AUTH_ME_FRESH_MS);
+
+        if (needsMeFetch) {
+          const meResult = await dedupeClientRequest(cacheKeys.authMe(), async () => {
+            const meRes = await fetch('/api/auth/me', { cache: 'no-store' });
+            if (!meRes.ok) {
+              return { ok: false as const, status: meRes.status, data: null };
+            }
+            const data = await meRes.json();
+            writeSessionCache(cacheKeys.authMe(), data);
+            return { ok: true as const, status: meRes.status, data };
+          });
+          if (cancelled) return;
+          if (!meResult.ok) {
+            clearAllDashboardSessionCaches();
+            router.push('/login');
+            return;
+          }
+          meData = meResult.data;
+        }
+
+        if (!meData?.user) {
+          clearAllDashboardSessionCaches();
           router.push('/login');
           return;
         }
-        const meData = await meRes.json();
+
+        setSessionCacheScope(meData.user.id);
+        const { user, targetRest, targetOrg } = resolveTargetFromMe(meData);
         if (cancelled) return;
-        setCurrentUser(meData.user);
 
-        // Find requested restaurant & owning organization
-        let targetRest: any = null;
-        let targetOrg: any = null;
-        for (const org of meData.user.organizations || []) {
-          for (const r of org.restaurants || []) {
-            if (r.id === restaurantId || r.slug === restaurantId) {
-              targetRest = r;
-              targetOrg = org;
-              break;
-            }
-          }
-          if (targetRest) break;
-        }
-
-        if (!targetRest) {
-          targetOrg = meData.user.organizations?.[0] || null;
-          targetRest = targetOrg?.restaurants?.[0] || null;
-        }
+        setCurrentUser(user);
 
         if (!targetRest) {
           setSecondaryLoading({ items: false, billing: false, settings: false });
+          setLoading(false);
           return;
         }
 
@@ -350,47 +697,78 @@ function RestaurantDashboardContent() {
             ? { paused: true, code: initialAccess.reason, ...initialAccess }
             : null
         );
-        setCheckoutNotice(null);
 
-        setRestaurant(targetRest);
-        setSettingsForm({
-          displayName: targetRest.displayName || '',
-          description: targetRest.description || '',
-          address: targetRest.address || '',
-          city: targetRest.city || '',
-          country: targetRest.country || 'IN',
-          currency: targetRest.currency || 'INR',
-          timezone: targetRest.timezone || 'Asia/Kolkata',
-          phone: targetRest.phone || '',
-          email: targetRest.email || '',
-          googleReviewUrl: targetRest.googleReviewUrl || '',
-          coverUrl: targetRest.coverUrl || '',
-        });
+        if (!hydratedFromCache || hydratedTargetId !== targetRest.id) {
+          setCheckoutNotice(null);
+          setRestaurant(targetRest);
+          setSettingsForm({
+            displayName: targetRest.displayName || '',
+            description: targetRest.description || '',
+            address: targetRest.address || '',
+            city: targetRest.city || '',
+            country: targetRest.country || 'IN',
+            currency: targetRest.currency || 'INR',
+            timezone: targetRest.timezone || 'Asia/Kolkata',
+            phone: targetRest.phone || '',
+            email: targetRest.email || '',
+            googleReviewUrl: targetRest.googleReviewUrl || '',
+            coverUrl: targetRest.coverUrl || '',
+          });
 
-        if (currentTabRef.current === 'settings') {
-          skipInitialSettingsEffectRef.current = targetRest.id;
+          if (currentTabRef.current === 'settings') {
+            skipInitialSettingsEffectRef.current = targetRest.id;
+          }
+
+          sliceCaches = hydrateRestaurantSlices(targetRest, initialAccess);
+          // Unblock dashboard shell immediately after core auth resolves
+          setLoading(false);
+        } else if (needsMeFetch) {
+          setRestaurant((prev: any) =>
+            prev?.id === targetRest.id ? { ...prev, ...targetRest } : targetRest
+          );
         }
 
-        // Unblock dashboard shell immediately after core auth resolves
-        setLoading(false);
+        const itemsCacheKey = cacheKeys.menuItems(targetRest.id);
+        const shouldFetchItems =
+          !initialAccess?.expired &&
+          (!Array.isArray(sliceCaches.cachedItems?.data?.items) ||
+            !isCacheFresh(sliceCaches.cachedItems, SESSION_CACHE_TTLS.MENU_ITEMS_FRESH_MS));
 
         const loadItemsPromise = initialAccess?.expired
           ? (() => {
               setSecondaryLoading((prev) => ({ ...prev, items: false }));
               return Promise.resolve();
             })()
-          : fetch(`/api/menus/items?restaurantId=${targetRest.id}`, { cache: 'no-store' })
-              .then(async (res) => {
-                if (res.status === 402) {
-                  const payload = await res.json().catch(() => ({}));
-                  if (!cancelled) handleSubscriptionExpired(payload);
-                  return null;
+          : !shouldFetchItems
+          ? (() => {
+              setSecondaryLoading((prev) => ({ ...prev, items: false }));
+              return Promise.resolve();
+            })()
+          : dedupeClientRequest(itemsCacheKey, async () => {
+              const res = await fetch(`/api/menus/items?restaurantId=${targetRest.id}`, {
+                cache: 'no-store',
+              });
+              if (res.status === 402) {
+                const payload = await res.json().catch(() => ({}));
+                return { expired: true as const, payload };
+              }
+              if (res.status === 401 || res.status === 403) {
+                clearAllDashboardSessionCaches();
+                return { expired: false as const, data: null };
+              }
+              if (!res.ok) return { expired: false as const, data: null };
+              const data = await res.json();
+              writeSessionCache(itemsCacheKey, data);
+              return { expired: false as const, data };
+            })
+              .then((result) => {
+                if (cancelled) return;
+                if (result.expired) {
+                  handleSubscriptionExpired(result.payload);
+                  return;
                 }
-                return res.ok ? res.json() : null;
-              })
-              .then((itemsData) => {
-                if (!cancelled && itemsData) {
-                  setMenuItems(itemsData.items || []);
+                if (result.data) {
+                  setMenuItems(result.data.items || []);
                 }
               })
               .catch(() => {})
@@ -400,108 +778,94 @@ function RestaurantDashboardContent() {
                 }
               });
 
-        const loadBillingPromise = fetch(`/api/billing/usage?restaurantId=${targetRest.id}`, {
-          cache: 'no-store',
-        })
-          .then((res) => (res.ok ? res.json() : null))
-          .then((billData) => {
-            if (!cancelled && billData) {
-              setBillingUsage(billData);
-              if (billData.access) {
-                setTargetOrgAccess(billData.access);
-                if (billData.access.expired) {
-                  handleSubscriptionExpired({
-                    paused: true,
-                    code: billData.access.reason,
-                    ...billData.access,
-                  });
-                } else {
-                  setExpiredGate(null);
-                }
-              }
-            }
-          })
-          .catch(() => {})
-          .finally(() => {
-            if (!cancelled) {
+        const billingCacheKey = cacheKeys.billingUsage(targetRest.id);
+        const shouldFetchBilling =
+          !sliceCaches.cachedBilling?.data ||
+          !isCacheFresh(sliceCaches.cachedBilling, SESSION_CACHE_TTLS.BILLING_FRESH_MS);
+
+        const loadBillingPromise = !shouldFetchBilling
+          ? (() => {
               setSecondaryLoading((prev) => ({ ...prev, billing: false }));
-            }
-          });
+              return Promise.resolve();
+            })()
+          : dedupeClientRequest(billingCacheKey, async () => {
+              const res = await fetch(`/api/billing/usage?restaurantId=${targetRest.id}`, {
+                cache: 'no-store',
+              });
+              if (res.status === 401 || res.status === 403) {
+                clearAllDashboardSessionCaches();
+                return null;
+              }
+              if (!res.ok) return null;
+              const data = await res.json();
+              writeSessionCache(billingCacheKey, data);
+              return data;
+            })
+              .then((billData) => {
+                if (!cancelled && billData) {
+                  setBillingUsage(billData);
+                  if (billData.access) {
+                    setTargetOrgAccess(billData.access);
+                    if (billData.access.expired) {
+                      handleSubscriptionExpired({
+                        paused: true,
+                        code: billData.access.reason,
+                        ...billData.access,
+                      });
+                    } else {
+                      setExpiredGate(null);
+                    }
+                  }
+                }
+              })
+              .catch(() => {})
+              .finally(() => {
+                if (!cancelled) {
+                  setSecondaryLoading((prev) => ({ ...prev, billing: false }));
+                }
+              });
+
+        const settingsCacheKey = cacheKeys.restaurantSettings(targetRest.id);
+        const shouldFetchSettings =
+          !initialAccess?.expired &&
+          (!sliceCaches.cachedSettings?.data ||
+            !isCacheFresh(sliceCaches.cachedSettings, SESSION_CACHE_TTLS.SETTINGS_FRESH_MS));
 
         const loadSettingsPromise = initialAccess?.expired
           ? (() => {
               setSecondaryLoading((prev) => ({ ...prev, settings: false }));
               return Promise.resolve();
             })()
-          : fetch(`/api/restaurant/settings?restaurantId=${targetRest.id}`, { cache: 'no-store' })
-              .then(async (res) => {
-                if (res.status === 402) {
-                  const payload = await res.json().catch(() => ({}));
-                  if (!cancelled) handleSubscriptionExpired(payload);
-                  return null;
+          : !shouldFetchSettings
+          ? (() => {
+              setSecondaryLoading((prev) => ({ ...prev, settings: false }));
+              return Promise.resolve();
+            })()
+          : dedupeClientRequest(settingsCacheKey, async () => {
+              const res = await fetch(`/api/restaurant/settings?restaurantId=${targetRest.id}`, {
+                cache: 'no-store',
+              });
+              if (res.status === 402) {
+                const payload = await res.json().catch(() => ({}));
+                return { expired: true as const, payload };
+              }
+              if (res.status === 401 || res.status === 403) {
+                clearAllDashboardSessionCaches();
+                return { expired: false as const, data: null };
+              }
+              if (!res.ok) return { expired: false as const, data: null };
+              const rsData = await res.json();
+              writeSessionCache(settingsCacheKey, rsData);
+              return { expired: false as const, data: rsData };
+            })
+              .then((result) => {
+                if (cancelled) return;
+                if (result.expired) {
+                  handleSubscriptionExpired(result.payload);
+                  return;
                 }
-                return res.ok ? res.json() : null;
-              })
-              .then((rsData) => {
-                if (cancelled || !rsData) return;
-
-                if (rsData.theme) {
-                  setRawTheme(rsData.theme);
-                }
-
-                if (rsData.settings) {
-                  setRawSettings(rsData.settings);
-                }
-
-                if (rsData.wifi) {
-                  setWifiForm({
-                    enabled: Boolean(rsData.wifi.enabled),
-                    ssid: rsData.wifi.ssid || '',
-                    password: rsData.wifi.password || '',
-                    security: ['WPA', 'WEP', 'nopass'].includes(rsData.wifi.security)
-                      ? rsData.wifi.security
-                      : 'WPA',
-                  });
-                }
-
-                if (rsData.tableSession) {
-                  setTableSessionForm({
-                    scanTimeoutMinutes: String(
-                      rsData.tableSession.scanTimeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES
-                    ),
-                    orderExtensionMinutes: String(
-                      rsData.tableSession.orderExtensionMinutes ?? DEFAULT_ORDER_EXTENSION_MINUTES
-                    ),
-                  });
-                }
-
-                if (
-                  rsData.taxPercentage !== undefined ||
-                  rsData.serviceChargePercentage !== undefined
-                ) {
-                  setTaxForm({
-                    taxPercentage: String(rsData.taxPercentage ?? DEFAULT_TAX_PERCENTAGE),
-                    serviceChargePercentage: String(
-                      rsData.serviceChargePercentage ?? DEFAULT_SERVICE_CHARGE_PERCENTAGE
-                    ),
-                  });
-                }
-
-                if (rsData.restaurant) {
-                  setRestaurant(rsData.restaurant);
-                  setSettingsForm({
-                    displayName: rsData.restaurant.displayName || '',
-                    description: rsData.restaurant.description || '',
-                    address: rsData.restaurant.address || '',
-                    city: rsData.restaurant.city || '',
-                    country: rsData.restaurant.country || 'IN',
-                    currency: rsData.restaurant.currency || 'INR',
-                    timezone: rsData.restaurant.timezone || 'Asia/Kolkata',
-                    phone: rsData.restaurant.phone || '',
-                    email: rsData.restaurant.email || '',
-                    googleReviewUrl: rsData.restaurant.googleReviewUrl || '',
-                    coverUrl: rsData.restaurant.coverUrl || '',
-                  });
+                if (result.data) {
+                  applyRestaurantSettingsPayload(result.data);
                 }
               })
               .catch(() => {})
@@ -525,7 +889,7 @@ function RestaurantDashboardContent() {
     return () => {
       cancelled = true;
     };
-  }, [restaurantId, router, handleSubscriptionExpired]);
+  }, [restaurantId, router, handleSubscriptionExpired, applyRestaurantSettingsPayload]);
 
   // Keep analytics metrics fresh whenever Overview or Analytics tab is active
   useEffect(() => {
@@ -549,67 +913,59 @@ function RestaurantDashboardContent() {
       return;
     }
 
-    fetch(`/api/restaurant/settings?restaurantId=${restaurant.id}`, { cache: 'no-store' })
-      .then(async (res) => {
-        if (res.status === 402) {
-          const payload = await res.json().catch(() => ({}));
-          handleSubscriptionExpired(payload);
-          return null;
+    const settingsCacheKey = cacheKeys.restaurantSettings(restaurant.id);
+    const cachedSettings = readSessionCache<any>(
+      settingsCacheKey,
+      SESSION_CACHE_TTLS.TABLES_MAX_MS
+    );
+    if (cachedSettings?.data) {
+      applyRestaurantSettingsPayload(cachedSettings.data);
+      if (isCacheFresh(cachedSettings, SESSION_CACHE_TTLS.SETTINGS_FRESH_MS)) {
+        return;
+      }
+    }
+
+    let cancelled = false;
+    dedupeClientRequest(settingsCacheKey, async () => {
+      const res = await fetch(`/api/restaurant/settings?restaurantId=${restaurant.id}`, {
+        cache: 'no-store',
+      });
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        return { expired: true as const, payload };
+      }
+      if (res.status === 401 || res.status === 403) {
+        clearAllDashboardSessionCaches();
+        return { expired: false as const, data: null };
+      }
+      if (!res.ok) return { expired: false as const, data: null };
+      const rsData = await res.json();
+      writeSessionCache(settingsCacheKey, rsData);
+      return { expired: false as const, data: rsData };
+    })
+      .then((result) => {
+        if (cancelled) return;
+        if (result.expired) {
+          handleSubscriptionExpired(result.payload);
+          return;
         }
-        return res.ok ? res.json() : null;
-      })
-      .then((rsData) => {
-        if (!rsData) return;
-        if (rsData.wifi) {
-          setWifiForm({
-            enabled: Boolean(rsData.wifi.enabled),
-            ssid: rsData.wifi.ssid || '',
-            password: rsData.wifi.password || '',
-            security: ['WPA', 'WEP', 'nopass'].includes(rsData.wifi.security)
-              ? rsData.wifi.security
-              : 'WPA',
-          });
-        }
-        if (rsData.tableSession) {
-          setTableSessionForm({
-            scanTimeoutMinutes: String(
-              rsData.tableSession.scanTimeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES
-            ),
-            orderExtensionMinutes: String(
-              rsData.tableSession.orderExtensionMinutes ?? DEFAULT_ORDER_EXTENSION_MINUTES
-            ),
-          });
-        }
-        if (
-          rsData.taxPercentage !== undefined ||
-          rsData.serviceChargePercentage !== undefined
-        ) {
-          setTaxForm({
-            taxPercentage: String(rsData.taxPercentage ?? DEFAULT_TAX_PERCENTAGE),
-            serviceChargePercentage: String(
-              rsData.serviceChargePercentage ?? DEFAULT_SERVICE_CHARGE_PERCENTAGE
-            ),
-          });
-        }
-        if (rsData.restaurant) {
-          setRestaurant(rsData.restaurant);
-          setSettingsForm({
-            displayName: rsData.restaurant.displayName || '',
-            description: rsData.restaurant.description || '',
-            address: rsData.restaurant.address || '',
-            city: rsData.restaurant.city || '',
-            country: rsData.restaurant.country || 'IN',
-            currency: rsData.restaurant.currency || 'INR',
-            timezone: rsData.restaurant.timezone || 'Asia/Kolkata',
-            phone: rsData.restaurant.phone || '',
-            email: rsData.restaurant.email || '',
-            googleReviewUrl: rsData.restaurant.googleReviewUrl || '',
-            coverUrl: rsData.restaurant.coverUrl || '',
-          });
+        if (result.data) {
+          applyRestaurantSettingsPayload(result.data);
         }
       })
       .catch(() => {});
-  }, [currentTab, restaurant?.id, expiredGate, targetOrgAccess?.expired, handleSubscriptionExpired]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentTab,
+    restaurant?.id,
+    expiredGate,
+    targetOrgAccess?.expired,
+    handleSubscriptionExpired,
+    applyRestaurantSettingsPayload,
+  ]);
 
   const isIndianRestaurant = restaurant?.country === 'IN' || restaurant?.currency === 'INR';
 
@@ -730,7 +1086,8 @@ function RestaurantDashboardContent() {
       });
       if (itemsRes.ok) {
         const itemsData = await itemsRes.json();
-        setMenuItems(itemsData.items || []);
+        updateMenuItems(itemsData.items || []);
+        invalidateRestaurantSessionCache(restaurant.id, ['restaurantAnalytics', 'billingUsage']);
       }
     } catch (err: any) {
       console.error('Menu extraction failed:', err);
@@ -805,6 +1162,7 @@ function RestaurantDashboardContent() {
         setRestaurant((prev: any) =>
           prev ? { ...prev, publicationState: data.publicationState } : prev
         );
+        invalidateRestaurantSessionCache(restaurant.id, ['restaurantSettings', 'authMe']);
       } else {
         alert(data.error || 'Failed to update menu publication status');
       }
@@ -896,6 +1254,7 @@ function RestaurantDashboardContent() {
 
       setSettingsForm((prev) => ({ ...prev, coverUrl: uploadedUrl }));
       setRestaurant(saveData.restaurant || { ...restaurant, coverUrl: uploadedUrl });
+      invalidateRestaurantSessionCache(restaurant.id, ['restaurantSettings', 'authMe']);
       setBannerDimensions(dims);
       setBannerToast(
         dims
@@ -926,11 +1285,16 @@ function RestaurantDashboardContent() {
         }),
       });
       const data = await res.json();
+      if (res.status === 402) {
+        handleSubscriptionExpired(data);
+        return;
+      }
       if (!res.ok) {
         throw new Error(data?.error || 'Failed to remove banner image');
       }
       setSettingsForm((prev) => ({ ...prev, coverUrl: '' }));
       setRestaurant(data.restaurant || { ...restaurant, coverUrl: null });
+      invalidateRestaurantSessionCache(restaurant.id, ['restaurantSettings', 'authMe']);
       setBannerDimensions(null);
       setBannerToast('Banner image removed.');
       setTimeout(() => setBannerToast(null), 3000);
@@ -1433,7 +1797,7 @@ function RestaurantDashboardContent() {
               <DashboardMenuTab
                 restaurant={restaurant}
                 menuItems={menuItems}
-                setMenuItems={setMenuItems}
+                setMenuItems={updateMenuItems}
                 secondaryLoadingItems={secondaryLoading.items}
                 isIndianRestaurant={isIndianRestaurant}
                 isUploadingMenu={isUploadingMenu}
@@ -1449,7 +1813,7 @@ function RestaurantDashboardContent() {
                 handleMenuDragLeave={handleMenuDragLeave}
                 handleMenuDrop={handleMenuDrop}
                 onSubscriptionExpired={handleSubscriptionExpired}
-                onBillingUpdated={setBillingUsage}
+                onBillingUpdated={handleBillingUpdated}
               />
             )}
 
@@ -1457,9 +1821,9 @@ function RestaurantDashboardContent() {
               <DashboardIllustrationTab
                 restaurant={restaurant}
                 menuItems={menuItems}
-                setMenuItems={setMenuItems}
+                setMenuItems={updateMenuItems}
                 remainingImageCredits={billingUsage?.remainingImageCredits ?? 15}
-                onBillingUpdated={setBillingUsage}
+                onBillingUpdated={handleBillingUpdated}
                 onSubscriptionExpired={handleSubscriptionExpired}
               />
             )}
@@ -1468,7 +1832,7 @@ function RestaurantDashboardContent() {
               <DashboardThemeTab
                 restaurant={restaurant}
                 rawInitialTheme={rawTheme}
-                onThemeSaved={setRawTheme}
+                onThemeSaved={handleThemeSaved}
                 menuItems={menuItems}
                 coverUrl={settingsForm.coverUrl}
                 bannerDimensions={bannerDimensions}
@@ -1485,7 +1849,7 @@ function RestaurantDashboardContent() {
               <DashboardAiTab
                 restaurant={restaurant}
                 rawInitialSettings={rawSettings}
-                onAiSettingsSaved={setRawSettings}
+                onAiSettingsSaved={handleAiSettingsSaved}
                 menuItems={menuItems}
                 onSubscriptionExpired={handleSubscriptionExpired}
               />
@@ -1495,7 +1859,7 @@ function RestaurantDashboardContent() {
               <DashboardQrTab
                 restaurant={restaurant}
                 qrData={qrData}
-                setQrData={setQrData}
+                setQrData={updateQrData}
                 isSubscriptionExpired={isSubscriptionExpired}
                 onSubscriptionExpired={handleSubscriptionExpired}
               />
@@ -1538,7 +1902,7 @@ function RestaurantDashboardContent() {
                 analyticsLoading={analyticsLoading}
                 analyticsError={analyticsError}
                 isIndianRestaurant={isIndianRestaurant}
-                onRefreshAnalytics={loadAnalytics}
+                onRefreshAnalytics={handleRefreshAnalytics}
                 onNavigate={(url) => router.push(url)}
               />
             )}

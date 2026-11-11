@@ -7,6 +7,7 @@ import { ChefHat, Lock, AlertCircle, ArrowLeft, KeyRound, Sparkles, UserCheck, C
 import { generateStaffTypographyVars } from '@/lib/theme/theme-presets';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
+import { clearAllDashboardSessionCaches } from '@/lib/cache/dashboard-session-cache';
 
 export default function StaffLoginPage() {
   return (
@@ -103,6 +104,7 @@ function StaffLoginContent() {
         throw new Error(data.error || 'Invalid credentials');
       }
 
+      clearAllDashboardSessionCaches();
       router.push('/orders');
     } catch (err: any) {
       setError(err.message || 'Staff login failed');

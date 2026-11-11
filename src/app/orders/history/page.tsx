@@ -21,6 +21,15 @@ import {
 import { formatCurrencyMinor } from '@/lib/payments/plans';
 import { generateStaffTypographyVars } from '@/lib/theme/theme-presets';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
+import {
+  SESSION_CACHE_TTLS,
+  cacheKeys,
+  clearAllDashboardSessionCaches,
+  dedupeClientRequest,
+  isCacheFresh,
+  readSessionCache,
+  writeSessionCache,
+} from '@/lib/cache/dashboard-session-cache';
 
 export default function StaffOrderHistoryPage() {
   const router = useRouter();
@@ -45,29 +54,41 @@ export default function StaffOrderHistoryPage() {
 
   const loadHistory = async (isManual = false) => {
     try {
+      const cachedAuto = readSessionCache<any>(
+        cacheKeys.ordersLive('_auto'),
+        SESSION_CACHE_TTLS.ORDERS_LIVE_MAX_MS
+      );
+      if (cachedAuto?.data && !restaurantData) {
+        setRestaurantData((prev: any) => prev || cachedAuto.data);
+      }
+
+      const restId = restaurantData?.restaurantId || cachedAuto?.data?.restaurantId || '_auto';
+      const queryKey = `${range}:${statusFilter || 'ALL'}:${page}:${searchQuery.trim()}`;
+      const cacheKey = cacheKeys.ordersHistory(restId, queryKey);
+
+      const cachedHist = isManual
+        ? null
+        : readSessionCache<any>(cacheKey, SESSION_CACHE_TTLS.ORDERS_HISTORY_MAX_MS);
+
+      if (cachedHist?.data) {
+        setSubscriptionPaused(null);
+        setOrders(cachedHist.data.orders || []);
+        setMetrics(cachedHist.data.metrics || null);
+        setPagination(cachedHist.data.pagination || null);
+        setRestaurantData((prev: any) => ({
+          ...(prev || {}),
+          restaurantId: cachedHist.data.restaurantId || prev?.restaurantId,
+          restaurantName: cachedHist.data.restaurantName || prev?.restaurantName,
+          restaurantTheme: cachedHist.data.restaurantTheme || prev?.restaurantTheme,
+        }));
+        setLoading(false);
+        if (isCacheFresh(cachedHist, SESSION_CACHE_TTLS.ORDERS_HISTORY_FRESH_MS)) {
+          return;
+        }
+      }
+
       if (isManual) setRefreshing(true);
-      else setLoading(true);
-
-      // First ensure session is valid and get restaurant ID
-      const autoRes = await fetch('/api/restaurants/_auto/orders');
-      if (autoRes.status === 401) {
-        router.push('/orders/login');
-        return;
-      }
-      if (autoRes.status === 402) {
-        const pausedJson = await autoRes.json().catch(() => ({}));
-        setSubscriptionPaused({
-          error:
-            pausedJson.error ||
-            'Your 14-day free trial or subscription has ended. Ask the owner to activate a subscription in the Billing panel.',
-          supportEmail: pausedJson.supportEmail || SUPPORT_EMAIL_DISPLAY,
-          restaurantName: pausedJson.restaurantName,
-        });
-        return;
-      }
-
-      const autoData = await autoRes.json();
-      setRestaurantData(autoData);
+      else if (!cachedHist?.data) setLoading(true);
 
       const params = new URLSearchParams({
         range,
@@ -77,30 +98,49 @@ export default function StaffOrderHistoryPage() {
       if (statusFilter) params.append('status', statusFilter);
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
 
-      const restId = autoData?.restaurantId || '_auto';
-      const res = await fetch(`/api/restaurants/${restId}/orders/history?${params.toString()}`);
-      if (res.status === 402) {
-        const pausedJson = await res.json().catch(() => ({}));
+      const result = await dedupeClientRequest(`${cacheKey}:fetch`, async () => {
+        const res = await fetch(`/api/restaurants/${restId}/orders/history?${params.toString()}`);
+        const data = await res.json().catch(() => ({}));
+        return { ok: res.ok, status: res.status, data };
+      });
+
+      if (result.status === 401) {
+        clearAllDashboardSessionCaches();
+        router.push('/orders/login');
+        return;
+      }
+      if (result.status === 402) {
+        clearAllDashboardSessionCaches();
+        const pausedJson = result.data || {};
         setSubscriptionPaused({
           error:
             pausedJson.error ||
             'Your 14-day free trial or subscription has ended. Ask the owner to activate a subscription in the Billing panel.',
           supportEmail: pausedJson.supportEmail || SUPPORT_EMAIL_DISPLAY,
-          restaurantName: pausedJson.restaurantName || autoData?.restaurantName,
+          restaurantName: pausedJson.restaurantName || restaurantData?.restaurantName,
         });
         return;
       }
-      if (res.ok) {
+      if (result.status === 403) {
+        clearAllDashboardSessionCaches();
+        return;
+      }
+      if (result.ok) {
         setSubscriptionPaused(null);
-        const histData = await res.json();
+        const histData = result.data;
         setOrders(histData.orders || []);
         setMetrics(histData.metrics || null);
         setPagination(histData.pagination || null);
-        if (histData.restaurantTheme) {
-          setRestaurantData((prev: any) => ({
-            ...prev,
-            restaurantTheme: histData.restaurantTheme,
-          }));
+        setRestaurantData((prev: any) => ({
+          ...(prev || {}),
+          restaurantId: histData.restaurantId || prev?.restaurantId,
+          restaurantName: histData.restaurantName || prev?.restaurantName,
+          restaurantTheme: histData.restaurantTheme || prev?.restaurantTheme,
+        }));
+        const canonicalRestId = histData.restaurantId || restId;
+        writeSessionCache(cacheKeys.ordersHistory(canonicalRestId, queryKey), histData);
+        if (restId !== canonicalRestId) {
+          writeSessionCache(cacheKey, histData);
         }
       }
     } catch (err: any) {

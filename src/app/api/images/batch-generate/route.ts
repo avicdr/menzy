@@ -27,12 +27,13 @@ export async function POST(req: Request) {
       return createOwnerAccessDeniedResponse(auth, 403);
     }
 
+    const targetRestaurantId = auth.restaurant.id;
     const hasExplicitIds = Array.isArray(menuItemIds) && menuItemIds.length > 0;
 
     // 1. Query items lacking usable imagery (neither imageOverrideAssetId nor canonical.imageAssetId)
     const items = await prisma.restaurantMenuItem.findMany({
       where: {
-        restaurantId,
+        restaurantId: targetRestaurantId,
         ...(hasExplicitIds
           ? { id: { in: menuItemIds } }
           : forceRegenerate
@@ -56,9 +57,11 @@ export async function POST(req: Request) {
     if (items.length === 0) {
       return NextResponse.json({
         success: true,
-        message: 'All dishes already have 3D illustrations.',
+        message: 'All dishes already have food photos or curated artwork.',
         canonicalLinkedCount: 0,
         generatedCount: 0,
+        failedCount: 0,
+        providerUnavailable: false,
         remainingUnillustratedCount: 0,
         maxCustomPerBatch: MAX_BATCH_GENERATION,
         updatedItemsCount: 0,
@@ -88,7 +91,7 @@ export async function POST(req: Request) {
             })),
             {
               useGemini: true,
-              restaurantId,
+              restaurantId: targetRestaurantId,
               organizationId: auth.restaurant.organizationId,
             }
           );
@@ -143,16 +146,25 @@ export async function POST(req: Request) {
 
     const customGenBatch = itemsNeedingCustomGen.slice(0, MAX_BATCH_GENERATION);
     let generatedCount = 0;
+    let failedCount = 0;
     let creditsExhausted = false;
+    let providerUnavailable = false;
+    let lastErrorMessage: string | null = null;
 
     for (const item of customGenBatch) {
       try {
         const genResult = await generateOrReuseDishIllustration({
-          restaurantId,
+          restaurantId: targetRestaurantId,
           organizationId: auth.restaurant.organizationId,
           menuItemId: item.id,
           dishName: item.customName,
-          visualDescription: item.restaurantDescription || item.customName,
+          visualDescription: item.restaurantDescription || '',
+          category: item.category?.name || null,
+          ingredients: Array.isArray(item.ingredients) ? (item.ingredients as string[]) : undefined,
+          dietaryLabels: Array.isArray(item.dietaryStatus)
+            ? (item.dietaryStatus as string[])
+            : undefined,
+          portionSize: item.portionSize || null,
           canonicalId: item.canonicalId,
           forceRegenerate: Boolean(forceRegenerate),
         });
@@ -173,10 +185,18 @@ export async function POST(req: Request) {
           generatedCount++;
         }
       } catch (itemErr: any) {
-        if (itemErr?.message === 'INSUFFICIENT_IMAGE_CREDITS') {
+        const errMsg = String(itemErr?.message || '');
+        if (errMsg === 'INSUFFICIENT_IMAGE_CREDITS') {
           creditsExhausted = true;
           break;
         }
+        failedCount++;
+        if (errMsg.startsWith('IMAGE_PROVIDER_UNAVAILABLE:')) {
+          providerUnavailable = true;
+          lastErrorMessage = errMsg.replace('IMAGE_PROVIDER_UNAVAILABLE:', '').trim();
+          break;
+        }
+        lastErrorMessage = errMsg || 'Image generation failed';
         console.warn(`Failed image generation for "${item.customName}":`, itemErr);
       }
     }
@@ -191,7 +211,10 @@ export async function POST(req: Request) {
       success: true,
       canonicalLinkedCount,
       generatedCount,
+      failedCount,
       creditsExhausted,
+      providerUnavailable,
+      message: lastErrorMessage || undefined,
       maxCustomPerBatch: MAX_BATCH_GENERATION,
       remainingUnillustratedCount: Math.max(0, itemsNeedingCustomGen.length - generatedCount),
       updatedItemsCount: updatedItems.length,

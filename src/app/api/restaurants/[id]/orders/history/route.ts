@@ -156,23 +156,26 @@ export async function GET(
         }
       : null;
 
-    return NextResponse.json({
-      restaurantId: auth.restaurant.id,
-      restaurantName: auth.restaurant.displayName,
-      restaurantTheme,
-      pagination: {
-        page,
-        pageSize,
-        totalCount,
-        totalPages: Math.ceil(totalCount / pageSize),
+    return NextResponse.json(
+      {
+        restaurantId: auth.restaurant.id,
+        restaurantName: auth.restaurant.displayName,
+        restaurantTheme,
+        pagination: {
+          page,
+          pageSize,
+          totalCount,
+          totalPages: Math.ceil(totalCount / pageSize),
+        },
+        metrics: {
+          totalOrderValueMinor: aggregated._sum.totalMinor || 0,
+          averageOrderValueMinor: Math.round(aggregated._avg.totalMinor || 0),
+          currency: auth.restaurant.currency,
+        },
+        orders: formatted,
       },
-      metrics: {
-        totalOrderValueMinor: aggregated._sum.totalMinor || 0,
-        averageOrderValueMinor: Math.round(aggregated._avg.totalMinor || 0),
-        currency: auth.restaurant.currency,
-      },
-      orders: formatted,
-    });
+      { headers: { 'Cache-Control': 'private, no-store, max-age=0' } }
+    );
   } catch (error: any) {
     console.error('Order history GET error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

@@ -81,7 +81,12 @@ async function runWorkerLoop() {
       // 2. Process queued GenerationJobs
       const queuedGen = await prisma.generationJob.findFirst({
         where: { status: 'QUEUED' },
-        include: { restaurant: true, menuItem: true },
+        include: {
+          restaurant: true,
+          menuItem: {
+            include: { category: { select: { name: true } } },
+          },
+        },
       });
 
       if (queuedGen && queuedGen.restaurant?.organizationId) {
@@ -96,7 +101,15 @@ async function runWorkerLoop() {
           organizationId: queuedGen.restaurant.organizationId,
           menuItemId: queuedGen.menuItemId ?? undefined,
           dishName: queuedGen.menuItem?.customName || 'Artisanal Dish',
-          visualDescription: queuedGen.prompt,
+          visualDescription: queuedGen.menuItem?.restaurantDescription || queuedGen.prompt,
+          category: queuedGen.menuItem?.category?.name || null,
+          ingredients: Array.isArray(queuedGen.menuItem?.ingredients)
+            ? (queuedGen.menuItem.ingredients as string[])
+            : undefined,
+          dietaryLabels: Array.isArray(queuedGen.menuItem?.dietaryStatus)
+            ? (queuedGen.menuItem.dietaryStatus as string[])
+            : undefined,
+          portionSize: queuedGen.menuItem?.portionSize || null,
           canonicalId: queuedGen.canonicalId ?? undefined,
         });
 

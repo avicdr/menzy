@@ -1,21 +1,87 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getStaffSession } from '@/lib/auth/staff-auth';
-import { getOwnerSession } from '@/lib/auth/owner-auth';
+import { getVerifiedOwnerCookie } from '@/lib/auth/owner-auth';
+import { getActiveServiceCalls } from '@/lib/tables/service-call-service';
+import { normalizeThemeFont } from '@/lib/theme/theme-presets';
 import {
   buildSubscriptionExpiredPayload,
   evaluateOrganizationAccess,
 } from '@/lib/billing/subscription-access';
 
-export async function GET(_req?: Request) {
+export async function GET(req?: Request) {
   try {
-    // Check staff and owner sessions concurrently in 1 round trip
-    const [staffSession, ownerSession] = await Promise.all([
-      getStaffSession(),
-      getOwnerSession(),
-    ]);
+    const searchParams = req ? new URL(req.url).searchParams : null;
+    const limitParam = searchParams?.get('limit');
+    const parsedLimit = limitParam ? parseInt(limitParam, 10) : NaN;
+    const limit =
+      Number.isFinite(parsedLimit) && parsedLimit > 0
+        ? Math.min(100, Math.max(1, parsedLimit))
+        : undefined;
+    const includeCalls = searchParams?.get('includeCalls') === '1';
+    const includeTheme = searchParams?.get('includeTheme') === '1';
 
     const now = new Date();
+    const verifiedOwner = await getVerifiedOwnerCookie();
+
+    // Check staff session and owner membership+restaurant concurrently in 1 DB round-trip
+    const [staffSession, ownerUser] = await Promise.all([
+      getStaffSession(),
+      verifiedOwner
+        ? prisma.user.findUnique({
+            where: { id: verifiedOwner.userId },
+            select: {
+              name: true,
+              email: true,
+              memberships: {
+                select: {
+                  organization: {
+                    select: {
+                      restaurants: {
+                        take: 1,
+                        select: {
+                          id: true,
+                          displayName: true,
+                          slug: true,
+                          currency: true,
+                          isClaimed: true,
+                          organizationId: true,
+                          organization: {
+                            select: {
+                              subscriptions: {
+                                take: 1,
+                                select: {
+                                  planKey: true,
+                                  status: true,
+                                  provider: true,
+                                  billingPeriod: true,
+                                  paidThrough: true,
+                                  cancelAtPeriodEnd: true,
+                                  createdAt: true,
+                                },
+                              },
+                              entitlements: {
+                                where: { isActive: true, expirationDate: { gt: now } },
+                                select: {
+                                  grantType: true,
+                                  tierOrValue: true,
+                                  isActive: true,
+                                  expirationDate: true,
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          })
+        : Promise.resolve(null),
+    ]);
+
     let actorName = 'Staff';
     let actorRole = 'KITCHEN';
     let restaurant: {
@@ -96,52 +162,21 @@ export async function GET(_req?: Request) {
           },
         });
       }
-    } else if (ownerSession && ownerSession.organizations.length > 0) {
-      actorName = ownerSession.name || ownerSession.email;
-      actorRole = 'OWNER';
-      const orgId = ownerSession.organizations[0].id;
-      restaurant = await prisma.restaurant.findFirst({
-        where: { organizationId: orgId },
-        select: {
-          id: true,
-          displayName: true,
-          slug: true,
-          currency: true,
-          isClaimed: true,
-          organizationId: true,
-          organization: {
-            select: {
-              subscriptions: {
-                take: 1,
-                select: {
-                  planKey: true,
-                  status: true,
-                  provider: true,
-                  billingPeriod: true,
-                  paidThrough: true,
-                  cancelAtPeriodEnd: true,
-                  createdAt: true,
-                },
-              },
-              entitlements: {
-                where: { isActive: true, expirationDate: { gt: now } },
-                select: {
-                  grantType: true,
-                  tierOrValue: true,
-                  isActive: true,
-                  expirationDate: true,
-                },
-              },
-            },
-          },
-        },
-      });
+    } else if (ownerUser) {
+      const ownerRest = ownerUser.memberships
+        .flatMap((m) => m.organization?.restaurants || [])
+        .find(Boolean);
+      if (ownerRest) {
+        actorName = ownerUser.name || ownerUser.email;
+        actorRole = 'OWNER';
+        restaurant = ownerRest;
+      }
     }
 
     if (!restaurant) {
       return NextResponse.json(
         { error: 'Unauthorized: Please log in to order portal.' },
-        { status: 401 }
+        { status: 401, headers: { 'Cache-Control': 'no-store, max-age=0' } }
       );
     }
 
@@ -167,51 +202,71 @@ export async function GET(_req?: Request) {
 
     const restaurantId = restaurant.id;
 
-    const orders = await prisma.order.findMany({
-      where: {
-        restaurantId,
-        status: {
-          in: ['PLACED', 'ACCEPTED', 'PREPARING', 'READY', 'SERVED'],
-        },
-      },
-      orderBy: { placedAt: 'desc' },
-      select: {
-        id: true,
-        orderNumber: true,
-        status: true,
-        currency: true,
-        subtotalMinor: true,
-        taxMinor: true,
-        serviceChargeMinor: true,
-        totalMinor: true,
-        paymentMethod: true,
-        paymentStatus: true,
-        specialInstructions: true,
-        placedAt: true,
-        acceptedAt: true,
-        preparingAt: true,
-        readyAt: true,
-        servedAt: true,
-        completedAt: true,
-        table: { select: { id: true, name: true, section: true } },
-        items: {
-          select: {
-            id: true,
-            dishNameSnapshot: true,
-            variantSnapshot: true,
-            modifierSnapshot: true,
-            quantity: true,
-            unitPriceMinor: true,
-            modifiersTotalMinor: true,
-            lineTotalMinor: true,
-            specialInstructions: true,
+    const [orders, calls, rawTheme] = await Promise.all([
+      prisma.order.findMany({
+        where: {
+          restaurantId,
+          status: {
+            in: ['PLACED', 'ACCEPTED', 'PREPARING', 'READY', 'SERVED'],
           },
         },
-      },
-    });
+        orderBy: { placedAt: 'desc' },
+        ...(limit ? { take: limit } : {}),
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          currency: true,
+          subtotalMinor: true,
+          taxMinor: true,
+          serviceChargeMinor: true,
+          totalMinor: true,
+          paymentMethod: true,
+          paymentStatus: true,
+          specialInstructions: true,
+          placedAt: true,
+          acceptedAt: true,
+          preparingAt: true,
+          readyAt: true,
+          servedAt: true,
+          completedAt: true,
+          updatedAt: true,
+          table: { select: { id: true, name: true, section: true } },
+          items: {
+            select: {
+              id: true,
+              dishNameSnapshot: true,
+              variantSnapshot: true,
+              modifierSnapshot: true,
+              quantity: true,
+              unitPriceMinor: true,
+              modifiersTotalMinor: true,
+              lineTotalMinor: true,
+              specialInstructions: true,
+            },
+          },
+        },
+      }),
+      includeCalls
+        ? getActiveServiceCalls(restaurantId).catch(() => [])
+        : Promise.resolve(undefined),
+      includeTheme
+        ? prisma.restaurantTheme.findUnique({
+            where: { restaurantId },
+            select: {
+              presetKey: true,
+              headingFont: true,
+              bodyFont: true,
+              buttonStyle: true,
+              cardRadius: true,
+            },
+          })
+        : Promise.resolve(null),
+    ]);
 
     const formatted = orders.map((o) => ({
       id: o.id,
+      tableId: o.table.id,
       orderNumber: o.orderNumber,
       status: o.status,
       currency: o.currency,
@@ -228,6 +283,7 @@ export async function GET(_req?: Request) {
       readyAt: o.readyAt,
       servedAt: o.servedAt,
       completedAt: o.completedAt,
+      updatedAt: o.updatedAt,
       table: {
         id: o.table.id,
         name: o.table.name,
@@ -247,13 +303,29 @@ export async function GET(_req?: Request) {
       })),
     }));
 
-    return NextResponse.json({
-      restaurantId: restaurant.id,
-      restaurantName: restaurant.displayName,
-      restaurantSlug: restaurant.slug,
-      actor: { name: actorName, role: actorRole },
-      orders: formatted,
-    });
+    const restaurantTheme = rawTheme
+      ? {
+          presetKey: rawTheme.presetKey,
+          headingFont: normalizeThemeFont(rawTheme.headingFont, 'Plus Jakarta Sans'),
+          bodyFont: normalizeThemeFont(rawTheme.bodyFont, 'Inter'),
+          buttonStyle: rawTheme.buttonStyle,
+          cardRadius: rawTheme.cardRadius,
+        }
+      : undefined;
+
+    return NextResponse.json(
+      {
+        restaurantId: restaurant.id,
+        restaurantName: restaurant.displayName,
+        restaurantSlug: restaurant.slug,
+        ...(restaurantTheme !== undefined ? { restaurantTheme } : {}),
+        actor: { name: actorName, role: actorRole },
+        orders: formatted,
+        ...(includeCalls ? { calls: calls ?? [] } : {}),
+        syncedAt: new Date().toISOString(),
+      },
+      { headers: { 'Cache-Control': 'private, no-store, max-age=0' } }
+    );
   } catch (error: any) {
     console.error('Auto orders GET error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

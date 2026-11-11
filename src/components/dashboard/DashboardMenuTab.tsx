@@ -1,15 +1,18 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Camera,
   CheckCircle2,
+  Eye,
   FileText,
   Flame,
+  Image as ImageIcon,
   Pencil,
   Plus,
   RefreshCw,
+  RotateCcw,
   Sparkles,
   Trash2,
   Upload,
@@ -18,11 +21,19 @@ import {
 import { Modal } from '@/components/ui/Modal';
 import { FssaiMarker } from '@/components/diner/DietaryBadge';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
+import { resolveDishImageMeta } from '@/lib/diner/dish-image-source';
+import {
+  DISH_PHOTO_ACCEPT,
+  revertDishImageOverride,
+  uploadDishPhotoFile,
+} from '@/lib/images/client-dish-photo';
 import {
   CandidateReviewModal,
   type CandidateReviewState,
   requestIllustrationCandidate,
 } from '@/components/dashboard/CandidateReviewModal';
+import { DishPreviewModal } from '@/components/dashboard/DishPreviewModal';
+import { CanonicalGalleryModal } from '@/components/dashboard/CanonicalGalleryModal';
 
 interface DashboardMenuTabProps {
   restaurant: any;
@@ -81,6 +92,10 @@ export function DashboardMenuTab({
   const [newDishChefRecommended, setNewDishChefRecommended] = useState(false);
   const [newDishFoodType, setNewDishFoodType] = useState<'VEG' | 'NON_VEG' | 'EGG'>('VEG');
   const [newDishDietaryTags, setNewDishDietaryTags] = useState<string[]>([]);
+  const [newDishPhotoFile, setNewDishPhotoFile] = useState<File | null>(null);
+  const [newDishPhotoPreviewUrl, setNewDishPhotoPreviewUrl] = useState<string | null>(null);
+  const [isAddingDish, setIsAddingDish] = useState(false);
+  const [addDishError, setAddDishError] = useState<string | null>(null);
 
   // Edit Dish Modal State
   const [editingDish, setEditingDish] = useState<any | null>(null);
@@ -95,6 +110,54 @@ export function DashboardMenuTab({
   const [editDishDietaryTags, setEditDishDietaryTags] = useState<string[]>([]);
   const [editDishIsAvailable, setEditDishIsAvailable] = useState(true);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editPhotoBusy, setEditPhotoBusy] = useState(false);
+  const [editDishError, setEditDishError] = useState<string | null>(null);
+
+  // Preview, Gallery & Quick Photo Upload State
+  const [previewDishId, setPreviewDishId] = useState<string | null>(null);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [galleryTargetDishId, setGalleryTargetDishId] = useState<string>('');
+  const [quickUploadTargetDishId, setQuickUploadTargetDishId] = useState<string | null>(null);
+  const [uploadingQuickDishId, setUploadingQuickDishId] = useState<string | null>(null);
+  const [photoActionNotice, setPhotoActionNotice] = useState<string | null>(null);
+  const [photoActionError, setPhotoActionError] = useState<string | null>(null);
+
+  const quickPhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const editPhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const addPhotoInputRef = useRef<HTMLInputElement | null>(null);
+
+  const editNameId = useId();
+  const editCategoryId = useId();
+  const editPriceId = useId();
+  const editDescId = useId();
+  const editPhotoInputId = useId();
+  const addNameId = useId();
+  const addCategoryId = useId();
+  const addPriceId = useId();
+  const addDescId = useId();
+  const addPhotoInputId = useId();
+
+  useEffect(() => {
+    if (!newDishPhotoFile) {
+      setNewDishPhotoPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(newDishPhotoFile);
+    setNewDishPhotoPreviewUrl(url);
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [newDishPhotoFile]);
+
+  const previewDish = useMemo(
+    () => (previewDishId ? menuItems.find((i) => i.id === previewDishId) ?? null : null),
+    [previewDishId, menuItems]
+  );
+
+  const activeEditingDish = useMemo(
+    () => (editingDish ? menuItems.find((i) => i.id === editingDish.id) || editingDish : null),
+    [editingDish, menuItems]
+  );
 
   // Delete Dish Modal State
   const [dishToDelete, setDishToDelete] = useState<any | null>(null);
@@ -105,6 +168,20 @@ export function DashboardMenuTab({
   // Candidate Illustration Preview State
   const [isGeneratingImg, setIsGeneratingImg] = useState<string | null>(null);
   const [candidateReview, setCandidateReview] = useState<CandidateReviewState | null>(null);
+
+  const syncUpdatedDish = (updatedItem: any) => {
+    setMenuItems((prev) =>
+      prev.map((i) => (i.id === updatedItem.id ? { ...i, ...updatedItem } : i))
+    );
+  };
+
+  const showPhotoNotice = (msg: string) => {
+    setPhotoActionError(null);
+    setPhotoActionNotice(msg);
+    setTimeout(() => {
+      setPhotoActionNotice((current) => (current === msg ? null : current));
+    }, 4000);
+  };
 
   const existingCategories = useMemo(() => {
     const map = new Map<string, string>();
@@ -204,6 +281,7 @@ export function DashboardMenuTab({
 
   const handleOpenEditDish = (item: any) => {
     setEditingDish(item);
+    setEditDishError(null);
     setEditDishName(item.customName || '');
     setEditDishPrice(item.priceMinor ? (item.priceMinor / 100).toFixed(2) : '0.00');
     setEditDishCategory(item.categoryId || '');
@@ -240,6 +318,7 @@ export function DashboardMenuTab({
     if (!editingDish || !editDishName.trim()) return;
 
     setIsSavingEdit(true);
+    setEditDishError(null);
     try {
       const priceMinor = Math.round(parseFloat(editDishPrice || '0') * 100);
       const dietaryStatus = isIndianRestaurant
@@ -272,57 +351,212 @@ export function DashboardMenuTab({
 
       if (res.ok) {
         const data = await res.json();
-        setMenuItems((prev) =>
-          prev.map((i) => (i.id === editingDish.id ? { ...i, ...data.item } : i))
-        );
+        syncUpdatedDish(data.item);
         setIsEditDishOpen(false);
         setEditingDish(null);
       } else {
-        alert('Failed to save changes to dish');
+        const data = await res.json().catch(() => ({}));
+        setEditDishError(data?.error || 'Failed to save changes to dish.');
       }
     } catch {
-      alert('Error updating dish');
+      setEditDishError('Error updating dish. Please try again.');
     } finally {
       setIsSavingEdit(false);
     }
   };
 
+  const handleQuickRowPhotoClick = (itemId: string) => {
+    setPhotoActionError(null);
+    setQuickUploadTargetDishId(itemId);
+    if (quickPhotoInputRef.current) {
+      quickPhotoInputRef.current.value = '';
+      quickPhotoInputRef.current.click();
+    }
+  };
+
+  const handleQuickRowPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const targetId = quickUploadTargetDishId;
+    if (!file || !targetId) return;
+
+    const targetDish = menuItems.find((i) => i.id === targetId);
+    setUploadingQuickDishId(targetId);
+    setPhotoActionError(null);
+    try {
+      const res = await uploadDishPhotoFile({
+        restaurantId: restaurant.id,
+        menuItemId: targetId,
+        file,
+      });
+
+      if (res.expired) {
+        onSubscriptionExpired(res.payload);
+        return;
+      }
+
+      const updatedItem =
+        res.item ||
+        (targetDish
+          ? {
+              ...targetDish,
+              imageOverrideAssetId: res.asset.id,
+              imageOverride: res.asset,
+            }
+          : null);
+
+      if (updatedItem) {
+        syncUpdatedDish(updatedItem);
+      }
+      showPhotoNotice(
+        targetDish
+          ? `Uploaded your photo for "${targetDish.customName}".`
+          : 'Dish photo updated on your menu.'
+      );
+    } catch (err: any) {
+      setPhotoActionError(err?.message || 'Could not upload dish photo. Please try again.');
+    } finally {
+      setUploadingQuickDishId(null);
+      setQuickUploadTargetDishId(null);
+      if (quickPhotoInputRef.current) {
+        quickPhotoInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleEditModalPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeEditingDish) return;
+
+    setEditPhotoBusy(true);
+    setEditDishError(null);
+    try {
+      const res = await uploadDishPhotoFile({
+        restaurantId: restaurant.id,
+        menuItemId: activeEditingDish.id,
+        file,
+      });
+      if (res.expired) {
+        setIsEditDishOpen(false);
+        onSubscriptionExpired(res.payload);
+        return;
+      }
+      const updatedItem =
+        res.item || {
+          ...activeEditingDish,
+          imageOverrideAssetId: res.asset.id,
+          imageOverride: res.asset,
+        };
+      syncUpdatedDish(updatedItem);
+      setEditingDish(updatedItem);
+    } catch (err: any) {
+      setEditDishError(err?.message || 'Failed to upload dish photo.');
+    } finally {
+      setEditPhotoBusy(false);
+      if (editPhotoInputRef.current) {
+        editPhotoInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleEditModalRevertPhoto = async () => {
+    if (!activeEditingDish) return;
+    setEditPhotoBusy(true);
+    setEditDishError(null);
+    try {
+      const res = await revertDishImageOverride({
+        restaurantId: restaurant.id,
+        itemId: activeEditingDish.id,
+      });
+      if (res.expired) {
+        setIsEditDishOpen(false);
+        onSubscriptionExpired(res.payload);
+        return;
+      }
+      if (res.item) {
+        syncUpdatedDish(res.item);
+        setEditingDish(res.item);
+      }
+    } catch (err: any) {
+      setEditDishError(err?.message || 'Failed to remove custom image.');
+    } finally {
+      setEditPhotoBusy(false);
+    }
+  };
+
   const handleAddDish = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDishName.trim()) return;
+    if (!newDishName.trim() || isAddingDish) return;
 
-    const priceMinor = Math.round(parseFloat(newDishPrice || '0') * 100);
-    const finalDietaryStatus = isIndianRestaurant
-      ? [newDishFoodType, ...newDishDietaryTags]
-      : [...newDishDietaryTags];
+    setIsAddingDish(true);
+    setAddDishError(null);
+    try {
+      const priceMinor = Math.round(parseFloat(newDishPrice || '0') * 100);
+      const finalDietaryStatus = isIndianRestaurant
+        ? [newDishFoodType, ...newDishDietaryTags]
+        : [...newDishDietaryTags];
 
-    const res = await fetch('/api/menus/items', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        restaurantId: restaurant.id,
-        categoryId: newDishCategory || undefined,
-        categoryName: newDishCategory ? undefined : 'Chef Specials',
-        customName: newDishName,
-        priceMinor,
-        description: newDishDescription,
-        currency: restaurant.currency,
-        isPopular: newDishIsPopular,
-        chefRecommended: newDishChefRecommended,
-        dietaryStatus: finalDietaryStatus,
-      }),
-    });
+      const res = await fetch('/api/menus/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+          categoryId: newDishCategory || undefined,
+          categoryName: newDishCategory ? undefined : 'Chef Specials',
+          customName: newDishName.trim(),
+          priceMinor,
+          description: newDishDescription.trim(),
+          currency: restaurant.currency,
+          isPopular: newDishIsPopular,
+          chefRecommended: newDishChefRecommended,
+          dietaryStatus: finalDietaryStatus,
+        }),
+      });
 
-    if (res.status === 402) {
-      const payload = await res.json().catch(() => ({}));
-      setIsAddDishOpen(false);
-      onSubscriptionExpired(payload);
-      return;
-    }
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        setIsAddDishOpen(false);
+        onSubscriptionExpired(payload);
+        return;
+      }
 
-    if (res.ok) {
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setAddDishError(errData?.error || 'Could not add dish. Please check details and try again.');
+        return;
+      }
+
       const data = await res.json();
-      setMenuItems((prev) => [...prev, data.item]);
+      let createdItem = data.item;
+
+      if (newDishPhotoFile && createdItem?.id) {
+        try {
+          const uploadRes = await uploadDishPhotoFile({
+            restaurantId: restaurant.id,
+            menuItemId: createdItem.id,
+            file: newDishPhotoFile,
+          });
+          if (uploadRes.expired) {
+            setMenuItems((prev) => [...prev, createdItem]);
+            setIsAddDishOpen(false);
+            onSubscriptionExpired(uploadRes.payload);
+            return;
+          }
+          createdItem =
+            uploadRes.item || {
+              ...createdItem,
+              imageOverrideAssetId: uploadRes.asset.id,
+              imageOverride: uploadRes.asset,
+            };
+        } catch (photoErr: any) {
+          setPhotoActionError(
+            `Dish "${createdItem.customName}" was saved, but its photo failed to upload: ${
+              photoErr?.message || 'Try uploading again from Dish Preview.'
+            }`
+          );
+        }
+      }
+
+      setMenuItems((prev) => [...prev, createdItem]);
       setIsAddDishOpen(false);
       setNewDishName('');
       setNewDishDescription('');
@@ -332,11 +566,21 @@ export function DashboardMenuTab({
       setNewDishChefRecommended(false);
       setNewDishFoodType('VEG');
       setNewDishDietaryTags([]);
+      setNewDishPhotoFile(null);
+    } catch {
+      setAddDishError('Network error while adding dish. Please try again.');
+    } finally {
+      setIsAddingDish(false);
     }
   };
 
-  const handleGenerateIllustration = async (item: any, tweak?: string) => {
+  const handleGenerateIllustration = async (
+    item: any,
+    tweak?: string,
+    options?: { throwOnError?: boolean }
+  ) => {
     setIsGeneratingImg(item.id);
+    setPhotoActionError(null);
     try {
       const candidate = await requestIllustrationCandidate({
         restaurantId: restaurant.id,
@@ -348,8 +592,13 @@ export function DashboardMenuTab({
       if (candidate) {
         setCandidateReview(candidate);
       }
-    } catch {
-      alert('Error generating illustration');
+    } catch (err: any) {
+      const errMsg =
+        err?.message || `Could not generate food photo for "${item.customName}". Please try again.`;
+      if (options?.throwOnError) {
+        throw new Error(errMsg);
+      }
+      setPhotoActionError(errMsg);
     } finally {
       setIsGeneratingImg(null);
     }
@@ -362,7 +611,7 @@ export function DashboardMenuTab({
         <div>
           <h2 className="font-serif text-xl font-bold text-espresso-900">Menu Studio</h2>
           <p className="text-xs text-taupe-500">
-            Edit dish names, prices, recipes, dietary tags, and 3D illustrations
+            Edit dish names, prices, recipes, dietary tags, custom photos, and AI food visuals
           </p>
         </div>
 
@@ -397,13 +646,68 @@ export function DashboardMenuTab({
         </div>
       </div>
 
-      {/* Delete Toast Notification */}
+      {/* Delete & Photo Action Notifications */}
       {deleteToast && (
-        <div className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in shadow-xs">
+        <div
+          role="status"
+          aria-live="polite"
+          className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in shadow-xs"
+        >
           <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
           <span>{deleteToast}</span>
         </div>
       )}
+
+      {photoActionNotice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center justify-between gap-2 animate-fade-in shadow-xs"
+        >
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
+            <span>{photoActionNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPhotoActionNotice(null)}
+            aria-label="Dismiss notification"
+            className="p-1 rounded-lg text-sage-700 hover:bg-sage-100"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {photoActionError && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="p-4 bg-red-50 border border-red-200 text-red-900 rounded-2xl text-xs sm:text-sm flex items-center justify-between gap-2 animate-fade-in shadow-xs"
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+            <span>{photoActionError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPhotoActionError(null)}
+            aria-label="Dismiss error"
+            className="p-1 rounded-lg text-red-600 hover:bg-red-100"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      <input
+        ref={quickPhotoInputRef}
+        type="file"
+        accept={DISH_PHOTO_ACCEPT}
+        onChange={handleQuickRowPhotoChange}
+        className="hidden"
+        aria-label="Upload dish photo"
+      />
 
       {/* Menu Extraction Error Notification */}
       {extractionError && (
@@ -689,10 +993,7 @@ export function DashboardMenuTab({
                   return true;
                 })
                 .map((item) => {
-                  const img =
-                    item.imageOverride?.publicUrl ||
-                    item.canonical?.imageAsset?.publicUrl ||
-                    '/placeholder-dish.svg';
+                  const imageMeta = resolveDishImageMeta(item);
                   const dietaryLabels = ((item.dietaryStatus as string[]) || []).map((l: string) =>
                     l.toUpperCase()
                   );
@@ -708,33 +1009,60 @@ export function DashboardMenuTab({
                   const indianMarker = isVeg ? 'VEG' : isNonVeg ? 'NON_VEG' : isEgg ? 'EGG' : null;
 
                   return (
-                    <tr key={item.id} className="hover:bg-cream-50/50 transition-colors">
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={img}
-                            alt={item.customName}
-                            className="w-12 h-12 aspect-square rounded-xl object-cover bg-cream-100 border border-cream-200 shrink-0"
-                          />
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
+                    <tr key={item.id} className="hover:bg-cream-50/70 transition-colors">
+                      <td className="py-3 px-4">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewDishId(item.id)}
+                          aria-label={`Preview ${item.customName}`}
+                          className="group flex items-center gap-3 w-full text-left rounded-xl p-1 -m-1 hover:bg-cream-100/70 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta cursor-pointer"
+                        >
+                          <span className="relative w-12 h-12 aspect-square rounded-xl overflow-hidden bg-cream-100 border border-cream-200 shrink-0">
+                            <img
+                              src={imageMeta.url}
+                              alt=""
+                              onError={(e) => {
+                                e.currentTarget.src = '/placeholder-dish.svg';
+                              }}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                            />
+                            <span
+                              aria-hidden="true"
+                              className="absolute inset-0 bg-espresso-950/45 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity flex items-center justify-center"
+                            >
+                              <Eye className="w-4 h-4 text-white" />
+                            </span>
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5">
                               {indianMarker && <FssaiMarker type={indianMarker} size="sm" />}
-                              <span className="font-semibold text-espresso-900 truncate">
+                              <span className="font-semibold text-espresso-900 group-hover:text-terracotta transition-colors truncate">
                                 {item.customName}
                               </span>
-                            </div>
+                              {imageMeta.sourceKind === 'OWNER_PHOTO' && (
+                                <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-sky-100 text-sky-800 border border-sky-200 shrink-0">
+                                  Photo
+                                </span>
+                              )}
+                            </span>
                             {item.restaurantDescription && (
-                              <p className="text-[11px] text-taupe-500 line-clamp-1 max-w-xs">
+                              <span className="block text-[11px] text-taupe-500 line-clamp-1 max-w-xs">
                                 {item.restaurantDescription}
-                              </p>
+                              </span>
                             )}
-                          </div>
-                        </div>
+                          </span>
+                        </button>
                       </td>
-                      <td className="py-3.5 px-4 text-taupe-600 font-medium">
+                      <td
+                        onClick={() => setPreviewDishId(item.id)}
+                        className="py-3.5 px-4 text-taupe-600 font-medium cursor-pointer"
+                      >
                         {item.category?.name || 'General'}
                       </td>
-                      <td className="py-3.5 px-4 font-bold text-espresso-900">
+                      <td
+                        onClick={() => setPreviewDishId(item.id)}
+                        className="py-3.5 px-4 font-bold text-espresso-900 cursor-pointer tabular-nums"
+                      >
                         {formatCurrencyMinor(item.priceMinor || 0, item.currency)}
                       </td>
                       <td className="py-3.5 px-4 text-center">
@@ -742,12 +1070,17 @@ export function DashboardMenuTab({
                           <button
                             type="button"
                             onClick={() => handleTogglePopular(item)}
+                            aria-label={
+                              item.isPopular
+                                ? `Remove Popular tag from ${item.customName}`
+                                : `Mark ${item.customName} as Popular`
+                            }
                             title={
                               item.isPopular
                                 ? 'Remove from Bestsellers'
                                 : 'Mark as Popular / Bestseller'
                             }
-                            className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                            className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-terracotta ${
                               item.isPopular
                                 ? 'bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs'
                                 : 'bg-cream-100 text-taupe-400 border border-cream-200 hover:text-rose-700 hover:bg-rose-50'
@@ -764,12 +1097,17 @@ export function DashboardMenuTab({
                           <button
                             type="button"
                             onClick={() => handleToggleChefPick(item)}
+                            aria-label={
+                              item.chefRecommended
+                                ? `Remove Chef Pick from ${item.customName}`
+                                : `Mark ${item.customName} as Chef Pick`
+                            }
                             title={
                               item.chefRecommended
                                 ? 'Remove Chef Pick'
                                 : "Mark as Chef's Recommendation"
                             }
-                            className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                            className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-terracotta ${
                               item.chefRecommended
                                 ? 'bg-terracotta-100 text-terracotta-800 border border-terracotta-300 shadow-2xs'
                                 : 'bg-cream-100 text-taupe-400 border border-cream-200 hover:text-terracotta hover:bg-terracotta-50'
@@ -786,8 +1124,9 @@ export function DashboardMenuTab({
                       </td>
                       <td className="py-3.5 px-4 text-center">
                         <button
+                          type="button"
                           onClick={() => handleToggleAvailability(item)}
-                          className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                          className={`px-3 py-1 rounded-full text-xs font-semibold transition-all focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-terracotta ${
                             item.isAvailable
                               ? 'bg-sage-100 text-sage-800 hover:bg-sage-200'
                               : 'bg-red-100 text-red-800 hover:bg-red-200'
@@ -796,31 +1135,60 @@ export function DashboardMenuTab({
                           {item.isAvailable ? 'Available' : 'Sold Out'}
                         </button>
                       </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center justify-end gap-1">
                           <button
+                            type="button"
+                            onClick={() => setPreviewDishId(item.id)}
+                            className="p-2 text-taupe-600 hover:text-espresso-900 hover:bg-cream-100 transition-colors rounded-lg focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-terracotta"
+                            title="Preview dish & manage image"
+                            aria-label={`Preview ${item.customName}`}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleQuickRowPhotoClick(item.id)}
+                            disabled={uploadingQuickDishId === item.id}
+                            className="p-2 text-taupe-600 hover:text-espresso-900 hover:bg-cream-100 transition-colors rounded-lg disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-terracotta"
+                            title="Upload your own dish photo"
+                            aria-label={`Upload own photo for ${item.customName}`}
+                          >
+                            {uploadingQuickDishId === item.id ? (
+                              <RefreshCw className="w-4 h-4 animate-spin motion-reduce:animate-none text-terracotta" />
+                            ) : (
+                              <Camera className="w-4 h-4" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleGenerateIllustration(item)}
                             disabled={isGeneratingImg === item.id}
-                            className="p-1.5 text-terracotta hover:bg-terracotta-50 transition-colors rounded-lg"
-                            title="Generate / Regenerate 3D Illustration (Accept/Reject Preview)"
+                            className="p-2 text-terracotta hover:bg-terracotta-50 transition-colors rounded-lg disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-terracotta"
+                            title="Generate / Regenerate AI Food Photo (Accept/Reject Preview)"
+                            aria-label={`Regenerate AI food photo for ${item.customName}`}
                           >
                             {isGeneratingImg === item.id ? (
-                              <RefreshCw className="w-4 h-4 animate-spin text-terracotta" />
+                              <RefreshCw className="w-4 h-4 animate-spin motion-reduce:animate-none text-terracotta" />
                             ) : (
                               <Sparkles className="w-4 h-4" />
                             )}
                           </button>
                           <button
+                            type="button"
                             onClick={() => handleOpenEditDish(item)}
-                            className="p-1.5 text-taupe-600 hover:text-espresso-900 transition-colors rounded-lg hover:bg-cream-100"
+                            className="p-2 text-taupe-600 hover:text-espresso-900 transition-colors rounded-lg hover:bg-cream-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-terracotta"
                             title="Edit dish name, price & description"
+                            aria-label={`Edit ${item.customName}`}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
                           <button
+                            type="button"
                             onClick={() => handlePromptDeleteDish(item)}
-                            className="p-1.5 text-taupe-400 hover:text-red-600 transition-colors rounded-lg hover:bg-cream-100"
+                            className="p-2 text-taupe-400 hover:text-red-600 transition-colors rounded-lg hover:bg-cream-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-terracotta"
                             title="Delete dish"
+                            aria-label={`Delete ${item.customName}`}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -836,12 +1204,15 @@ export function DashboardMenuTab({
 
       {/* MODAL A: EDIT DISH DETAILS */}
       <Modal
-        isOpen={Boolean(isEditDishOpen && editingDish)}
-        onClose={() => setIsEditDishOpen(false)}
+        isOpen={Boolean(isEditDishOpen && activeEditingDish)}
+        onClose={() => {
+          setIsEditDishOpen(false);
+          setEditDishError(null);
+        }}
         title="Edit Dish Details"
         subtitle={
-          editingDish
-            ? `Update name, pricing, dietary tags, and description for ${editingDish.customName}`
+          activeEditingDish
+            ? `Update name, photo, pricing, dietary tags, and description for ${activeEditingDish.customName}`
             : undefined
         }
         maxWidth="xl"
@@ -849,7 +1220,10 @@ export function DashboardMenuTab({
           <>
             <button
               type="button"
-              onClick={() => setIsEditDishOpen(false)}
+              onClick={() => {
+                setIsEditDishOpen(false);
+                setEditDishError(null);
+              }}
               className="px-4 py-2 text-xs font-semibold text-taupe-600 hover:bg-cream-100 rounded-xl"
             >
               Cancel
@@ -857,7 +1231,7 @@ export function DashboardMenuTab({
             <button
               type="submit"
               form="edit-dish-form"
-              disabled={isSavingEdit}
+              disabled={isSavingEdit || editPhotoBusy}
               className="px-5 py-2 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 disabled:opacity-50 shadow-sm"
             >
               {isSavingEdit ? 'Saving...' : 'Save Changes'}
@@ -865,63 +1239,181 @@ export function DashboardMenuTab({
           </>
         }
       >
-        {editingDish && (
-          <form id="edit-dish-form" onSubmit={handleSaveEditedDish} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {activeEditingDish && (() => {
+          const editImgMeta = resolveDishImageMeta(activeEditingDish);
+          return (
+            <form id="edit-dish-form" onSubmit={handleSaveEditedDish} className="space-y-4">
+              {editDishError && (
+                <div
+                  role="alert"
+                  className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800"
+                >
+                  {editDishError}
+                </div>
+              )}
+
+              {/* Dish Photo & Artwork Quick Editor */}
+              <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 flex flex-col sm:flex-row sm:items-center gap-3.5">
+                <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-white border border-cream-200 shrink-0 shadow-2xs">
+                  <img
+                    src={editImgMeta.url}
+                    alt={activeEditingDish.customName}
+                    onError={(e) => {
+                      e.currentTarget.src = '/placeholder-dish.svg';
+                    }}
+                    className="w-full h-full object-cover"
+                  />
+                  {editPhotoBusy && (
+                    <div className="absolute inset-0 bg-espresso-950/60 flex items-center justify-center">
+                      <RefreshCw className="w-4 h-4 animate-spin motion-reduce:animate-none text-white" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-espresso-900">
+                      Dish Image &amp; Artwork
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white border border-cream-300 text-taupe-700">
+                      {editImgMeta.label}
+                    </span>
+                  </div>
+
+                  <label htmlFor={editPhotoInputId} className="sr-only">
+                    Upload photo for {activeEditingDish.customName}
+                  </label>
+                  <input
+                    id={editPhotoInputId}
+                    ref={editPhotoInputRef}
+                    type="file"
+                    accept={DISH_PHOTO_ACCEPT}
+                    disabled={editPhotoBusy}
+                    onChange={handleEditModalPhotoChange}
+                    className="hidden"
+                  />
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={editPhotoBusy || isGeneratingImg === activeEditingDish.id}
+                      onClick={() => editPhotoInputRef.current?.click()}
+                      className="px-2.5 py-1.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    >
+                      <Camera className="w-3.5 h-3.5 text-terracotta" aria-hidden="true" />
+                      Upload Own Photo
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={editPhotoBusy || isGeneratingImg === activeEditingDish.id}
+                      onClick={() => {
+                        setGalleryTargetDishId(activeEditingDish.id);
+                        setIsGalleryOpen(true);
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-cream-100 text-espresso-900 border border-cream-300 text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    >
+                      <ImageIcon className="w-3.5 h-3.5 text-sage-700" aria-hidden="true" />
+                      Gallery
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={editPhotoBusy || isGeneratingImg === activeEditingDish.id}
+                      onClick={async () => {
+                        setEditDishError(null);
+                        try {
+                          await handleGenerateIllustration(activeEditingDish, undefined, {
+                            throwOnError: true,
+                          });
+                        } catch (err: any) {
+                          setEditDishError(err?.message || 'Could not generate food photo right now.');
+                        }
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-terracotta-50 hover:bg-terracotta-100 text-terracotta-800 border border-terracotta-200 text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+                      {isGeneratingImg === activeEditingDish.id ? 'Generating...' : 'Regenerate AI'}
+                    </button>
+
+                    {editImgMeta.hasCustomOverride && (
+                      <button
+                        type="button"
+                        disabled={editPhotoBusy}
+                        onClick={handleEditModalRevertPhoto}
+                        className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-red-50 text-taupe-700 hover:text-red-700 border border-cream-300 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors disabled:opacity-50"
+                      >
+                        <RotateCcw className="w-3 h-3" aria-hidden="true" />
+                        Revert
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor={editNameId} className="block text-xs font-semibold text-taupe-600 mb-1">
+                    Dish Name *
+                  </label>
+                  <input
+                    id={editNameId}
+                    type="text"
+                    required
+                    value={editDishName}
+                    onChange={(e) => setEditDishName(e.target.value)}
+                    className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor={editCategoryId} className="block text-xs font-semibold text-taupe-600 mb-1">
+                    Category
+                  </label>
+                  <select
+                    id={editCategoryId}
+                    value={editDishCategory}
+                    onChange={(e) => setEditDishCategory(e.target.value)}
+                    className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
+                  >
+                    <option value="">Default / General</option>
+                    {existingCategories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               <div>
-                <label className="block text-xs font-semibold text-taupe-600 mb-1">Dish Name *</label>
+                <label htmlFor={editPriceId} className="block text-xs font-semibold text-taupe-600 mb-1">
+                  Price ({restaurant.currency}) *
+                </label>
                 <input
-                  type="text"
+                  id={editPriceId}
+                  type="number"
                   required
-                  value={editDishName}
-                  onChange={(e) => setEditDishName(e.target.value)}
+                  step="0.01"
+                  value={editDishPrice}
+                  onChange={(e) => setEditDishPrice(e.target.value)}
                   className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-taupe-600 mb-1">Category</label>
-                <select
-                  value={editDishCategory}
-                  onChange={(e) => setEditDishCategory(e.target.value)}
-                  className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
-                >
-                  <option value="">Default / General</option>
-                  {existingCategories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                <label htmlFor={editDescId} className="block text-xs font-semibold text-taupe-600 mb-1">
+                  Description / Recipe
+                </label>
+                <textarea
+                  id={editDescId}
+                  rows={2}
+                  value={editDishDescription}
+                  onChange={(e) => setEditDishDescription(e.target.value)}
+                  placeholder="Key spices, preparation technique, portion size..."
+                  className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
+                />
               </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                Price ({restaurant.currency}) *
-              </label>
-              <input
-                type="number"
-                required
-                step="0.01"
-                value={editDishPrice}
-                onChange={(e) => setEditDishPrice(e.target.value)}
-                className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                Description / Recipe
-              </label>
-              <textarea
-                rows={2}
-                value={editDishDescription}
-                onChange={(e) => setEditDishDescription(e.target.value)}
-                placeholder="Key spices, preparation technique, portion size..."
-                className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-              />
-            </div>
 
             <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
               <span className="block text-xs font-semibold text-espresso-900">
@@ -1073,13 +1565,18 @@ export function DashboardMenuTab({
               </div>
             )}
           </form>
-        )}
+          );
+        })()}
       </Modal>
 
       {/* MODAL B: ADD NEW DISH */}
       <Modal
         isOpen={isAddDishOpen}
-        onClose={() => setIsAddDishOpen(false)}
+        onClose={() => {
+          setIsAddDishOpen(false);
+          setAddDishError(null);
+          setNewDishPhotoFile(null);
+        }}
         title="Add New Dish"
         subtitle={isIndianRestaurant ? 'Indian Restaurant Menu Item' : 'Hospitality Menu Item'}
         maxWidth="xl"
@@ -1087,7 +1584,11 @@ export function DashboardMenuTab({
           <>
             <button
               type="button"
-              onClick={() => setIsAddDishOpen(false)}
+              onClick={() => {
+                setIsAddDishOpen(false);
+                setAddDishError(null);
+                setNewDishPhotoFile(null);
+              }}
               className="px-4 py-2 text-xs font-semibold text-taupe-600 hover:bg-cream-100 rounded-xl"
             >
               Cancel
@@ -1095,18 +1596,97 @@ export function DashboardMenuTab({
             <button
               type="submit"
               form="add-dish-form"
-              className="px-5 py-2 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 shadow-sm"
+              disabled={isAddingDish}
+              className="px-5 py-2 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 disabled:opacity-50 shadow-sm inline-flex items-center gap-1.5"
             >
-              Save Dish to Menu
+              {isAddingDish && (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" />
+              )}
+              <span>{isAddingDish ? 'Saving Dish...' : 'Save Dish to Menu'}</span>
             </button>
           </>
         }
       >
         <form id="add-dish-form" onSubmit={handleAddDish} className="space-y-4">
+          {addDishError && (
+            <div
+              role="alert"
+              className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800"
+            >
+              {addDishError}
+            </div>
+          )}
+
+          {/* Optional Own Dish Photo Uploader */}
+          <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 flex items-center gap-3.5">
+            <div className="w-16 h-16 rounded-xl overflow-hidden bg-white border border-cream-300 shrink-0 flex items-center justify-center">
+              {newDishPhotoPreviewUrl ? (
+                <img
+                  src={newDishPhotoPreviewUrl}
+                  alt="Selected dish photo preview"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <Camera className="w-6 h-6 text-taupe-400" aria-hidden="true" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0 space-y-1.5">
+              <div className="text-xs font-semibold text-espresso-900">
+                Dish Photo (Optional)
+              </div>
+              <p className="text-[11px] text-taupe-500 truncate">
+                {newDishPhotoFile
+                  ? newDishPhotoFile.name
+                  : 'Upload your own photo, or leave blank to auto-match a 3D dish visual.'}
+              </p>
+              <label htmlFor={addPhotoInputId} className="sr-only">
+                Upload optional photo for new dish
+              </label>
+              <input
+                id={addPhotoInputId}
+                ref={addPhotoInputRef}
+                type="file"
+                accept={DISH_PHOTO_ACCEPT}
+                onChange={(e) => {
+                  const picked = e.target.files?.[0] || null;
+                  setNewDishPhotoFile(picked);
+                }}
+                className="hidden"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => addPhotoInputRef.current?.click()}
+                  className="px-2.5 py-1 rounded-xl bg-white hover:bg-cream-100 border border-cream-300 text-[11px] font-semibold text-espresso-900 transition-colors inline-flex items-center gap-1"
+                >
+                  <Upload className="w-3 h-3 text-terracotta" aria-hidden="true" />
+                  {newDishPhotoFile ? 'Change Photo' : 'Choose Photo'}
+                </button>
+                {newDishPhotoFile && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewDishPhotoFile(null);
+                      if (addPhotoInputRef.current) {
+                        addPhotoInputRef.current.value = '';
+                      }
+                    }}
+                    className="px-2 py-1 rounded-xl text-[11px] font-semibold text-red-700 hover:bg-red-50 transition-colors"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-taupe-600 mb-1">Dish Name *</label>
+              <label htmlFor={addNameId} className="block text-xs font-semibold text-taupe-600 mb-1">
+                Dish Name *
+              </label>
               <input
+                id={addNameId}
                 type="text"
                 required
                 value={newDishName}
@@ -1117,8 +1697,11 @@ export function DashboardMenuTab({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-taupe-600 mb-1">Category</label>
+              <label htmlFor={addCategoryId} className="block text-xs font-semibold text-taupe-600 mb-1">
+                Category
+              </label>
               <select
+                id={addCategoryId}
                 value={newDishCategory}
                 onChange={(e) => setNewDishCategory(e.target.value)}
                 className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
@@ -1134,10 +1717,11 @@ export function DashboardMenuTab({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-taupe-600 mb-1">
+            <label htmlFor={addPriceId} className="block text-xs font-semibold text-taupe-600 mb-1">
               Price ({restaurant.currency}) *
             </label>
             <input
+              id={addPriceId}
               type="number"
               required
               step="0.01"
@@ -1148,10 +1732,11 @@ export function DashboardMenuTab({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-taupe-600 mb-1">
+            <label htmlFor={addDescId} className="block text-xs font-semibold text-taupe-600 mb-1">
               Description / Recipe
             </label>
             <textarea
+              id={addDescId}
               rows={2}
               value={newDishDescription}
               onChange={(e) => setNewDishDescription(e.target.value)}
@@ -1375,18 +1960,53 @@ export function DashboardMenuTab({
         )}
       </Modal>
 
+      <DishPreviewModal
+        dish={previewDish}
+        isOpen={Boolean(previewDish)}
+        onClose={() => setPreviewDishId(null)}
+        restaurantId={restaurant.id}
+        isGeneratingImg={isGeneratingImg}
+        onDishUpdated={syncUpdatedDish}
+        onRegenerateImage={(item, tweak) =>
+          handleGenerateIllustration(item, tweak, { throwOnError: true })
+        }
+        onOpenGallery={(item) => {
+          setGalleryTargetDishId(item.id);
+          setIsGalleryOpen(true);
+        }}
+        onEditDish={handleOpenEditDish}
+        onSubscriptionExpired={onSubscriptionExpired}
+      />
+
+      <CanonicalGalleryModal
+        isOpen={isGalleryOpen}
+        onClose={() => setIsGalleryOpen(false)}
+        restaurantId={restaurant.id}
+        menuItems={menuItems}
+        targetDishId={galleryTargetDishId}
+        onTargetDishIdChange={setGalleryTargetDishId}
+        onApplied={(updatedItem) => {
+          syncUpdatedDish(updatedItem);
+          showPhotoNotice(`Applied Canonical Gallery artwork to "${updatedItem.customName}".`);
+        }}
+        onSubscriptionExpired={onSubscriptionExpired}
+      />
+
       <CandidateReviewModal
         restaurantId={restaurant.id}
         candidateReview={candidateReview}
         setCandidateReview={setCandidateReview}
         isGeneratingImg={isGeneratingImg}
-        onRetryGenerate={(item, tweak) => handleGenerateIllustration(item, tweak)}
+        onRetryGenerate={(item, tweak) =>
+          handleGenerateIllustration(item, tweak, { throwOnError: true })
+        }
         onApplied={(itemId, asset) => {
           setMenuItems((prev) =>
             prev.map((i) =>
               i.id === itemId ? { ...i, imageOverride: asset, imageOverrideAssetId: asset.id } : i
             )
           );
+          showPhotoNotice('Applied generated food photo to dish.');
         }}
         onSubscriptionExpired={onSubscriptionExpired}
       />

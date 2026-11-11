@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '../db/prisma';
-import { getOwnerSession } from './owner-auth';
+import { getVerifiedOwnerCookie, OwnerSession } from './owner-auth';
 import { getStaffSession, canStaffPerform, StaffAction } from './staff-auth';
 import {
   buildSubscriptionExpiredPayload,
@@ -8,6 +8,41 @@ import {
   OrganizationAccessStatus,
 } from '../billing/subscription-access';
 import type { StaffRole } from '@prisma/client';
+
+async function fetchOwnerSessionByUserId(userId: string): Promise<OwnerSession | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      memberships: {
+        select: {
+          role: true,
+          organization: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!user) return null;
+
+  return {
+    userId: user.id,
+    email: user.email,
+    name: user.name,
+    organizations: user.memberships.map((m) => ({
+      id: m.organization.id,
+      name: m.organization.name,
+      role: m.role,
+    })),
+  };
+}
 
 export function createTenantAccessDeniedResponse(auth: {
   status: number;
@@ -20,7 +55,10 @@ export function createTenantAccessDeniedResponse(auth: {
       headers: { 'Cache-Control': 'no-store, max-age=0' },
     });
   }
-  return NextResponse.json({ error: auth.error }, { status: auth.status });
+  return NextResponse.json(
+    { error: auth.error },
+    { status: auth.status, headers: { 'Cache-Control': 'no-store, max-age=0' } }
+  );
 }
 
 /**
@@ -30,8 +68,8 @@ export async function verifyRestaurantOwnerAccess(
   restaurantId: string,
   options?: { includeOrderingSettings?: boolean; includeTheme?: boolean }
 ) {
-  const ownerSession = await getOwnerSession();
-  if (!ownerSession) {
+  const verifiedCookie = await getVerifiedOwnerCookie();
+  if (!verifiedCookie) {
     return { authorized: false as const, status: 401 as const, error: 'Unauthorized: Please log in as restaurant owner.' };
   }
 
@@ -73,18 +111,14 @@ export async function verifyRestaurantOwnerAccess(
     },
   };
 
-  const restaurant = isAuto
-    ? await prisma.restaurant.findFirst({
-        where: {
-          organizationId: { in: ownerSession.organizations.map((org) => org.id) },
-        },
-        include: {
-          organization: organizationSelect,
-          ...(includeTheme ? { theme: true } : {}),
-          ...(includeOrderingSettings ? { orderingSettings: true } : {}),
-        },
-      })
-    : await prisma.restaurant.findFirst({
+  let ownerSession: OwnerSession | null = null;
+  let restaurant: any = null;
+
+  if (!isAuto) {
+    // Run user membership lookup and restaurant lookup concurrently in 1 DB round-trip
+    [ownerSession, restaurant] = await Promise.all([
+      fetchOwnerSessionByUserId(verifiedCookie.userId),
+      prisma.restaurant.findFirst({
         where: {
           OR: [{ id: restaurantId }, { slug: restaurantId }],
         },
@@ -93,7 +127,29 @@ export async function verifyRestaurantOwnerAccess(
           ...(includeTheme ? { theme: true } : {}),
           ...(includeOrderingSettings ? { orderingSettings: true } : {}),
         },
-      });
+      }),
+    ]);
+
+    if (!ownerSession) {
+      return { authorized: false as const, status: 401 as const, error: 'Unauthorized: Please log in as restaurant owner.' };
+    }
+  } else {
+    ownerSession = await fetchOwnerSessionByUserId(verifiedCookie.userId);
+    if (!ownerSession) {
+      return { authorized: false as const, status: 401 as const, error: 'Unauthorized: Please log in as restaurant owner.' };
+    }
+
+    restaurant = await prisma.restaurant.findFirst({
+      where: {
+        organizationId: { in: ownerSession.organizations.map((org) => org.id) },
+      },
+      include: {
+        organization: organizationSelect,
+        ...(includeTheme ? { theme: true } : {}),
+        ...(includeOrderingSettings ? { orderingSettings: true } : {}),
+      },
+    });
+  }
 
   if (!restaurant) {
     return { authorized: false as const, status: 404 as const, error: 'Restaurant not found.' };
@@ -229,21 +285,9 @@ export async function verifyStaffOrOwnerAccess(
     },
   };
 
-  // Check owner and staff sessions concurrently in case both cookies are set in the browser
-  const [ownerSession, staffSession] = await Promise.all([
-    getOwnerSession(),
-    getStaffSession(),
-  ]);
-
-  // 1. Prefer verified owner session when owner belongs to the restaurant
-  if (ownerSession) {
-    const ownerOrgIds = ownerSession.organizations.map((org) => org.id);
-    const whereClause = isAuto
-      ? { organizationId: { in: ownerOrgIds } }
-      : { OR: [{ id: restaurantId }, { slug: restaurantId }] };
-
-    const restaurant = includeDetails
-      ? await prisma.restaurant.findFirst({
+  const fetchRestaurant = (whereClause: any) =>
+    includeDetails
+      ? prisma.restaurant.findFirst({
           where: whereClause,
           include: {
             organization: organizationSubscriptionInclude,
@@ -251,7 +295,7 @@ export async function verifyStaffOrOwnerAccess(
             theme: true,
           },
         })
-      : await prisma.restaurant.findFirst({
+      : prisma.restaurant.findFirst({
           where: whereClause,
           select: {
             id: true,
@@ -265,6 +309,26 @@ export async function verifyStaffOrOwnerAccess(
             organization: organizationAccessSelect,
           },
         });
+
+  const verifiedOwnerCookie = await getVerifiedOwnerCookie();
+
+  // Execute staff check, owner membership check, and explicit restaurant lookup concurrently in 1 DB round-trip
+  const [staffSession, ownerSession, prefetchedRestaurant] = await Promise.all([
+    getStaffSession(),
+    verifiedOwnerCookie
+      ? fetchOwnerSessionByUserId(verifiedOwnerCookie.userId)
+      : Promise.resolve(null),
+    verifiedOwnerCookie && !isAuto
+      ? fetchRestaurant({ OR: [{ id: restaurantId }, { slug: restaurantId }] })
+      : Promise.resolve(null),
+  ]);
+
+  // 1. Prefer verified owner session when owner belongs to the restaurant
+  if (ownerSession) {
+    const ownerOrgIds = ownerSession.organizations.map((org) => org.id);
+    const restaurant = isAuto
+      ? await fetchRestaurant({ organizationId: { in: ownerOrgIds } })
+      : prefetchedRestaurant;
 
     if (restaurant && restaurant.organizationId && ownerOrgIds.includes(restaurant.organizationId)) {
       const access = evaluateOrganizationAccess({
@@ -324,34 +388,12 @@ export async function verifyStaffOrOwnerAccess(
         organizationId: staffSession.organizationId ?? null,
         organization: staffSession.organization ?? null,
       };
+    } else if (!isAuto && prefetchedRestaurant) {
+      restaurant = prefetchedRestaurant;
     } else {
-      restaurant = includeDetails
-        ? await prisma.restaurant.findFirst({
-            where: {
-              OR: [{ id: targetRestaurantId }, { slug: targetRestaurantId }],
-            },
-            include: {
-              organization: organizationSubscriptionInclude,
-              orderingSettings: true,
-              theme: true,
-            },
-          })
-        : await prisma.restaurant.findFirst({
-            where: {
-              OR: [{ id: targetRestaurantId }, { slug: targetRestaurantId }],
-            },
-            select: {
-              id: true,
-              slug: true,
-              displayName: true,
-              isClaimed: true,
-              organizationId: true,
-              country: true,
-              currency: true,
-              timezone: true,
-              organization: organizationAccessSelect,
-            },
-          });
+      restaurant = await fetchRestaurant({
+        OR: [{ id: targetRestaurantId }, { slug: targetRestaurantId }],
+      });
     }
 
     if (!restaurant) {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Users,
   Plus,
@@ -22,6 +22,15 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import {
+  SESSION_CACHE_TTLS,
+  cacheKeys,
+  clearAllDashboardSessionCaches,
+  dedupeClientRequest,
+  isCacheFresh,
+  readSessionCache,
+  writeSessionCache,
+} from '@/lib/cache/dashboard-session-cache';
 
 interface StaffMember {
   id: string;
@@ -39,10 +48,21 @@ interface StaffManagementViewProps {
 }
 
 export function StaffManagementView({ restaurant, onSubscriptionExpired }: StaffManagementViewProps) {
-  const [staffList, setStaffList] = useState<StaffMember[]>([]);
-  const [loading, setLoading] = useState(true);
+  const initialStaffEntry = restaurant?.id
+    ? readSessionCache<StaffMember[]>(
+        cacheKeys.staff(restaurant.id),
+        SESSION_CACHE_TTLS.STAFF_MAX_MS
+      )
+    : null;
+
+  const [staffList, setStaffList] = useState<StaffMember[]>(() => initialStaffEntry?.data ?? []);
+  const [loading, setLoading] = useState<boolean>(() => !initialStaffEntry);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const loadedRestaurantIdRef = useRef<string | null>(
+    initialStaffEntry && restaurant?.id ? restaurant.id : null
+  );
 
   // Add Staff Modal
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -63,29 +83,98 @@ export function StaffManagementView({ restaurant, onSubscriptionExpired }: Staff
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [copiedLoginId, setCopiedLoginId] = useState<string | null>(null);
 
-  const loadStaff = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await fetch(`/api/restaurants/${restaurant.id}/staff`);
-      if (res.status === 402) {
-        const payload = await res.json().catch(() => ({}));
-        onSubscriptionExpired?.(payload);
+  const loadStaff = async (options?: { force?: boolean; silent?: boolean }) => {
+    const targetRestaurantId = restaurant?.id;
+    if (!targetRestaurantId) return;
+
+    const force = options?.force ?? false;
+    const cached = force
+      ? null
+      : readSessionCache<StaffMember[]>(
+          cacheKeys.staff(targetRestaurantId),
+          SESSION_CACHE_TTLS.STAFF_MAX_MS
+        );
+
+    if (cached) {
+      setStaffList(cached.data || []);
+      setLoading(false);
+      loadedRestaurantIdRef.current = targetRestaurantId;
+      if (isCacheFresh(cached, SESSION_CACHE_TTLS.STAFF_FRESH_MS)) {
         return;
       }
-      if (!res.ok) throw new Error('Failed to load staff accounts');
-      const data = await res.json();
-      setStaffList(data.staff || []);
+    }
+
+    const silent = options?.silent ?? Boolean(cached);
+    try {
+      if (silent) {
+        setIsRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+
+      const result = await dedupeClientRequest(`staff:${targetRestaurantId}`, async () => {
+        const res = await fetch(`/api/restaurants/${targetRestaurantId}/staff`);
+        if (res.status === 402) {
+          const payload = await res.json().catch(() => ({}));
+          clearAllDashboardSessionCaches();
+          return { expired: true as const, payload };
+        }
+        if (res.status === 401 || res.status === 403) {
+          clearAllDashboardSessionCaches();
+        }
+        if (!res.ok) throw new Error('Failed to load staff accounts');
+        const data = await res.json();
+        const nextStaff: StaffMember[] = data.staff || [];
+        writeSessionCache(cacheKeys.staff(targetRestaurantId), nextStaff);
+        return { expired: false as const, staff: nextStaff };
+      });
+
+      if (result.expired) {
+        onSubscriptionExpired?.(result.payload);
+        return;
+      }
+
+      if (restaurant?.id === targetRestaurantId) {
+        setStaffList(result.staff);
+        loadedRestaurantIdRef.current = targetRestaurantId;
+      }
     } catch (err: any) {
-      setError(err.message || 'Error loading staff');
+      if (!silent) {
+        setError(err.message || 'Error loading staff');
+      }
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
-    if (restaurant?.id) {
-      loadStaff();
+    if (!restaurant?.id) return;
+
+    if (loadedRestaurantIdRef.current && loadedRestaurantIdRef.current !== restaurant.id) {
+      setIsAddModalOpen(false);
+      setResetModalStaff(null);
+    }
+
+    const cached = readSessionCache<StaffMember[]>(
+      cacheKeys.staff(restaurant.id),
+      SESSION_CACHE_TTLS.STAFF_MAX_MS
+    );
+
+    if (cached) {
+      setStaffList(cached.data || []);
+      setLoading(false);
+      loadedRestaurantIdRef.current = restaurant.id;
+      if (isCacheFresh(cached, SESSION_CACHE_TTLS.STAFF_FRESH_MS)) {
+        return;
+      }
+      loadStaff({ silent: true });
+    } else {
+      if (loadedRestaurantIdRef.current !== restaurant.id) {
+        setStaffList([]);
+      }
+      loadStaff({ force: true, silent: false });
     }
   }, [restaurant?.id]);
 
@@ -124,18 +213,27 @@ export function StaffManagementView({ restaurant, onSubscriptionExpired }: Staff
       const data = await res.json().catch(() => ({}));
       if (res.status === 402) {
         setIsAddModalOpen(false);
+        clearAllDashboardSessionCaches();
         onSubscriptionExpired?.(data);
         return;
       }
       if (!res.ok) throw new Error(data.error || 'Failed to create staff account');
 
+      const createdMember: StaffMember = {
+        ...data.staff,
+        lastLoginAt: data.staff?.lastLoginAt ?? null,
+      };
+      setStaffList((prev) => {
+        const nextList = [createdMember, ...prev.filter((s) => s.id !== createdMember.id)];
+        writeSessionCache(cacheKeys.staff(restaurant.id), nextList);
+        return nextList;
+      });
       showNotification(`Staff account created for ${data.staff.displayName}!`);
       setIsAddModalOpen(false);
       setAddName('');
       setAddLoginId('');
       setAddPassword('');
       setAddRole('KITCHEN');
-      loadStaff();
     } catch (err: any) {
       setError(err.message || 'Error creating staff member');
     } finally {
@@ -162,6 +260,7 @@ export function StaffManagementView({ restaurant, onSubscriptionExpired }: Staff
       const data = await res.json().catch(() => ({}));
       if (res.status === 402) {
         setResetModalStaff(null);
+        clearAllDashboardSessionCaches();
         onSubscriptionExpired?.(data);
         return;
       }
@@ -189,17 +288,26 @@ export function StaffManagementView({ restaurant, onSubscriptionExpired }: Staff
 
       const data = await res.json().catch(() => ({}));
       if (res.status === 402) {
+        clearAllDashboardSessionCaches();
         onSubscriptionExpired?.(data);
         return;
       }
       if (!res.ok) throw new Error(data.error || 'Failed to update staff status');
 
+      setStaffList((prev) => {
+        const nextList = prev.map((item) =>
+          item.id === staff.id
+            ? { ...item, ...(data.staff || {}), isActive: data.staff?.isActive ?? !staff.isActive }
+            : item
+        );
+        writeSessionCache(cacheKeys.staff(restaurant.id), nextList);
+        return nextList;
+      });
       showNotification(
         staff.isActive
           ? `Deactivated ${staff.displayName}. Active sessions terminated.`
           : `Re-activated ${staff.displayName}.`
       );
-      loadStaff();
     } catch (err: any) {
       setError(err.message || 'Error updating status');
     } finally {
@@ -360,12 +468,14 @@ export function StaffManagementView({ restaurant, onSubscriptionExpired }: Staff
             Registered Staff Roster ({staffList.length})
           </div>
           <button
-            onClick={loadStaff}
-            disabled={loading}
-            className="p-2 rounded-lg text-taupe-500 hover:bg-cream-200 transition-colors"
+            type="button"
+            onClick={() => loadStaff({ force: true, silent: staffList.length > 0 })}
+            disabled={isRefreshing || loading}
+            className="p-2 rounded-lg text-taupe-500 hover:bg-cream-200 transition-colors disabled:opacity-50"
             title="Refresh staff roster"
+            aria-label="Refresh staff roster"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${isRefreshing || loading ? 'animate-spin motion-reduce:animate-none' : ''}`} />
           </button>
         </div>
 

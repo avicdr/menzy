@@ -32,7 +32,10 @@ export async function GET(
       },
     });
 
-    return NextResponse.json({ staff: staffMembers });
+    return NextResponse.json(
+      { staff: staffMembers },
+      { headers: { 'Cache-Control': 'private, no-store, max-age=0' } }
+    );
   } catch (error: any) {
     console.error('Staff GET error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

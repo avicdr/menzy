@@ -24,6 +24,7 @@ import {
   Mail,
 } from 'lucide-react';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
+import { clearAllDashboardSessionCaches } from '@/lib/cache/dashboard-session-cache';
 
 interface DashboardNavProps {
   currentRestaurant: any;
@@ -259,6 +260,7 @@ export function DashboardNav({
   }, [mobileMenuOpen]);
 
   const handleLogout = async () => {
+    clearAllDashboardSessionCaches();
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/login');
   };

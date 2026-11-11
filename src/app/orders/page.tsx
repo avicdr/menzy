@@ -34,6 +34,16 @@ import { formatCurrencyMinor } from '@/lib/payments/plans';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 import { Portal } from '@/components/ui/Portal';
 import { generateStaffTypographyVars } from '@/lib/theme/theme-presets';
+import {
+  SESSION_CACHE_TTLS,
+  cacheKeys,
+  clearAllDashboardSessionCaches,
+  dedupeClientRequest,
+  invalidateRestaurantSessionCache,
+  readSessionCache,
+  syncCachedTablesActiveOrderCounts,
+  writeSessionCache,
+} from '@/lib/cache/dashboard-session-cache';
 
 /**
  * Web Audio API synthesized order bell chime (no external audio assets required)
@@ -92,6 +102,13 @@ export default function StaffOrderPortalPage() {
   const [serviceCalls, setServiceCalls] = useState<any[]>([]);
   const [resolvingCallId, setResolvingCallId] = useState<string | null>(null);
   const previousCallCount = useRef(0);
+  const restaurantDataRef = useRef<any>(null);
+  restaurantDataRef.current = restaurantData;
+  const ordersRef = useRef<any[]>([]);
+  ordersRef.current = orders;
+  const serviceCallsRef = useRef<any[]>([]);
+  serviceCallsRef.current = serviceCalls;
+  const hasThemeRef = useRef(false);
 
   // Active filter tab for responsive / tablet view
   const [activeStageFilter, setActiveStageFilter] = useState<'ALL' | 'PLACED' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'SERVED'>('ALL');
@@ -127,7 +144,32 @@ export default function StaffOrderPortalPage() {
     } catch { }
   };
 
-  // Fetch active orders & service calls via the staff-aware _auto endpoint
+  // Hydrate from session cache on client mount (post-SSR) for instant navigation back to /orders
+  useEffect(() => {
+    const cached = readSessionCache<any>(
+      cacheKeys.ordersLive('_auto'),
+      SESSION_CACHE_TTLS.ORDERS_LIVE_MAX_MS
+    );
+    if (!cached?.data) return;
+
+    const cachedPayload = cached.data;
+    const cachedOrders = Array.isArray(cachedPayload.orders) ? cachedPayload.orders : [];
+    const cachedCalls = Array.isArray(cachedPayload.calls) ? cachedPayload.calls : [];
+
+    restaurantDataRef.current = cachedPayload;
+    ordersRef.current = cachedOrders;
+    serviceCallsRef.current = cachedCalls;
+    hasThemeRef.current = Boolean(cachedPayload.restaurantTheme);
+    previousPlacedCount.current = cachedOrders.filter((o: any) => o.status === 'PLACED').length;
+    previousCallCount.current = cachedCalls.length;
+
+    setRestaurantData(cachedPayload);
+    setOrders(cachedOrders);
+    setServiceCalls(cachedCalls);
+    setLoading(false);
+  }, []);
+
+  // Fetch active orders & service calls in 1 request via the staff-aware _auto endpoint
   const fetchOrders = async (isManual = false) => {
     if (inFlightPollRef.current && !isManual) {
       return;
@@ -137,22 +179,28 @@ export default function StaffOrderPortalPage() {
     try {
       if (isManual) setRefreshing(true);
 
-      const [ordersRes, callsRes] = await Promise.all([
-        fetch('/api/restaurants/_auto/orders', {
-          headers: { 'Cache-Control': 'no-cache' },
-        }),
-        fetch('/api/restaurants/_auto/service-calls', {
-          headers: { 'Cache-Control': 'no-cache' },
-        }).catch(() => null),
-      ]);
+      const themeQuery = hasThemeRef.current ? '' : '&includeTheme=1';
+      const requestKey = `${cacheKeys.ordersLive('_auto')}:poll`;
+      const result = await dedupeClientRequest(requestKey, async () => {
+        const res = await fetch(
+          `/api/restaurants/_auto/orders?limit=60&includeCalls=1${themeQuery}`,
+          {
+            headers: { 'Cache-Control': 'no-cache' },
+          }
+        );
+        const data = await res.json().catch(() => ({}));
+        return { ok: res.ok, status: res.status, data };
+      });
 
-      if (ordersRes.status === 401) {
+      if (result.status === 401) {
+        clearAllDashboardSessionCaches();
         router.push('/orders/login');
         return;
       }
 
-      if (ordersRes.status === 402) {
-        const pausedJson = await ordersRes.json().catch(() => ({}));
+      if (result.status === 402) {
+        clearAllDashboardSessionCaches();
+        const pausedJson = result.data || {};
         setSubscriptionPaused({
           error:
             pausedJson.error ||
@@ -164,36 +212,43 @@ export default function StaffOrderPortalPage() {
         return;
       }
 
-      if (callsRes && callsRes.status === 402) {
-        const pausedJson = await callsRes.json().catch(() => ({}));
-        setSubscriptionPaused({
-          error:
-            pausedJson.error ||
-            'Your 14-day free trial or subscription has ended. Ask the owner to activate a plan in Owner Billing.',
-          code: pausedJson.code,
-          supportEmail: pausedJson.supportEmail || SUPPORT_EMAIL_DISPLAY,
-          restaurantName: pausedJson.restaurantName,
-        });
+      if (result.status === 403) {
+        clearAllDashboardSessionCaches();
+        setError(result.data?.error || 'Access denied for this restaurant.');
         return;
       }
 
-      if (ordersRes.status === 403) {
-        const errJson = await ordersRes.json().catch(() => ({}));
-        setError(errJson.error || 'Access denied for this restaurant.');
-        return;
-      }
-
-      if (ordersRes.ok) {
+      if (result.ok) {
         setSubscriptionPaused(null);
-        const data = await ordersRes.json();
-        setRestaurantData(data);
-        const fetchedOrders: any[] = data.orders || [];
+        const data = result.data || {};
+        const prevRestaurantId = restaurantDataRef.current?.restaurantId;
+        const switchedRestaurant =
+          Boolean(prevRestaurantId) && prevRestaurantId !== data.restaurantId;
+        const resolvedTheme =
+          data.restaurantTheme ??
+          (!switchedRestaurant ? restaurantDataRef.current?.restaurantTheme : null) ??
+          null;
+        if (resolvedTheme) {
+          hasThemeRef.current = true;
+        } else if (switchedRestaurant) {
+          hasThemeRef.current = false;
+        }
 
-        setOrders((prevOrders) => {
+        const fetchedOrders: any[] = Array.isArray(data.orders) ? data.orders : [];
+        let merged: any[];
+
+        if (switchedRestaurant) {
+          merged = fetchedOrders;
+          inFlightMutationsRef.current.clear();
+          recentlyUpdatedRef.current.clear();
+          previousPlacedCount.current = 0;
+          previousCallCount.current = 0;
+        } else {
+          const prevOrders = ordersRef.current;
           const now = Date.now();
           const prevById = new Map(prevOrders.map((o) => [o.id, o]));
           const handledIds = new Set<string>();
-          const merged: any[] = [];
+          merged = [];
 
           for (const serverOrder of fetchedOrders) {
             handledIds.add(serverOrder.id);
@@ -206,7 +261,11 @@ export default function StaffOrderPortalPage() {
               continue;
             }
             if (recent && recent.expiresAt > now) {
-              if (recent.status === 'COMPLETED' || recent.status === 'REJECTED' || recent.status === 'CANCELLED') {
+              if (
+                recent.status === 'COMPLETED' ||
+                recent.status === 'REJECTED' ||
+                recent.status === 'CANCELLED'
+              ) {
                 continue;
               }
               if (localOrder && serverOrder.status !== recent.status) {
@@ -228,10 +287,27 @@ export default function StaffOrderPortalPage() {
               }
             }
           }
+        }
 
-          return merged;
-        });
+        const activeCalls: any[] = Array.isArray(data.calls)
+          ? data.calls
+          : switchedRestaurant
+          ? []
+          : serviceCallsRef.current;
 
+        const nextRestaurantData = {
+          ...data,
+          restaurantTheme: resolvedTheme,
+          orders: merged,
+          calls: activeCalls,
+        };
+
+        restaurantDataRef.current = nextRestaurantData;
+        ordersRef.current = merged;
+        serviceCallsRef.current = activeCalls;
+
+        setRestaurantData(nextRestaurantData);
+        setOrders(merged);
         setError(null);
 
         // Detect new incoming orders and trigger audio chime
@@ -240,18 +316,19 @@ export default function StaffOrderPortalPage() {
           playOrderChime();
         }
         previousPlacedCount.current = placedCount;
-      }
 
-      if (callsRes && callsRes.ok) {
-        const callsData = await callsRes.json();
-        const activeCalls = callsData.calls || [];
-        setServiceCalls(activeCalls);
-
-        // Sound alert if new waiter call arrived
-        if (activeCalls.length > previousCallCount.current && soundEnabledRef.current) {
-          playOrderChime();
+        if (Array.isArray(data.calls)) {
+          setServiceCalls(activeCalls);
+          if (activeCalls.length > previousCallCount.current && soundEnabledRef.current) {
+            playOrderChime();
+          }
+          previousCallCount.current = activeCalls.length;
         }
-        previousCallCount.current = activeCalls.length;
+
+        writeSessionCache(cacheKeys.ordersLive('_auto'), nextRestaurantData);
+        if (data.restaurantId) {
+          syncCachedTablesActiveOrderCounts(data.restaurantId, merged);
+        }
       }
     } catch (err: any) {
       console.error('Fetch orders error:', err);
@@ -271,6 +348,7 @@ export default function StaffOrderPortalPage() {
         body: JSON.stringify({ callId }),
       });
       if (res.status === 402) {
+        clearAllDashboardSessionCaches();
         const pausedJson = await res.json().catch(() => ({}));
         setSubscriptionPaused({
           error:
@@ -283,8 +361,15 @@ export default function StaffOrderPortalPage() {
         return;
       }
       if (res.ok) {
-        setServiceCalls((prev) => prev.filter((c) => c.id !== callId));
+        const nextCalls = serviceCallsRef.current.filter((c) => c.id !== callId);
+        serviceCallsRef.current = nextCalls;
+        setServiceCalls(nextCalls);
         previousCallCount.current = Math.max(0, previousCallCount.current - 1);
+        if (restaurantDataRef.current) {
+          const nextSnapshot = { ...restaurantDataRef.current, calls: nextCalls };
+          restaurantDataRef.current = nextSnapshot;
+          writeSessionCache(cacheKeys.ordersLive('_auto'), nextSnapshot);
+        }
       }
     } catch (err) {
       console.error('Failed to resolve waiter call:', err);
@@ -337,25 +422,25 @@ export default function StaffOrderPortalPage() {
       targetStatus === 'COMPLETED' || targetStatus === 'REJECTED' || targetStatus === 'CANCELLED';
     const nowIso = new Date().toISOString();
 
+    const nextOrders = isTerminal
+      ? ordersRef.current.filter((o) => o.id !== orderId)
+      : ordersRef.current.map((o) =>
+          o.id === orderId
+            ? {
+                ...o,
+                status: targetStatus,
+                updatedAt: nowIso,
+                ...(targetStatus === 'ACCEPTED' ? { acceptedAt: nowIso } : {}),
+                ...(targetStatus === 'PREPARING' ? { preparingAt: nowIso } : {}),
+                ...(targetStatus === 'READY' ? { readyAt: nowIso } : {}),
+                ...(targetStatus === 'SERVED' ? { servedAt: nowIso } : {}),
+              }
+            : o
+        );
+
     // Immediate optimistic transition so Kanban reflects new state at 0ms
-    setOrders((prev) => {
-      if (isTerminal) {
-        return prev.filter((o) => o.id !== orderId);
-      }
-      return prev.map((o) =>
-        o.id === orderId
-          ? {
-            ...o,
-            status: targetStatus,
-            updatedAt: nowIso,
-            ...(targetStatus === 'ACCEPTED' ? { acceptedAt: nowIso } : {}),
-            ...(targetStatus === 'PREPARING' ? { preparingAt: nowIso } : {}),
-            ...(targetStatus === 'READY' ? { readyAt: nowIso } : {}),
-            ...(targetStatus === 'SERVED' ? { servedAt: nowIso } : {}),
-          }
-          : o
-      );
-    });
+    ordersRef.current = nextOrders;
+    setOrders(nextOrders);
 
     if (selectedOrder?.id === orderId) {
       setSelectedOrder(null);
@@ -372,6 +457,7 @@ export default function StaffOrderPortalPage() {
       const data = await res.json().catch(() => ({}));
 
       if (res.status === 402) {
+        clearAllDashboardSessionCaches();
         setSubscriptionPaused({
           error:
             data.error ||
@@ -393,11 +479,11 @@ export default function StaffOrderPortalPage() {
       });
 
       const serverOrder = data.order;
+      let syncedOrders = nextOrders;
       if (serverOrder && !isTerminal) {
-        setOrders((prev) =>
-          prev.map((o) =>
-            o.id === orderId
-              ? {
+        syncedOrders = ordersRef.current.map((o) =>
+          o.id === orderId
+            ? {
                 ...o,
                 status: serverOrder.status,
                 acceptedAt: serverOrder.acceptedAt ?? o.acceptedAt,
@@ -406,19 +492,35 @@ export default function StaffOrderPortalPage() {
                 servedAt: serverOrder.servedAt ?? o.servedAt,
                 updatedAt: serverOrder.updatedAt ?? o.updatedAt,
               }
-              : o
-          )
+            : o
         );
+        ordersRef.current = syncedOrders;
+        setOrders(syncedOrders);
       }
+
+      if (restaurantDataRef.current) {
+        const nextSnapshot = { ...restaurantDataRef.current, orders: syncedOrders };
+        restaurantDataRef.current = nextSnapshot;
+        writeSessionCache(cacheKeys.ordersLive('_auto'), nextSnapshot);
+      }
+      if (restaurantData?.restaurantId) {
+        invalidateRestaurantSessionCache(restaurantData.restaurantId, [
+          'ordersHistory',
+          'ordersAnalytics',
+        ]);
+        syncCachedTablesActiveOrderCounts(restaurantData.restaurantId, syncedOrders);
+      }
+      invalidateRestaurantSessionCache('_auto', ['ordersHistory']);
     } catch (err: any) {
       // Roll back optimistic state cleanly and show non-blocking error banner
       setOrders((prev) => {
-        if (prev.some((o) => o.id === orderId)) {
-          return prev.map((o) => (o.id === orderId ? existingOrder : o));
-        }
-        return [existingOrder, ...prev].sort(
-          (a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime()
-        );
+        const rolledBack = prev.some((o) => o.id === orderId)
+          ? prev.map((o) => (o.id === orderId ? existingOrder : o))
+          : [existingOrder, ...prev].sort(
+              (a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime()
+            );
+        ordersRef.current = rolledBack;
+        return rolledBack;
       });
       setActionError(
         `Ticket #${existingOrder.orderNumber}: ${err?.message || 'Status update failed'}`
@@ -437,6 +539,7 @@ export default function StaffOrderPortalPage() {
   };
 
   const handleLogout = async () => {
+    clearAllDashboardSessionCaches();
     await fetch('/api/staff/logout', { method: 'POST' });
     router.push('/orders/login');
   };

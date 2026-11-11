@@ -112,9 +112,15 @@ export function markGeminiKeyCooldown(
     message.includes('permission_denied') ||
     message.includes('leaked');
 
+  const isFreeTierZeroImageQuota =
+    scope === 'image' &&
+    (message.includes('limit: 0') || message.includes('free_tier_requests'));
+
   let cooldownMs = 15_000;
   if (isAuthError) {
     cooldownMs = 10 * 60_000;
+  } else if (isFreeTierZeroImageQuota) {
+    cooldownMs = 5 * 60_000;
   } else if (
     status === 429 ||
     message.includes('429') ||
@@ -132,6 +138,15 @@ export function markGeminiKeyCooldown(
   } else {
     keyCooldownUntil.set(getCooldownMapKey(apiKey, scope), now + cooldownMs);
   }
+}
+
+export function isGeminiKeyCooledDown(
+  apiKey: string,
+  scope: GeminiCooldownScope = 'text'
+): boolean {
+  if (!apiKey) return false;
+  const until = keyCooldownUntil.get(getCooldownMapKey(apiKey, scope)) ?? 0;
+  return until > Date.now();
 }
 
 /**

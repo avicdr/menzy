@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, AlertCircle, Sparkles, Eye, EyeOff, Mail } from 'lucide-react';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
+import { clearAllDashboardSessionCaches } from '@/lib/cache/dashboard-session-cache';
 
 function LoginForm() {
   const router = useRouter();
@@ -34,6 +35,8 @@ function LoginForm() {
       if (!res.ok) {
         throw new Error(data.error || 'Failed to sign in');
       }
+
+      clearAllDashboardSessionCaches();
 
       if (claimToken) {
         const redeemRes = await fetch('/api/claims/redeem', {

@@ -33,6 +33,10 @@ import {
   normalizeServiceChargeInput,
   normalizeTaxPercentageInput,
 } from '@/lib/orders/tax-config';
+import {
+  clearAllDashboardSessionCaches,
+  invalidateRestaurantSessionCache,
+} from '@/lib/cache/dashboard-session-cache';
 
 const GooglePlacesModal = dynamic(
   () => import('@/components/dashboard/GooglePlacesModal').then((m) => m.GooglePlacesModal),
@@ -166,6 +170,7 @@ export function DashboardSettingsTab({
 
       if (res.status === 402) {
         const payload = await res.json().catch(() => ({}));
+        clearAllDashboardSessionCaches();
         onSubscriptionExpired(payload);
         return;
       }
@@ -199,6 +204,11 @@ export function DashboardSettingsTab({
             ),
           });
         }
+        invalidateRestaurantSessionCache(restaurant.id, [
+          'restaurantSettings',
+          'orderingSettings',
+          'authMe',
+        ]);
         setSettingsSavedToast(true);
         setTimeout(() => setSettingsSavedToast(false), 3000);
       } else {

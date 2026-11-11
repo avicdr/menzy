@@ -54,11 +54,68 @@ import {
 } from '@/lib/orders/tax-config';
 import dynamic from 'next/dynamic';
 import { Modal } from '@/components/ui/Modal';
+import {
+  SESSION_CACHE_TTLS,
+  cacheKeys,
+  clearAllDashboardSessionCaches,
+  dedupeClientRequest,
+  invalidateRestaurantSessionCache,
+  isCacheFresh,
+  readSessionCache,
+  syncCachedTablesActiveOrderCounts,
+  writeSessionCache,
+} from '@/lib/cache/dashboard-session-cache';
 
 const GooglePlacesModal = dynamic(
   () => import('./GooglePlacesModal').then((m) => m.GooglePlacesModal),
   { ssr: false }
 );
+
+const getOrderTableId = (order: any): string | null => order?.tableId || order?.table?.id || null;
+
+interface CachedLiveOrdersPayload {
+  orders: any[];
+  calls: any[];
+}
+
+interface CachedOrderingSettingsPayload {
+  orderingSettings: {
+    orderingEnabled: boolean;
+    acceptsNewOrders: boolean;
+    allowSpecialInstructions: boolean;
+    paymentMode: string;
+    taxPercentage: number;
+    serviceChargePercentage: number;
+    maxActiveOrders: number;
+    wifiEnabled: boolean;
+    wifiSsid: string;
+    wifiPassword: string;
+    wifiSecurity: string;
+  };
+  tableSessionTimers: {
+    scanTimeoutMinutes: string;
+    orderExtensionMinutes: string;
+  };
+  taxInputs: {
+    taxPercentage: string;
+    serviceChargePercentage: string;
+  };
+  googleReviewUrl: string;
+}
+
+const DEFAULT_ORDERING_SETTINGS_STATE: CachedOrderingSettingsPayload['orderingSettings'] = {
+  orderingEnabled: true,
+  acceptsNewOrders: true,
+  allowSpecialInstructions: true,
+  paymentMode: 'PAY_AT_COUNTER',
+  taxPercentage: 5.0,
+  serviceChargePercentage: 0.0,
+  maxActiveOrders: 50,
+  wifiEnabled: false,
+  wifiSsid: '',
+  wifiPassword: '',
+  wifiSecurity: 'WPA',
+};
 
 interface OrdersManagementViewProps {
   restaurant: any;
@@ -73,10 +130,35 @@ export function OrdersManagementView({
   onSubscriptionExpired,
   onTaxSettingsUpdated,
 }: OrdersManagementViewProps) {
+  const initialLiveEntry = restaurant?.id
+    ? readSessionCache<CachedLiveOrdersPayload>(
+        cacheKeys.ordersLive(restaurant.id),
+        SESSION_CACHE_TTLS.ORDERS_LIVE_MAX_MS
+      )
+    : null;
+  const initialTablesEntry = restaurant?.id
+    ? readSessionCache<any[]>(cacheKeys.tables(restaurant.id), SESSION_CACHE_TTLS.TABLES_MAX_MS)
+    : null;
+  const initialAnalyticsEntry = restaurant?.id
+    ? readSessionCache<any>(
+        cacheKeys.ordersAnalytics(restaurant.id),
+        SESSION_CACHE_TTLS.ORDERS_ANALYTICS_MAX_MS
+      )
+    : null;
+  const initialSettingsEntry = restaurant?.id
+    ? readSessionCache<CachedOrderingSettingsPayload>(
+        cacheKeys.orderingSettings(restaurant.id),
+        SESSION_CACHE_TTLS.TABLES_MAX_MS
+      )
+    : null;
+
   const [activeSubTab, setActiveSubTab] = useState<'live' | 'history' | 'analytics' | 'settings'>(
     initialSubTab
   );
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(() =>
+    initialSubTab === 'live' ? !initialLiveEntry : false
+  );
+  const [refreshingLive, setRefreshingLive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -85,10 +167,12 @@ export function OrdersManagementView({
   }, [initialSubTab]);
 
   // Live Orders & Live Floor State
-  const [liveOrders, setLiveOrders] = useState<any[]>([]);
-  const [liveOrdersLoaded, setLiveOrdersLoaded] = useState(false);
-  const [tables, setTables] = useState<any[]>([]);
-  const [serviceCalls, setServiceCalls] = useState<any[]>([]);
+  const [liveOrders, setLiveOrders] = useState<any[]>(() => initialLiveEntry?.data?.orders ?? []);
+  const [liveOrdersLoaded, setLiveOrdersLoaded] = useState<boolean>(() => Boolean(initialLiveEntry));
+  const [tables, setTables] = useState<any[]>(() => initialTablesEntry?.data ?? []);
+  const [serviceCalls, setServiceCalls] = useState<any[]>(
+    () => initialLiveEntry?.data?.calls ?? []
+  );
   const [selectedTableFilter, setSelectedTableFilter] = useState<string | null>(null);
   const [updatingOrders, setUpdatingOrders] = useState<Record<string, string>>({});
   const [resolvingCallId, setResolvingCallId] = useState<string | null>(null);
@@ -97,7 +181,12 @@ export function OrdersManagementView({
   const recentlyUpdatedRef = useRef<Map<string, { status: string; expiresAt: number }>>(new Map());
   const mutationSeqRef = useRef(0);
   const inFlightPollRef = useRef(false);
-  const tablesLoadedRef = useRef(false);
+  const tablesLoadedRef = useRef(Boolean(initialTablesEntry));
+  const loadedRestaurantIdRef = useRef<string | null>(restaurant?.id ?? null);
+  const liveOrdersRef = useRef<any[]>(liveOrders);
+  liveOrdersRef.current = liveOrders;
+  const serviceCallsRef = useRef<any[]>(serviceCalls);
+  serviceCallsRef.current = serviceCalls;
 
   // History Orders
   const [historyOrders, setHistoryOrders] = useState<any[]>([]);
@@ -107,33 +196,33 @@ export function OrdersManagementView({
   const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<any | null>(null);
 
   // Analytics
-  const [analyticsData, setAnalyticsData] = useState<any | null>(null);
+  const [analyticsData, setAnalyticsData] = useState<any | null>(
+    () => initialAnalyticsEntry?.data ?? null
+  );
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
   // Ordering Settings Form (includes Table QR Session Timers, Free Wi-Fi & Google Review URL)
-  const [orderingSettings, setOrderingSettings] = useState({
-    orderingEnabled: true,
-    acceptsNewOrders: true,
-    allowSpecialInstructions: true,
-    paymentMode: 'PAY_AT_COUNTER',
-    taxPercentage: 5.0,
-    serviceChargePercentage: 0.0,
-    maxActiveOrders: 50,
-    wifiEnabled: false,
-    wifiSsid: '',
-    wifiPassword: '',
-    wifiSecurity: 'WPA',
-  });
-  const [tableSessionTimers, setTableSessionTimers] = useState({
-    scanTimeoutMinutes: String(DEFAULT_SCAN_TIMEOUT_MINUTES),
-    orderExtensionMinutes: String(DEFAULT_ORDER_EXTENSION_MINUTES),
-  });
-  const [taxInputs, setTaxInputs] = useState({
-    taxPercentage: String(DEFAULT_TAX_PERCENTAGE),
-    serviceChargePercentage: String(DEFAULT_SERVICE_CHARGE_PERCENTAGE),
-  });
-  const [googleReviewUrl, setGoogleReviewUrl] = useState(restaurant?.googleReviewUrl || '');
+  const [orderingSettings, setOrderingSettings] = useState(
+    () => initialSettingsEntry?.data?.orderingSettings ?? DEFAULT_ORDERING_SETTINGS_STATE
+  );
+  const [tableSessionTimers, setTableSessionTimers] = useState(
+    () =>
+      initialSettingsEntry?.data?.tableSessionTimers ?? {
+        scanTimeoutMinutes: String(DEFAULT_SCAN_TIMEOUT_MINUTES),
+        orderExtensionMinutes: String(DEFAULT_ORDER_EXTENSION_MINUTES),
+      }
+  );
+  const [taxInputs, setTaxInputs] = useState(
+    () =>
+      initialSettingsEntry?.data?.taxInputs ?? {
+        taxPercentage: String(DEFAULT_TAX_PERCENTAGE),
+        serviceChargePercentage: String(DEFAULT_SERVICE_CHARGE_PERCENTAGE),
+      }
+  );
+  const [googleReviewUrl, setGoogleReviewUrl] = useState(
+    () => initialSettingsEntry?.data?.googleReviewUrl ?? (restaurant?.googleReviewUrl || '')
+  );
   const [isPlacesModalOpen, setIsPlacesModalOpen] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
@@ -142,207 +231,449 @@ export function OrdersManagementView({
     setTimeout(() => setSuccessMsg(null), 3500);
   };
 
-  // 1. Load Live Orders + Service Calls (+ Tables on initial/manual refresh only)
-  const loadLiveOrders = async (silent = false) => {
+  // Keep local state synchronized with sessionStorage if the owner switches restaurants
+  useEffect(() => {
+    const targetRestaurantId = restaurant?.id;
+    if (!targetRestaurantId) return;
+
+    if (loadedRestaurantIdRef.current && loadedRestaurantIdRef.current !== targetRestaurantId) {
+      setSelectedTableFilter(null);
+      setSelectedOrderForDetail(null);
+      setHistoryOrders([]);
+      setHistoryStatusFilter('ALL');
+      setHistorySearch('');
+      setError(null);
+      setAnalyticsError(null);
+    }
+    loadedRestaurantIdRef.current = targetRestaurantId;
+
+    const cachedLive = readSessionCache<CachedLiveOrdersPayload>(
+      cacheKeys.ordersLive(targetRestaurantId),
+      SESSION_CACHE_TTLS.ORDERS_LIVE_MAX_MS
+    );
+    if (cachedLive) {
+      setLiveOrders(cachedLive.data?.orders ?? []);
+      setServiceCalls(cachedLive.data?.calls ?? []);
+      setLiveOrdersLoaded(true);
+      if (activeSubTab === 'live') setLoading(false);
+    } else if (activeSubTab === 'live') {
+      setLiveOrders([]);
+      setServiceCalls([]);
+      setLiveOrdersLoaded(false);
+    }
+
+    const cachedTables = readSessionCache<any[]>(
+      cacheKeys.tables(targetRestaurantId),
+      SESSION_CACHE_TTLS.TABLES_MAX_MS
+    );
+    if (cachedTables) {
+      setTables(cachedTables.data || []);
+      tablesLoadedRef.current = true;
+    } else {
+      setTables([]);
+      tablesLoadedRef.current = false;
+    }
+
+    const cachedAnalytics = readSessionCache<any>(
+      cacheKeys.ordersAnalytics(targetRestaurantId),
+      SESSION_CACHE_TTLS.ORDERS_ANALYTICS_MAX_MS
+    );
+    setAnalyticsData(cachedAnalytics?.data ?? null);
+
+    const cachedOrdSettings = readSessionCache<CachedOrderingSettingsPayload>(
+      cacheKeys.orderingSettings(targetRestaurantId),
+      SESSION_CACHE_TTLS.TABLES_MAX_MS
+    );
+    if (cachedOrdSettings?.data) {
+      setOrderingSettings(cachedOrdSettings.data.orderingSettings);
+      setTableSessionTimers(cachedOrdSettings.data.tableSessionTimers);
+      setTaxInputs(cachedOrdSettings.data.taxInputs);
+      setGoogleReviewUrl(cachedOrdSettings.data.googleReviewUrl);
+    } else {
+      setOrderingSettings(DEFAULT_ORDERING_SETTINGS_STATE);
+      setTableSessionTimers({
+        scanTimeoutMinutes: String(DEFAULT_SCAN_TIMEOUT_MINUTES),
+        orderExtensionMinutes: String(DEFAULT_ORDER_EXTENSION_MINUTES),
+      });
+      setTaxInputs({
+        taxPercentage: String(DEFAULT_TAX_PERCENTAGE),
+        serviceChargePercentage: String(DEFAULT_SERVICE_CHARGE_PERCENTAGE),
+      });
+      setGoogleReviewUrl(restaurant?.googleReviewUrl || '');
+    }
+  }, [restaurant?.id]);
+
+  // 1. Load Live Orders + Service Calls (+ Tables if not already cached/loaded) in 1 single fast request
+  const loadLiveOrders = async (silent = false, options?: { force?: boolean }) => {
+    const targetRestaurantId = restaurant?.id;
+    if (!targetRestaurantId) return;
     if (silent && inFlightPollRef.current) return;
+
+    const cachedTables = readSessionCache<any[]>(
+      cacheKeys.tables(targetRestaurantId),
+      SESSION_CACHE_TTLS.TABLES_MAX_MS
+    );
+    if (cachedTables && !tablesLoadedRef.current) {
+      setTables(cachedTables.data || []);
+      tablesLoadedRef.current = true;
+    }
+
+    const shouldFetchTables = Boolean(options?.force) || (!cachedTables && !tablesLoadedRef.current);
+    const hasLocalLive = liveOrdersLoaded || liveOrdersRef.current.length > 0;
+    const isSilentMode = silent || hasLocalLive;
+
     inFlightPollRef.current = true;
     const fetchStartedAt = Date.now();
-    const shouldFetchTables = !silent || !tablesLoadedRef.current;
     try {
-      if (!silent) setLoading(true);
+      if (isSilentMode) {
+        if (options?.force || !silent) setRefreshingLive(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
-      const [ordersRes, callsRes, tablesRes] = await Promise.all([
-        fetch(`/api/restaurants/${restaurant.id}/orders?limit=50`),
-        fetch(`/api/restaurants/${restaurant.id}/service-calls`),
-        shouldFetchTables
-          ? fetch(`/api/restaurants/${restaurant.id}/tables`)
-          : Promise.resolve(null),
-      ]);
-      if (
-        ordersRes.status === 402 ||
-        callsRes.status === 402 ||
-        tablesRes?.status === 402
-      ) {
-        const pausedRes =
-          ordersRes.status === 402
-            ? ordersRes
-            : callsRes.status === 402
-              ? callsRes
-              : tablesRes!;
-        const payload = await pausedRes.json().catch(() => ({}));
+
+      const url = `/api/restaurants/${targetRestaurantId}/orders?limit=50&includeCalls=1&includeTheme=0${
+        shouldFetchTables ? '&includeTables=1' : ''
+      }`;
+      const result = await dedupeClientRequest(
+        `ordersLive:${targetRestaurantId}:${shouldFetchTables ? 't' : '0'}`,
+        async () => {
+          const res = await fetch(url);
+          if (res.status === 402) {
+            const payload = await res.json().catch(() => ({}));
+            clearAllDashboardSessionCaches();
+            return { expired: true as const, payload };
+          }
+          if (res.status === 401 || res.status === 403) {
+            clearAllDashboardSessionCaches();
+          }
+          if (!res.ok) throw new Error('Failed to load live orders');
+          const data = await res.json();
+          return { expired: false as const, data };
+        }
+      );
+
+      if (result.expired) {
         setSubscriptionPaused(true);
-        onSubscriptionExpired?.(payload);
+        onSubscriptionExpired?.(result.payload);
         return;
       }
-      if (!ordersRes.ok) throw new Error('Failed to load live orders');
-      const ordersData = await ordersRes.json();
+
+      const ordersData = result.data;
       const fetchedOrders: any[] = ordersData.orders || [];
+      const nextCalls: any[] = Array.isArray(ordersData.calls)
+        ? ordersData.calls
+        : serviceCallsRef.current;
 
-      setLiveOrders((prevOrders) => {
-        const now = Date.now();
-        const prevById = new Map(prevOrders.map((o) => [o.id, o]));
-        const handledIds = new Set<string>();
-        const merged: any[] = [];
+      const prevOrders = liveOrdersRef.current;
+      const now = Date.now();
+      const prevById = new Map(prevOrders.map((o) => [o.id, o]));
+      const handledIds = new Set<string>();
+      const merged: any[] = [];
 
-        for (const serverOrder of fetchedOrders) {
-          handledIds.add(serverOrder.id);
-          const inFlight = inFlightMutationsRef.current.has(serverOrder.id);
-          const recent = recentlyUpdatedRef.current.get(serverOrder.id);
-          const localOrder = prevById.get(serverOrder.id);
+      for (const serverOrder of fetchedOrders) {
+        handledIds.add(serverOrder.id);
+        const inFlight = inFlightMutationsRef.current.has(serverOrder.id);
+        const recent = recentlyUpdatedRef.current.get(serverOrder.id);
+        const localOrder = prevById.get(serverOrder.id);
 
-          if (inFlight) {
-            if (localOrder) merged.push(localOrder);
+        if (inFlight) {
+          if (localOrder) merged.push(localOrder);
+          continue;
+        }
+        if (recent && recent.expiresAt > now) {
+          if (recent.status === 'REJECTED' || recent.status === 'CANCELLED') {
             continue;
           }
-          if (recent && recent.expiresAt > now) {
-            if (recent.status === 'REJECTED' || recent.status === 'CANCELLED') {
-              continue;
-            }
-            if (localOrder && serverOrder.status !== recent.status) {
-              merged.push(localOrder);
-              continue;
-            }
-          }
-          merged.push(serverOrder);
-        }
-
-        for (const localOrder of prevOrders) {
-          if (handledIds.has(localOrder.id)) continue;
-          const inFlight = inFlightMutationsRef.current.has(localOrder.id);
-          const recent = recentlyUpdatedRef.current.get(localOrder.id);
-          if (inFlight || (recent && recent.expiresAt > now && recent.expiresAt > fetchStartedAt)) {
-            if (!['REJECTED', 'CANCELLED'].includes(localOrder.status)) {
-              merged.unshift(localOrder);
-            }
+          if (localOrder && serverOrder.status !== recent.status) {
+            merged.push(localOrder);
+            continue;
           }
         }
+        merged.push(serverOrder);
+      }
 
-        return merged;
-      });
+      for (const localOrder of prevOrders) {
+        if (handledIds.has(localOrder.id)) continue;
+        const inFlight = inFlightMutationsRef.current.has(localOrder.id);
+        const recent = recentlyUpdatedRef.current.get(localOrder.id);
+        if (inFlight || (recent && recent.expiresAt > now && recent.expiresAt > fetchStartedAt)) {
+          if (!['REJECTED', 'CANCELLED'].includes(localOrder.status)) {
+            merged.unshift(localOrder);
+          }
+        }
+      }
+
+      if (restaurant?.id !== targetRestaurantId) return;
+
+      liveOrdersRef.current = merged;
+      setLiveOrders(merged);
       setLiveOrdersLoaded(true);
 
-      if (tablesRes && tablesRes.ok) {
-        const tablesData = await tablesRes.json();
-        setTables(tablesData.tables || []);
-        tablesLoadedRef.current = true;
+      if (Array.isArray(ordersData.calls)) {
+        serviceCallsRef.current = nextCalls;
+        setServiceCalls(nextCalls);
       }
 
-      if (callsRes.ok) {
-        const callsData = await callsRes.json();
-        setServiceCalls(callsData.calls || []);
+      writeSessionCache(cacheKeys.ordersLive(targetRestaurantId), {
+        orders: merged,
+        calls: nextCalls,
+      });
+
+      if (Array.isArray(ordersData.tables)) {
+        setTables(ordersData.tables);
+        tablesLoadedRef.current = true;
+        writeSessionCache(cacheKeys.tables(targetRestaurantId), ordersData.tables);
       }
+
+      syncCachedTablesActiveOrderCounts(targetRestaurantId, merged);
     } catch (err: any) {
-      if (!silent) setError(err.message || 'Error loading live orders');
+      if (!isSilentMode) setError(err.message || 'Error loading live orders');
     } finally {
       inFlightPollRef.current = false;
-      if (!silent) setLoading(false);
+      setLoading(false);
+      setRefreshingLive(false);
     }
   };
 
   // 2. Load Order History
-  const loadHistoryOrders = async (page = 1) => {
+  const loadHistoryOrders = async (
+    page = 1,
+    options?: { force?: boolean; status?: string; search?: string }
+  ) => {
+    const targetRestaurantId = restaurant?.id;
+    if (!targetRestaurantId) return;
+
+    const statusValue = options?.status ?? historyStatusFilter;
+    const searchValue = (options?.search ?? historySearch).trim();
+    const queryKey = `${page}:${statusValue}:${searchValue}`;
+    const cacheKey = cacheKeys.ordersHistory(targetRestaurantId, queryKey);
+
+    const cached = options?.force
+      ? null
+      : readSessionCache<{ orders: any[]; pagination: any }>(
+          cacheKey,
+          SESSION_CACHE_TTLS.ORDERS_HISTORY_MAX_MS
+        );
+
+    if (cached?.data) {
+      setHistoryOrders(cached.data.orders || []);
+      setHistoryPagination(cached.data.pagination || { page: 1, limit: 15, total: 0, totalPages: 1 });
+      setLoading(false);
+      if (isCacheFresh(cached, SESSION_CACHE_TTLS.ORDERS_HISTORY_FRESH_MS)) {
+        return;
+      }
+    }
+
+    const silentRevalidate = Boolean(cached?.data);
     try {
-      setLoading(true);
+      if (!silentRevalidate) setLoading(true);
       const params = new URLSearchParams({
         page: String(page),
         limit: '15',
       });
-      if (historyStatusFilter !== 'ALL') params.set('status', historyStatusFilter);
-      if (historySearch.trim()) params.set('search', historySearch.trim());
+      if (statusValue !== 'ALL') params.set('status', statusValue);
+      if (searchValue) params.set('search', searchValue);
 
-      const res = await fetch(`/api/restaurants/${restaurant.id}/orders/history?${params.toString()}`);
-      if (res.status === 402) {
-        const payload = await res.json().catch(() => ({}));
+      const result = await dedupeClientRequest(cacheKey, async () => {
+        const res = await fetch(`/api/restaurants/${targetRestaurantId}/orders/history?${params.toString()}`);
+        if (res.status === 402) {
+          const payload = await res.json().catch(() => ({}));
+          clearAllDashboardSessionCaches();
+          return { expired: true as const, payload };
+        }
+        if (res.status === 401 || res.status === 403) {
+          clearAllDashboardSessionCaches();
+        }
+        if (!res.ok) throw new Error('Failed to load order history');
+        const data = await res.json();
+        const payload = {
+          orders: data.orders || [],
+          pagination: data.pagination || { page: 1, limit: 15, total: 0, totalPages: 1 },
+        };
+        writeSessionCache(cacheKey, payload);
+        return { expired: false as const, payload };
+      });
+
+      if (result.expired) {
         setSubscriptionPaused(true);
-        onSubscriptionExpired?.(payload);
+        onSubscriptionExpired?.(result.payload);
         return;
       }
-      if (!res.ok) throw new Error('Failed to load order history');
-      const data = await res.json();
-      setHistoryOrders(data.orders || []);
-      setHistoryPagination(data.pagination || { page: 1, limit: 15, total: 0, totalPages: 1 });
+
+      if (restaurant?.id === targetRestaurantId) {
+        setHistoryOrders(result.payload.orders);
+        setHistoryPagination(result.payload.pagination);
+      }
     } catch (err: any) {
-      setError(err.message || 'Error loading history');
+      if (!silentRevalidate) {
+        setError(err.message || 'Error loading history');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   // 3. Load Order Analytics
-  const loadAnalytics = async () => {
+  const loadAnalytics = async (options?: { force?: boolean }) => {
+    const targetRestaurantId = restaurant?.id;
+    if (!targetRestaurantId) return;
+
+    const cacheKey = cacheKeys.ordersAnalytics(targetRestaurantId);
+    const cached = options?.force
+      ? null
+      : readSessionCache<any>(cacheKey, SESSION_CACHE_TTLS.ORDERS_ANALYTICS_MAX_MS);
+
+    if (cached?.data) {
+      setAnalyticsData(cached.data);
+      if (isCacheFresh(cached, SESSION_CACHE_TTLS.ORDERS_ANALYTICS_FRESH_MS)) {
+        return;
+      }
+    }
+
     try {
       setAnalyticsLoading(true);
       setAnalyticsError(null);
-      const res = await fetch(`/api/restaurants/${restaurant.id}/orders/analytics`);
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 402) {
+      const result = await dedupeClientRequest(cacheKey, async () => {
+        const res = await fetch(`/api/restaurants/${targetRestaurantId}/orders/analytics`);
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 402) {
+          clearAllDashboardSessionCaches();
+          return { expired: true as const, payload: data };
+        }
+        if (res.status === 401 || res.status === 403) {
+          clearAllDashboardSessionCaches();
+        }
+        if (!res.ok) throw new Error(data.error || 'Failed to load order analytics');
+        writeSessionCache(cacheKey, data);
+        return { expired: false as const, data };
+      });
+
+      if (result.expired) {
         setSubscriptionPaused(true);
-        onSubscriptionExpired?.(data);
+        onSubscriptionExpired?.(result.payload);
         return;
       }
-      if (!res.ok) throw new Error(data.error || 'Failed to load order analytics');
-      setAnalyticsData(data);
+
+      if (restaurant?.id === targetRestaurantId) {
+        setAnalyticsData(result.data);
+      }
     } catch (err: any) {
       console.error(err);
-      setAnalyticsError(err.message || 'Unable to load order analytics right now.');
+      if (!cached?.data) {
+        setAnalyticsError(err.message || 'Unable to load order analytics right now.');
+      }
     } finally {
       setAnalyticsLoading(false);
     }
   };
 
   // 4. Load Ordering Settings & Restaurant Profile Settings
-  const loadSettings = async () => {
-    try {
-      const [ordRes, restRes] = await Promise.all([
-        fetch(`/api/restaurants/${restaurant.id}/ordering-settings`),
-        fetch(`/api/restaurant/settings?restaurantId=${restaurant.id}`),
-      ]);
-      if (ordRes.status === 402 || restRes.status === 402) {
-        const pausedRes = ordRes.status === 402 ? ordRes : restRes;
-        const payload = await pausedRes.json().catch(() => ({}));
-        setSubscriptionPaused(true);
-        onSubscriptionExpired?.(payload);
+  const loadSettings = async (options?: { force?: boolean }) => {
+    const targetRestaurantId = restaurant?.id;
+    if (!targetRestaurantId) return;
+
+    const cacheKey = cacheKeys.orderingSettings(targetRestaurantId);
+    const cached = options?.force
+      ? null
+      : readSessionCache<CachedOrderingSettingsPayload>(cacheKey, SESSION_CACHE_TTLS.TABLES_MAX_MS);
+
+    if (cached?.data) {
+      setOrderingSettings(cached.data.orderingSettings);
+      setTableSessionTimers(cached.data.tableSessionTimers);
+      setTaxInputs(cached.data.taxInputs);
+      setGoogleReviewUrl(cached.data.googleReviewUrl);
+      if (isCacheFresh(cached, SESSION_CACHE_TTLS.SETTINGS_FRESH_MS)) {
         return;
       }
-      if (ordRes.ok) {
-        const data = await ordRes.json();
-        if (data.settings) {
-          const wifi = data.settings.notificationSettings?.wifi || {};
-          const tableSession =
-            data.tableSession ?? extractTableSessionConfig(data.settings.notificationSettings);
-          const resolvedTax = resolveTaxPercentageValue(data.settings.taxPercentage);
-          const resolvedServiceCharge = resolveServiceChargePercentageValue(
-            data.settings.serviceChargePercentage
-          );
-          setOrderingSettings({
-            orderingEnabled: data.settings.orderingEnabled ?? true,
-            acceptsNewOrders: data.settings.acceptsNewOrders ?? true,
-            allowSpecialInstructions: data.settings.allowSpecialInstructions ?? true,
-            paymentMode: data.settings.paymentMode ?? 'PAY_AT_COUNTER',
-            taxPercentage: resolvedTax,
-            serviceChargePercentage: resolvedServiceCharge,
-            maxActiveOrders: Number(data.settings.maxActiveOrders) || 50,
-            wifiEnabled: Boolean(wifi.enabled),
-            wifiSsid: wifi.ssid || '',
-            wifiPassword: wifi.password || '',
-            wifiSecurity: wifi.security || 'WPA',
-          });
-          setTaxInputs({
-            taxPercentage: String(resolvedTax),
-            serviceChargePercentage: String(resolvedServiceCharge),
-          });
-          onTaxSettingsUpdated?.(resolvedTax, resolvedServiceCharge);
-          setTableSessionTimers({
-            scanTimeoutMinutes: String(tableSession.scanTimeoutMinutes),
-            orderExtensionMinutes: String(tableSession.orderExtensionMinutes),
-          });
+    }
+
+    try {
+      const result = await dedupeClientRequest(cacheKey, async () => {
+        const [ordRes, restRes] = await Promise.all([
+          fetch(`/api/restaurants/${targetRestaurantId}/ordering-settings`),
+          fetch(`/api/restaurant/settings?restaurantId=${targetRestaurantId}`),
+        ]);
+        if (ordRes.status === 402 || restRes.status === 402) {
+          const pausedRes = ordRes.status === 402 ? ordRes : restRes;
+          const payload = await pausedRes.json().catch(() => ({}));
+          clearAllDashboardSessionCaches();
+          return { expired: true as const, payload };
         }
+        if (
+          ordRes.status === 401 ||
+          ordRes.status === 403 ||
+          restRes.status === 401 ||
+          restRes.status === 403
+        ) {
+          clearAllDashboardSessionCaches();
+        }
+        const ordData = ordRes.ok ? await ordRes.json() : null;
+        const restData = restRes.ok ? await restRes.json() : null;
+        return { expired: false as const, ordData, restData };
+      });
+
+      if (result.expired) {
+        setSubscriptionPaused(true);
+        onSubscriptionExpired?.(result.payload);
+        return;
       }
-      if (restRes.ok) {
-        const rData = await restRes.json();
-        if (rData.restaurant?.googleReviewUrl) {
-          setGoogleReviewUrl(rData.restaurant.googleReviewUrl);
-        }
+
+      if (restaurant?.id !== targetRestaurantId) return;
+
+      let nextOrdering = orderingSettings;
+      let nextTimers = tableSessionTimers;
+      let nextTaxInputs = taxInputs;
+      let nextReviewUrl = googleReviewUrl;
+
+      if (result.ordData?.settings) {
+        const s = result.ordData.settings;
+        const wifi = s.notificationSettings?.wifi || {};
+        const tableSession =
+          result.ordData.tableSession ?? extractTableSessionConfig(s.notificationSettings);
+        const resolvedTax = resolveTaxPercentageValue(s.taxPercentage);
+        const resolvedServiceCharge = resolveServiceChargePercentageValue(s.serviceChargePercentage);
+
+        nextOrdering = {
+          orderingEnabled: s.orderingEnabled ?? true,
+          acceptsNewOrders: s.acceptsNewOrders ?? true,
+          allowSpecialInstructions: s.allowSpecialInstructions ?? true,
+          paymentMode: s.paymentMode ?? 'PAY_AT_COUNTER',
+          taxPercentage: resolvedTax,
+          serviceChargePercentage: resolvedServiceCharge,
+          maxActiveOrders: Number(s.maxActiveOrders) || 50,
+          wifiEnabled: Boolean(wifi.enabled),
+          wifiSsid: wifi.ssid || '',
+          wifiPassword: wifi.password || '',
+          wifiSecurity: wifi.security || 'WPA',
+        };
+        nextTaxInputs = {
+          taxPercentage: String(resolvedTax),
+          serviceChargePercentage: String(resolvedServiceCharge),
+        };
+        nextTimers = {
+          scanTimeoutMinutes: String(tableSession.scanTimeoutMinutes),
+          orderExtensionMinutes: String(tableSession.orderExtensionMinutes),
+        };
+
+        setOrderingSettings(nextOrdering);
+        setTaxInputs(nextTaxInputs);
+        setTableSessionTimers(nextTimers);
+        onTaxSettingsUpdated?.(resolvedTax, resolvedServiceCharge);
+      }
+
+      if (result.restData?.restaurant?.googleReviewUrl !== undefined) {
+        nextReviewUrl = result.restData.restaurant.googleReviewUrl || '';
+        setGoogleReviewUrl(nextReviewUrl);
+      }
+
+      if (result.ordData?.settings || result.restData?.restaurant) {
+        writeSessionCache(cacheKey, {
+          orderingSettings: nextOrdering,
+          tableSessionTimers: nextTimers,
+          taxInputs: nextTaxInputs,
+          googleReviewUrl: nextReviewUrl,
+        });
       }
     } catch (err) {
       console.error('Failed to load ordering settings', err);
@@ -352,7 +683,7 @@ export function OrdersManagementView({
   useEffect(() => {
     if (restaurant?.id && !subscriptionPaused) {
       if (activeSubTab === 'live') {
-        loadLiveOrders();
+        loadLiveOrders(liveOrdersLoaded || liveOrdersRef.current.length > 0);
         const interval = setInterval(() => {
           if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
             return;
@@ -390,12 +721,19 @@ export function OrdersManagementView({
       });
       if (res.status === 402) {
         const payload = await res.json().catch(() => ({}));
+        clearAllDashboardSessionCaches();
         setSubscriptionPaused(true);
         onSubscriptionExpired?.(payload);
         return;
       }
       if (res.ok) {
-        setServiceCalls((prev) => prev.filter((c) => c.id !== callId));
+        const nextCalls = serviceCallsRef.current.filter((c) => c.id !== callId);
+        serviceCallsRef.current = nextCalls;
+        setServiceCalls(nextCalls);
+        writeSessionCache(cacheKeys.ordersLive(restaurant.id), {
+          orders: liveOrdersRef.current,
+          calls: nextCalls,
+        });
         showNotification('Service call marked as attended.');
       }
     } catch (err) {
@@ -419,8 +757,7 @@ export function OrdersManagementView({
     const nowIso = new Date().toISOString();
     const isRejectedOrCancelled = nextStatus === 'REJECTED' || nextStatus === 'CANCELLED';
 
-    // Immediate optimistic transition for crisp zero-lag feel
-    setLiveOrders((prev) => {
+    const applyOptimistic = (prev: any[]) => {
       if (isRejectedOrCancelled) {
         return prev.filter((o) => o.id !== orderId);
       }
@@ -438,7 +775,12 @@ export function OrdersManagementView({
             }
           : o
       );
-    });
+    };
+
+    // Immediate optimistic transition for crisp zero-lag feel
+    const optimisticOrders = applyOptimistic(liveOrdersRef.current);
+    liveOrdersRef.current = optimisticOrders;
+    setLiveOrders(optimisticOrders);
 
     try {
       const res = await fetch(`/api/restaurants/${restaurant.id}/orders/${orderId}/status`, {
@@ -448,6 +790,7 @@ export function OrdersManagementView({
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 402) {
+        clearAllDashboardSessionCaches();
         setSubscriptionPaused(true);
         onSubscriptionExpired?.(data);
         throw new Error(data.error || 'Subscription required');
@@ -460,36 +803,43 @@ export function OrdersManagementView({
       });
 
       const serverOrder = data.order;
+      let finalOrders = liveOrdersRef.current;
       if (serverOrder && !isRejectedOrCancelled) {
-        setLiveOrders((prev) =>
-          prev.map((o) =>
-            o.id === orderId
-              ? {
-                  ...o,
-                  status: serverOrder.status,
-                  acceptedAt: serverOrder.acceptedAt ?? o.acceptedAt,
-                  preparingAt: serverOrder.preparingAt ?? o.preparingAt,
-                  readyAt: serverOrder.readyAt ?? o.readyAt,
-                  servedAt: serverOrder.servedAt ?? o.servedAt,
-                  completedAt: serverOrder.completedAt ?? o.completedAt,
-                  updatedAt: serverOrder.updatedAt ?? o.updatedAt,
-                }
-              : o
-          )
+        finalOrders = liveOrdersRef.current.map((o) =>
+          o.id === orderId
+            ? {
+                ...o,
+                status: serverOrder.status,
+                acceptedAt: serverOrder.acceptedAt ?? o.acceptedAt,
+                preparingAt: serverOrder.preparingAt ?? o.preparingAt,
+                readyAt: serverOrder.readyAt ?? o.readyAt,
+                servedAt: serverOrder.servedAt ?? o.servedAt,
+                completedAt: serverOrder.completedAt ?? o.completedAt,
+                updatedAt: serverOrder.updatedAt ?? o.updatedAt,
+              }
+            : o
         );
+        liveOrdersRef.current = finalOrders;
+        setLiveOrders(finalOrders);
       }
+
+      writeSessionCache(cacheKeys.ordersLive(restaurant.id), {
+        orders: finalOrders,
+        calls: serviceCallsRef.current,
+      });
+      syncCachedTablesActiveOrderCounts(restaurant.id, finalOrders);
+      invalidateRestaurantSessionCache(restaurant.id, ['ordersHistory', 'ordersAnalytics']);
 
       showNotification(`Order status updated to ${nextStatus}.`);
     } catch (err: any) {
       // Rollback optimistic transition on error
-      setLiveOrders((prev) => {
-        if (prev.some((o) => o.id === orderId)) {
-          return prev.map((o) => (o.id === orderId ? existingOrder : o));
-        }
-        return [existingOrder, ...prev].sort(
-          (a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime()
-        );
-      });
+      const rolledBack = liveOrdersRef.current.some((o) => o.id === orderId)
+        ? liveOrdersRef.current.map((o) => (o.id === orderId ? existingOrder : o))
+        : [existingOrder, ...liveOrdersRef.current].sort(
+            (a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime()
+          );
+      liveOrdersRef.current = rolledBack;
+      setLiveOrders(rolledBack);
       setError(err.message || 'Failed to update order');
     } finally {
       if (inFlightMutationsRef.current.get(orderId) === seq) {
@@ -557,6 +907,7 @@ export function OrdersManagementView({
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 402) {
+        clearAllDashboardSessionCaches();
         setSubscriptionPaused(true);
         onSubscriptionExpired?.(data);
         return;
@@ -571,23 +922,28 @@ export function OrdersManagementView({
         data.settings?.serviceChargePercentage,
         parsedServiceCharge.serviceChargePercentage
       );
-      setOrderingSettings((prev) => ({
-        ...prev,
+      const nextOrderingState = {
+        ...orderingSettings,
         taxPercentage: savedTax,
         serviceChargePercentage: savedServiceCharge,
-      }));
-      setTaxInputs({
+      };
+      const nextTaxState = {
         taxPercentage: String(savedTax),
         serviceChargePercentage: String(savedServiceCharge),
-      });
-      onTaxSettingsUpdated?.(savedTax, savedServiceCharge);
+      };
+      const nextTimersState = data.tableSession
+        ? {
+            scanTimeoutMinutes: String(data.tableSession.scanTimeoutMinutes),
+            orderExtensionMinutes: String(data.tableSession.orderExtensionMinutes),
+          }
+        : tableSessionTimers;
 
+      setOrderingSettings(nextOrderingState);
+      setTaxInputs(nextTaxState);
       if (data.tableSession) {
-        setTableSessionTimers({
-          scanTimeoutMinutes: String(data.tableSession.scanTimeoutMinutes),
-          orderExtensionMinutes: String(data.tableSession.orderExtensionMinutes),
-        });
+        setTableSessionTimers(nextTimersState);
       }
+      onTaxSettingsUpdated?.(savedTax, savedServiceCharge);
 
       // Also save Google Review URL if updated
       const restSettingsRes = await fetch('/api/restaurant/settings', {
@@ -600,10 +956,19 @@ export function OrdersManagementView({
       });
       if (restSettingsRes.status === 402) {
         const restPayload = await restSettingsRes.json().catch(() => ({}));
+        clearAllDashboardSessionCaches();
         setSubscriptionPaused(true);
         onSubscriptionExpired?.(restPayload);
         return;
       }
+
+      writeSessionCache(cacheKeys.orderingSettings(restaurant.id), {
+        orderingSettings: nextOrderingState,
+        tableSessionTimers: nextTimersState,
+        taxInputs: nextTaxState,
+        googleReviewUrl: googleReviewUrl.trim(),
+      });
+      invalidateRestaurantSessionCache(restaurant.id, ['restaurantSettings', 'authMe']);
 
       showNotification('Ordering, table QR timer, Wi-Fi & Google Review configuration saved!');
     } catch (err: any) {
@@ -789,12 +1154,12 @@ export function OrdersManagementView({
         const ongoingPrepCount = activeOrdersList.filter((o) => ['PLACED', 'ACCEPTED', 'PREPARING'].includes(o.status)).length;
         const readyServeCount = activeOrdersList.filter((o) => o.status === 'READY').length;
         const activeTableIds = new Set([
-          ...activeOrdersList.filter((o) => o.tableId).map((o) => o.tableId),
+          ...activeOrdersList.map((o) => getOrderTableId(o)).filter(Boolean),
           ...serviceCalls.map((c) => c.tableId),
         ]);
         const openCheckMinor = activeOrdersList.reduce((acc, o) => acc + (o.totalMinor || 0), 0);
         const filteredOrders = selectedTableFilter
-          ? liveOrders.filter((o) => o.tableId === selectedTableFilter)
+          ? liveOrders.filter((o) => getOrderTableId(o) === selectedTableFilter)
           : liveOrders;
 
         return (
@@ -916,7 +1281,7 @@ export function OrdersManagementView({
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2.5">
                 {tables.map((t) => {
                   const hasCall = serviceCalls.some((c) => c.tableId === t.id);
-                  const tableOrders = activeOrdersList.filter((o) => o.tableId === t.id);
+                  const tableOrders = activeOrdersList.filter((o) => getOrderTableId(o) === t.id);
                   const isActive = tableOrders.length > 0;
                   const isSelected = selectedTableFilter === t.id;
 
@@ -967,12 +1332,13 @@ export function OrdersManagementView({
               {selectedTableFilter ? 'Filtered table orders' : 'Real-time feed from dine-in tables'}
             </div>
             <button
-              onClick={() => loadLiveOrders(false)}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cream-300 bg-white text-xs font-medium text-espresso-800 hover:bg-cream-100"
+              type="button"
+              onClick={() => loadLiveOrders(true, { force: true })}
+              disabled={loading || refreshingLive}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cream-300 bg-white text-xs font-medium text-espresso-800 hover:bg-cream-100 disabled:opacity-60"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
+              <RefreshCw className={`w-3.5 h-3.5 ${loading || refreshingLive ? 'animate-spin motion-reduce:animate-none' : ''}`} />
+              {refreshingLive ? 'Refreshing...' : 'Refresh'}
             </button>
           </div>
 
@@ -1195,7 +1561,7 @@ export function OrdersManagementView({
                 value={historySearch}
                 onChange={(e) => setHistorySearch(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') loadHistoryOrders(1);
+                  if (e.key === 'Enter') loadHistoryOrders(1, { force: true });
                 }}
                 className="w-full pl-9 pr-3 py-2 rounded-xl border border-cream-300 bg-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-terracotta/40"
               />
@@ -1205,8 +1571,9 @@ export function OrdersManagementView({
               <select
                 value={historyStatusFilter}
                 onChange={(e) => {
-                  setHistoryStatusFilter(e.target.value);
-                  setTimeout(() => loadHistoryOrders(1), 50);
+                  const nextStatus = e.target.value;
+                  setHistoryStatusFilter(nextStatus);
+                  loadHistoryOrders(1, { status: nextStatus });
                 }}
                 className="px-3 py-2 rounded-xl border border-cream-300 bg-white text-xs sm:text-sm text-espresso-900 focus:outline-none"
               >
@@ -1222,7 +1589,7 @@ export function OrdersManagementView({
               </select>
 
               <button
-                onClick={() => loadHistoryOrders(1)}
+                onClick={() => loadHistoryOrders(1, { force: true })}
                 className="px-3.5 py-2 rounded-xl bg-terracotta hover:bg-terracotta-dark text-white text-xs sm:text-sm font-medium transition-colors"
               >
                 Filter
@@ -1340,7 +1707,7 @@ export function OrdersManagementView({
             </div>
             <button
               type="button"
-              onClick={loadAnalytics}
+              onClick={() => loadAnalytics({ force: true })}
               disabled={analyticsLoading}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-cream-300 text-xs font-semibold text-espresso-800 hover:bg-cream-50 disabled:opacity-60 transition-colors"
             >
@@ -1354,7 +1721,7 @@ export function OrdersManagementView({
               <p className="text-sm font-medium text-red-800">{analyticsError}</p>
               <button
                 type="button"
-                onClick={loadAnalytics}
+                onClick={() => loadAnalytics({ force: true })}
                 className="px-4 py-2 rounded-xl bg-espresso-900 text-white text-xs font-semibold hover:bg-espresso-800"
               >
                 Try Again

@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { Check, RefreshCw, Sparkles } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { resolveDishImageMeta } from '@/lib/diner/dish-image-source';
 
 export interface CandidateReviewState {
   item: any;
@@ -26,7 +27,11 @@ export async function requestIllustrationCandidate(params: {
       restaurantId,
       menuItemId: item.id,
       dishName: item.customName,
-      visualDescription: item.restaurantDescription || item.customName,
+      visualDescription: item.restaurantDescription || '',
+      category: item.category?.name || undefined,
+      ingredients: Array.isArray(item.ingredients) ? item.ingredients : undefined,
+      dietaryLabels: Array.isArray(item.dietaryStatus) ? item.dietaryStatus : undefined,
+      portionSize: item.portionSize || undefined,
       customInstructions: tweak || undefined,
       forceRegenerate: true,
       applyImmediately: false,
@@ -39,8 +44,7 @@ export async function requestIllustrationCandidate(params: {
     return null;
   }
   if (!res.ok) {
-    alert(data.message || data.error || 'Failed to generate illustration');
-    return null;
+    throw new Error(data.message || data.error || 'Failed to generate food photo');
   }
 
   try {
@@ -66,7 +70,7 @@ interface CandidateReviewModalProps {
   candidateReview: CandidateReviewState | null;
   setCandidateReview: React.Dispatch<React.SetStateAction<CandidateReviewState | null>>;
   isGeneratingImg: string | null;
-  onRetryGenerate: (item: any, tweak?: string) => void;
+  onRetryGenerate: (item: any, tweak?: string) => void | Promise<void>;
   onApplied: (itemId: string, asset: any) => void;
   onSubscriptionExpired: (payload?: any) => void;
 }
@@ -82,10 +86,19 @@ export function CandidateReviewModal({
 }: CandidateReviewModalProps) {
   const [isApplyingCandidate, setIsApplyingCandidate] = useState(false);
   const [candidatePromptTweak, setCandidatePromptTweak] = useState('');
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const tweakInputId = useId();
+  const candidateDishId = candidateReview?.item?.id;
+
+  useEffect(() => {
+    setCandidatePromptTweak('');
+    setApplyError(null);
+  }, [candidateDishId]);
 
   const handleAcceptCandidateImage = async () => {
     if (!candidateReview) return;
     setIsApplyingCandidate(true);
+    setApplyError(null);
     try {
       const res = await fetch('/api/menus/items', {
         method: 'PATCH',
@@ -105,26 +118,30 @@ export function CandidateReviewModal({
       }
 
       if (res.ok) {
-        onApplied(candidateReview.item.id, candidateReview.asset);
+        const data = await res.json().catch(() => ({}));
+        onApplied(candidateReview.item.id, data.item?.imageOverride || candidateReview.asset);
         setCandidateReview(null);
       } else {
-        alert('Failed to apply image override');
+        const data = await res.json().catch(() => ({}));
+        setApplyError(data?.error || 'Failed to apply image override. Please try again.');
       }
     } catch {
-      alert('Error applying image override');
+      setApplyError('Network error while applying image override.');
     } finally {
       setIsApplyingCandidate(false);
     }
   };
 
+  const currentMeta = candidateReview ? resolveDishImageMeta(candidateReview.item) : null;
+
   return (
     <Modal
       isOpen={Boolean(candidateReview)}
       onClose={() => setCandidateReview(null)}
-      title="Review 3D Clay Illustration"
+      title="Review Generated Food Photo"
       subtitle={
         candidateReview
-          ? `Preview newly generated visual for "${candidateReview.item.customName}". You can accept or reject this generation.`
+          ? `Preview newly generated dish photo for "${candidateReview.item.customName}". You can accept or reject this generation.`
           : undefined
       }
       maxWidth="2xl"
@@ -155,22 +172,28 @@ export function CandidateReviewModal({
     >
       {candidateReview && (
         <>
+          {applyError && (
+            <div
+              role="alert"
+              className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800"
+            >
+              {applyError}
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-taupe-600 uppercase tracking-wider">
                   Current Dish Image
                 </span>
-                <span className="text-[10px] text-taupe-400 font-medium">Active Menu</span>
+                <span className="text-[10px] text-taupe-500 font-medium">
+                  {currentMeta?.label || 'Active Menu'}
+                </span>
               </div>
               <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-cream-100 border border-cream-300 shadow-inner">
                 <img
-                  src={
-                    candidateReview.item.imageOverride?.publicUrl ||
-                    candidateReview.item.canonical?.imageAsset?.publicUrl ||
-                    '/placeholder-dish.svg'
-                  }
-                  alt="Current dish artwork"
+                  src={currentMeta?.url || '/placeholder-dish.svg'}
+                  alt={`Current image for ${candidateReview.item.customName}`}
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -179,7 +202,7 @@ export function CandidateReviewModal({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-terracotta uppercase tracking-wider flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5" /> Generated 3D Art
+                  <Sparkles className="w-3.5 h-3.5" aria-hidden="true" /> Generated Food Photo
                 </span>
                 <span className="text-[10px] bg-terracotta-100 text-terracotta-800 font-semibold px-2 py-0.5 rounded-full">
                   Candidate
@@ -188,7 +211,7 @@ export function CandidateReviewModal({
               <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-cream-100 border-2 border-terracotta shadow-md">
                 <img
                   src={candidateReview.asset.publicUrl}
-                  alt="Candidate generation"
+                  alt={`Generated food photo candidate for ${candidateReview.item.customName}`}
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -196,11 +219,12 @@ export function CandidateReviewModal({
           </div>
 
           <div className="p-3.5 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
-            <span className="text-xs font-semibold text-espresso-900 block">
+            <label htmlFor={tweakInputId} className="text-xs font-semibold text-espresso-900 block">
               Want adjustments? Add custom styling tweaks
-            </span>
+            </label>
             <div className="flex flex-col sm:flex-row gap-2">
               <input
+                id={tweakInputId}
                 type="text"
                 value={candidatePromptTweak}
                 onChange={(e) => setCandidatePromptTweak(e.target.value)}
@@ -209,13 +233,20 @@ export function CandidateReviewModal({
               />
               <button
                 type="button"
-                onClick={() => onRetryGenerate(candidateReview.item, candidatePromptTweak)}
+                onClick={async () => {
+                  setApplyError(null);
+                  try {
+                    await onRetryGenerate(candidateReview.item, candidatePromptTweak);
+                  } catch (err: any) {
+                    setApplyError(err?.message || 'Could not regenerate dish photo right now.');
+                  }
+                }}
                 disabled={isGeneratingImg === candidateReview.item.id}
-                className="px-3.5 py-2 text-xs font-semibold bg-cream-200 text-espresso-800 rounded-xl hover:bg-cream-300 transition-colors shrink-0 flex items-center justify-center gap-1"
+                className="px-3.5 py-2 text-xs font-semibold bg-cream-200 text-espresso-800 rounded-xl hover:bg-cream-300 transition-colors shrink-0 flex items-center justify-center gap-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
               >
                 <RefreshCw
                   className={`w-3.5 h-3.5 ${
-                    isGeneratingImg === candidateReview.item.id ? 'animate-spin' : ''
+                    isGeneratingImg === candidateReview.item.id ? 'animate-spin motion-reduce:animate-none' : ''
                   }`}
                 />
                 Retry

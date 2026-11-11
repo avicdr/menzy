@@ -4,6 +4,10 @@ import { uploadAsset } from '@/lib/storage/adapter';
 import { getCache } from '@/lib/cache/redis';
 import prisma from '@/lib/db/prisma';
 import { AssetType, ModerationStatus } from '@prisma/client';
+import {
+  isGenericOrEmptyMime,
+  sniffMenuFileMimeFromBytes,
+} from '@/lib/menu/menu-file-validator';
 
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/jpeg',
@@ -17,23 +21,17 @@ const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
 export async function POST(req: Request) {
   try {
     const formData = await req.formData();
-    const restaurantId = formData.get('restaurantId') as string;
-    const menuItemId = formData.get('menuItemId') as string | null;
+    const restaurantId = String(formData.get('restaurantId') || '').trim();
+    const rawMenuItemId = formData.get('menuItemId');
+    const menuItemId =
+      typeof rawMenuItemId === 'string' && rawMenuItemId.trim() ? rawMenuItemId.trim() : null;
     const rawFolder = (formData.get('folder') as string | null) || 'photos';
     const rawWidth = formData.get('width');
     const rawHeight = formData.get('height');
-    const file = formData.get('file') as File;
+    const file = formData.get('file') as File | null;
 
     if (!restaurantId || !file) {
       return NextResponse.json({ error: 'restaurantId and file are required' }, { status: 400 });
-    }
-
-    const normalizedMime = (file.type || '').toLowerCase() === 'image/jpg' ? 'image/jpeg' : (file.type || '').toLowerCase();
-    if (!ALLOWED_IMAGE_MIME_TYPES.has(normalizedMime)) {
-      return NextResponse.json(
-        { error: 'Unsupported image format. Please upload a JPG, PNG, or WebP file.' },
-        { status: 400 }
-      );
     }
 
     if (file.size <= 0) {
@@ -47,6 +45,18 @@ export async function POST(req: Request) {
       );
     }
 
+    const declaredMime =
+      (file.type || '').toLowerCase() === 'image/jpg'
+        ? 'image/jpeg'
+        : (file.type || '').toLowerCase().split(';')[0].trim();
+
+    if (!isGenericOrEmptyMime(declaredMime) && !ALLOWED_IMAGE_MIME_TYPES.has(declaredMime)) {
+      return NextResponse.json(
+        { error: 'Unsupported image format. Please upload a JPG, PNG, or WebP file.' },
+        { status: 400 }
+      );
+    }
+
     const auth = await requireRestaurantAccess(restaurantId, {
       includeSettings: false,
       includeTheme: false,
@@ -55,13 +65,49 @@ export async function POST(req: Request) {
       return createOwnerAccessDeniedResponse(auth, 403);
     }
 
+    const targetRestaurantId = auth.restaurant.id;
+
+    // Verify item ownership before writing image bytes to storage or creating an Asset row
+    if (menuItemId) {
+      const existingItem = await prisma.restaurantMenuItem.findFirst({
+        where: { id: menuItemId, restaurantId: targetRestaurantId },
+        select: { id: true },
+      });
+      if (!existingItem) {
+        return NextResponse.json({ error: 'Menu item not found' }, { status: 404 });
+      }
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const sniffedMime = sniffMenuFileMimeFromBytes(buffer);
+
+    if (sniffedMime && !ALLOWED_IMAGE_MIME_TYPES.has(sniffedMime)) {
+      return NextResponse.json(
+        { error: 'Unsupported image format. Please upload a JPG, PNG, or WebP file.' },
+        { status: 400 }
+      );
+    }
+
+    const normalizedMime =
+      sniffedMime && ALLOWED_IMAGE_MIME_TYPES.has(sniffedMime)
+        ? sniffedMime
+        : ALLOWED_IMAGE_MIME_TYPES.has(declaredMime)
+        ? declaredMime
+        : null;
+
+    if (!normalizedMime) {
+      return NextResponse.json(
+        { error: 'Unsupported image format. Please upload a JPG, PNG, or WebP file.' },
+        { status: 400 }
+      );
+    }
+
     const folder = rawFolder === 'banners' ? 'banners' : 'photos';
     const parsedWidth = rawWidth ? parseInt(String(rawWidth), 10) : NaN;
     const parsedHeight = rawHeight ? parseInt(String(rawHeight), 10) : NaN;
 
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const uploadResult = await uploadAsset(buffer, file.name, normalizedMime, folder);
+    const uploadResult = await uploadAsset(buffer, file.name || 'dish-photo.jpg', normalizedMime, folder);
 
     const asset = await prisma.asset.create({
       data: {
@@ -77,16 +123,32 @@ export async function POST(req: Request) {
       },
     });
 
+    let updatedItem: any = null;
     if (menuItemId) {
-      await prisma.restaurantMenuItem.update({
-        where: { id: menuItemId, restaurantId },
+      updatedItem = await prisma.restaurantMenuItem.update({
+        where: { id: menuItemId, restaurantId: targetRestaurantId },
         data: { imageOverrideAssetId: asset.id },
+        include: {
+          category: true,
+          canonical: {
+            include: { imageAsset: true },
+          },
+          imageOverride: true,
+          variants: true,
+        },
       });
       const cache = getCache();
       await cache.del(`menu:slug:${auth.restaurant.slug}`);
     }
 
-    return NextResponse.json({ success: true, asset });
+    return NextResponse.json(
+      {
+        success: true,
+        asset,
+        ...(updatedItem ? { item: updatedItem } : {}),
+      },
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (error: any) {
     console.error('Upload photo error:', error);
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });

@@ -12,6 +12,10 @@ export async function POST(req: Request) {
       menuItemId,
       dishName,
       visualDescription,
+      category,
+      ingredients,
+      dietaryLabels,
+      portionSize,
       customInstructions,
       forceRegenerate,
       applyImmediately = true,
@@ -29,16 +33,48 @@ export async function POST(req: Request) {
       return createOwnerAccessDeniedResponse(auth, 403);
     }
 
-    const item = menuItemId
-      ? await prisma.restaurantMenuItem.findUnique({ where: { id: menuItemId } })
-      : null;
+    const targetRestaurantId = auth.restaurant.id;
+
+    let item = null;
+    if (menuItemId) {
+      item = await prisma.restaurantMenuItem.findFirst({
+        where: { id: menuItemId, restaurantId: targetRestaurantId },
+        include: {
+          category: { select: { name: true } },
+        },
+      });
+      if (!item) {
+        return NextResponse.json({ error: 'Menu item not found' }, { status: 404 });
+      }
+    }
+
+    const resolvedDescription =
+      typeof visualDescription === 'string' && visualDescription.trim().length > 0
+        ? visualDescription.trim()
+        : item?.restaurantDescription || '';
+
+    const resolvedIngredients = Array.isArray(ingredients)
+      ? ingredients
+      : Array.isArray(item?.ingredients)
+      ? (item.ingredients as string[])
+      : undefined;
+
+    const resolvedDietaryLabels = Array.isArray(dietaryLabels)
+      ? dietaryLabels
+      : Array.isArray(item?.dietaryStatus)
+      ? (item.dietaryStatus as string[])
+      : undefined;
 
     const result = await generateOrReuseDishIllustration({
-      restaurantId,
+      restaurantId: targetRestaurantId,
       organizationId: auth.restaurant.organizationId,
       menuItemId: item?.id,
-      dishName,
-      visualDescription: visualDescription || item?.restaurantDescription || dishName,
+      dishName: String(dishName).trim(),
+      visualDescription: resolvedDescription,
+      category: category || item?.category?.name || null,
+      ingredients: resolvedIngredients,
+      dietaryLabels: resolvedDietaryLabels,
+      portionSize: portionSize || item?.portionSize || null,
       canonicalId: item?.canonicalId,
       customInstructions,
       forceRegenerate: Boolean(forceRegenerate),
@@ -47,7 +83,7 @@ export async function POST(req: Request) {
     // If menuItemId was provided and applyImmediately is true, link asset override to dish
     if (applyImmediately && item && result.asset) {
       await prisma.restaurantMenuItem.update({
-        where: { id: item.id },
+        where: { id: item.id, restaurantId: targetRestaurantId },
         data: { imageOverrideAssetId: result.asset.id },
       });
 
@@ -55,21 +91,40 @@ export async function POST(req: Request) {
       await cache.del(`menu:slug:${auth.restaurant.slug}`);
     }
 
-    return NextResponse.json({
-      success: true,
-      asset: result.asset,
-      isReused: result.isReused,
-      creditsCharged: result.creditsCharged,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        asset: result.asset,
+        isReused: result.isReused,
+        creditsCharged: result.creditsCharged,
+      },
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (error: any) {
     console.error('Generate illustration error:', error);
-    if (error.message === 'INSUFFICIENT_IMAGE_CREDITS') {
+    const msg = String(error?.message || '');
+    if (msg === 'INSUFFICIENT_IMAGE_CREDITS') {
       return NextResponse.json(
-        { error: 'INSUFFICIENT_IMAGE_CREDITS', message: 'You have reached your monthly custom image generation allowance.' },
-        { status: 402 }
+        {
+          error: 'INSUFFICIENT_IMAGE_CREDITS',
+          message: 'You have reached your monthly custom image generation allowance.',
+        },
+        { status: 402, headers: { 'Cache-Control': 'no-store, max-age=0' } }
       );
     }
-    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
+    if (msg.startsWith('IMAGE_PROVIDER_UNAVAILABLE:')) {
+      return NextResponse.json(
+        {
+          error: 'IMAGE_PROVIDER_UNAVAILABLE',
+          message: msg.replace('IMAGE_PROVIDER_UNAVAILABLE:', '').trim(),
+        },
+        { status: 503, headers: { 'Cache-Control': 'no-store, max-age=0' } }
+      );
+    }
+    return NextResponse.json(
+      { error: msg || 'Internal server error' },
+      { status: 500, headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   }
 }
 

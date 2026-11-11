@@ -11,6 +11,7 @@ import {
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
 import { trackConversionEvent } from '@/lib/analytics/events';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
+import { clearAllDashboardSessionCaches } from '@/lib/cache/dashboard-session-cache';
 
 interface SignupFormClientProps {
   initialRegion: BillingRegion;
@@ -112,6 +113,7 @@ function SignupFormInner({ initialRegion, authoritativeGeo }: SignupFormClientPr
       }
 
       trackConversionEvent('signup_completed', { country });
+      clearAllDashboardSessionCaches();
       router.push(`/dashboard/${data.restaurant.id}`);
     } catch (err: any) {
       setError(err.message || 'Error signing up');

@@ -2,6 +2,14 @@
 
 import React, { useEffect, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
+import {
+  SESSION_CACHE_TTLS,
+  cacheKeys,
+  clearAllDashboardSessionCaches,
+  dedupeClientRequest,
+  readSessionCache,
+  writeSessionCache,
+} from '@/lib/cache/dashboard-session-cache';
 
 interface DashboardQrTabProps {
   restaurant: any;
@@ -24,20 +32,40 @@ export function DashboardQrTab({
 
   useEffect(() => {
     if (!restaurant?.slug || qrData || isSubscriptionExpired) return;
+    const cacheKey = cacheKeys.qrStudio(restaurant.slug);
+    const cached = readSessionCache<{ qrDataUrl: string; targetUrl: string }>(
+      cacheKey,
+      SESSION_CACHE_TTLS.TABLES_MAX_MS
+    );
+    if (cached?.data?.qrDataUrl) {
+      setQrData(cached.data);
+      return;
+    }
+
     let cancelled = false;
     setQrLoading(true);
-    fetch(`/api/qr/generate?slug=${restaurant.slug}`, { cache: 'no-store' })
-      .then(async (res) => {
-        if (res.status === 402) {
-          const payload = await res.json().catch(() => ({}));
-          if (!cancelled) onSubscriptionExpired(payload);
-          return null;
+    dedupeClientRequest(cacheKey, async () => {
+      const res = await fetch(`/api/qr/generate?slug=${restaurant.slug}`);
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        clearAllDashboardSessionCaches();
+        return { expired: true as const, payload };
+      }
+      if (!res.ok) return { expired: false as const, data: null };
+      const qData = await res.json();
+      if (qData?.qrDataUrl) {
+        writeSessionCache(cacheKey, qData);
+      }
+      return { expired: false as const, data: qData };
+    })
+      .then((result) => {
+        if (cancelled) return;
+        if (result.expired) {
+          onSubscriptionExpired(result.payload);
+          return;
         }
-        return res.ok ? res.json() : null;
-      })
-      .then((qData) => {
-        if (!cancelled && qData) {
-          setQrData(qData);
+        if (result.data) {
+          setQrData(result.data);
         }
       })
       .catch(() => {})
