@@ -56,7 +56,7 @@ export function MarketingFooter() {
               <li><Link href="/digital-menu-for-cafes" className="hover:text-espresso-900 transition-colors">For Cafés & Bakeries</Link></li>
               <li><Link href="/digital-menu-for-cloud-kitchens" className="hover:text-espresso-900 transition-colors">For QSR & Food Courts</Link></li>
               <li><Link href="/pricing" className="hover:text-espresso-900 transition-colors">Pricing</Link></li>
-              <li><Link href="/demo" className="hover:text-espresso-900 transition-colors">Live Interactive Menus</Link></li>
+              <li><Link href="/demo" className="hover:text-espresso-900 transition-colors">Live Interactive Menu</Link></li>
             </ul>
           </div>
 

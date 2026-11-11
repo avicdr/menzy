@@ -48,7 +48,7 @@ export function LandingPageClient({ authoritativeGeo, initialPlans }: LandingPag
               <ArrowRight className="w-4 h-4 shrink-0" aria-hidden="true" />
             </Link>
             <Link
-              href="/m/chai-and-chutney"
+              href="/m/the-peddler-s-cafe-demo-18f4"
               className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 rounded-full bg-white border border-cream-300 text-espresso-900 font-semibold text-sm sm:text-base hover:bg-cream-100 transition-all shadow-soft flex items-center justify-center gap-2 whitespace-nowrap"
             >
               <span>Explore Live Menu Demo</span>

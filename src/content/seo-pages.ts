@@ -202,7 +202,7 @@ export const SEO_LANDING_CONFIGS: Record<string, SeoLandingConfig> = {
     primaryCtaLabel: 'Create Your QR Menu',
     primaryCtaHref: '/signup',
     secondaryCtaLabel: 'View Live QR Demo',
-    secondaryCtaHref: '/m/chai-and-chutney',
+    secondaryCtaHref: '/m/the-peddler-s-cafe-demo-18f4',
     capabilitiesHeading: 'Beyond generic QR links',
     capabilitiesSubheading:
       'Every table tent connects guests to a structured mobile table hub tailored for hospitality speed.',
@@ -493,7 +493,7 @@ export const SEO_LANDING_CONFIGS: Record<string, SeoLandingConfig> = {
     primaryCtaLabel: 'Build Your AI Menu',
     primaryCtaHref: '/signup',
     secondaryCtaLabel: 'Try Grounded AI Waiter Demo',
-    secondaryCtaHref: '/m/chai-and-chutney',
+    secondaryCtaHref: '/m/the-peddler-s-cafe-demo-18f4',
     capabilitiesHeading: 'Three layers of culinary AI — zero hallucination',
     capabilitiesSubheading:
       'Every AI workflow in Menzy is anchored directly to structured database records approved by your team.',
@@ -680,8 +680,8 @@ export const SEO_LANDING_CONFIGS: Record<string, SeoLandingConfig> = {
     ],
     primaryCtaLabel: 'Create Restaurant Menu',
     primaryCtaHref: '/signup',
-    secondaryCtaLabel: 'See Chai & Chutney Live',
-    secondaryCtaHref: '/m/chai-and-chutney',
+    secondaryCtaLabel: "See The Peddler's Cafe Live",
+    secondaryCtaHref: '/m/the-peddler-s-cafe-demo-18f4',
     capabilitiesHeading: 'Designed around real dining room realities',
     capabilitiesSubheading:
       'Built for Indian craft kitchens, neighborhood bistros, and multi-cuisine dining rooms.',
@@ -771,8 +771,8 @@ export const SEO_LANDING_CONFIGS: Record<string, SeoLandingConfig> = {
     ],
     primaryCtaLabel: 'Create Café Menu',
     primaryCtaHref: '/signup',
-    secondaryCtaLabel: 'See Gilded Fork Live',
-    secondaryCtaHref: '/m/the-gilded-fork',
+    secondaryCtaLabel: "See The Peddler's Cafe Live",
+    secondaryCtaHref: '/m/the-peddler-s-cafe-demo-18f4',
     capabilitiesHeading: 'Crafted for specialty coffee & bakery hospitality',
     capabilitiesSubheading:
       'From curated Botanical Café & Pastel Patisserie themes to effortless customization options.',
@@ -828,13 +828,13 @@ export const SEO_LANDING_CONFIGS: Record<string, SeoLandingConfig> = {
     relatedLinks: [
       {
         title: 'Live Café Demo Menu',
-        description: 'Browse The Gilded Fork Café & Bistro menu live.',
-        href: '/m/the-gilded-fork',
+        description: "Browse The Peddler's Cafe interactive menu live.",
+        href: '/m/the-peddler-s-cafe-demo-18f4',
       },
       {
-        title: 'Live Bakery Demo',
-        description: 'Explore Bakehouse 72 Artisan Bakery demo.',
-        href: '/m/bakehouse-72-demo',
+        title: 'View Demo Hub',
+        description: "Open The Peddler's Cafe demo showcase and QR workflow.",
+        href: '/demo',
       },
       {
         title: 'View Café Pricing',

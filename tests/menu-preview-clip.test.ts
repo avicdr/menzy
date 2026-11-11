@@ -4,6 +4,8 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
 import { MenuPreviewClip } from '@/components/marketing/MenuPreviewClip';
+import DemoPage from '@/app/demo/page';
+import { SEO_LANDING_CONFIGS } from '@/content/seo-pages';
 
 describe('Landing Page Menu Preview Clip', () => {
   it('ships valid MP4, WebM, and WebP poster assets under public/media with 540x960 portrait sizing', () => {
@@ -55,9 +57,28 @@ describe('Landing Page Menu Preview Clip', () => {
     expect(html).toContain('<figcaption');
     expect(html).toContain('Play menu preview clip');
     expect(html).toContain('Replay menu preview clip from start');
-    expect(html).toContain('/m/chai-and-chutney');
+    expect(html).toContain('/m/the-peddler-s-cafe-demo-18f4');
     // Ensure Play/Pause toggle does not pair aria-pressed with changing label
     expect(html).not.toContain('aria-pressed');
+  });
+
+  it('points all public demo & interactive menu CTAs and /demo strictly to The Peddler\'s Cafe', () => {
+    const legacySlugs = ['chai-and-chutney', 'the-gilded-fork', 'bakehouse-72-demo'];
+    const serializedSeo = JSON.stringify(SEO_LANDING_CONFIGS);
+    for (const legacy of legacySlugs) {
+      expect(serializedSeo).not.toContain(legacy);
+    }
+    expect(SEO_LANDING_CONFIGS['qr-code-menu'].secondaryCtaHref).toBe('/m/the-peddler-s-cafe-demo-18f4');
+    expect(SEO_LANDING_CONFIGS['ai-digital-menu'].secondaryCtaHref).toBe('/m/the-peddler-s-cafe-demo-18f4');
+    expect(SEO_LANDING_CONFIGS['digital-menu-for-restaurants'].secondaryCtaHref).toBe('/m/the-peddler-s-cafe-demo-18f4');
+    expect(SEO_LANDING_CONFIGS['digital-menu-for-cafes'].secondaryCtaHref).toBe('/m/the-peddler-s-cafe-demo-18f4');
+
+    const demoHtml = renderToStaticMarkup(React.createElement(DemoPage));
+    expect(demoHtml).toContain("The Peddler&#x27;s Cafe");
+    expect(demoHtml).toContain('/m/the-peddler-s-cafe-demo-18f4');
+    expect(demoHtml).not.toContain('Chai &amp; Chutney');
+    expect(demoHtml).not.toContain('The Gilded Fork');
+    expect(demoHtml).not.toContain('Bakehouse 72');
   });
 });
 
