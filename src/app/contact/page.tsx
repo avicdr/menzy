@@ -1,12 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ChevronRight, Clock, MapPin, Sparkles } from 'lucide-react';
+import { ChevronRight, Clock, MapPin, Phone, Sparkles } from 'lucide-react';
 import { generateSEOMetadata } from '@/lib/seo';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { buildBreadcrumbSchema } from '@/lib/seo-schema';
 import { MarketingHeader } from '@/components/marketing/MarketingHeader';
 import { MarketingFooter } from '@/components/marketing/MarketingFooter';
 import { ContactFormClient } from '@/components/marketing/ContactFormClient';
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
 
 export const metadata: Metadata = generateSEOMetadata({
   title: 'Contact Menzy — Restaurant Software',
@@ -46,6 +47,23 @@ export default function ContactPage() {
               </div>
 
               <div className="space-y-3">
+                <div className="p-4 bg-white rounded-2xl border border-cream-200 flex items-start gap-3">
+                  <Phone className="w-5 h-5 text-terracotta shrink-0 mt-0.5" aria-hidden="true" />
+                  <div>
+                    <div className="text-sm font-semibold text-espresso-900">Setup &amp; Onboarding Helpline</div>
+                    <p className="text-xs text-taupe-600 mt-0.5">
+                      Have setup or onboarding queries? Call or WhatsApp{' '}
+                      <a
+                        href={SUPPORT_PHONE_HREF}
+                        className="font-semibold text-espresso-900 hover:text-terracotta underline underline-offset-2"
+                      >
+                        {SUPPORT_PHONE_DISPLAY}
+                      </a>
+                      .
+                    </p>
+                  </div>
+                </div>
+
                 <div className="p-4 bg-white rounded-2xl border border-cream-200 flex items-start gap-3">
                   <Sparkles className="w-5 h-5 text-terracotta shrink-0 mt-0.5" aria-hidden="true" />
                   <div>

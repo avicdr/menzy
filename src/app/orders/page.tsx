@@ -26,8 +26,12 @@ import {
   Timer,
   Layers,
   FileText,
+  Lock,
+  CreditCard,
+  Phone,
 } from 'lucide-react';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
 import { Portal } from '@/components/ui/Portal';
 import { generateStaffTypographyVars } from '@/lib/theme/theme-presets';
 
@@ -73,6 +77,12 @@ export default function StaffOrderPortalPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [subscriptionPaused, setSubscriptionPaused] = useState<{
+    error?: string;
+    code?: string;
+    supportPhone?: string;
+    restaurantName?: string;
+  } | null>(null);
 
   const [restaurantData, setRestaurantData] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
@@ -88,14 +98,23 @@ export default function StaffOrderPortalPage() {
 
   // Sound settings
   const [soundEnabled, setSoundEnabled] = useState(false);
+  const soundEnabledRef = useRef(false);
+  soundEnabledRef.current = soundEnabled;
   const previousPlacedCount = useRef(0);
+
+  // Per-order optimistic transition & race-proof polling guards
+  const [updatingOrders, setUpdatingOrders] = useState<Record<string, string>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
+  const inFlightMutationsRef = useRef<Map<string, number>>(new Map());
+  const recentlyUpdatedRef = useRef<Map<string, { status: string; expiresAt: number }>>(new Map());
+  const mutationSeqRef = useRef(0);
 
   // Load sound setting from localStorage
   useEffect(() => {
     try {
       const savedSound = localStorage.getItem('dishora_order_sound_enabled');
       if (savedSound === 'true') setSoundEnabled(true);
-    } catch {}
+    } catch { }
   }, []);
 
   const toggleSound = () => {
@@ -104,11 +123,12 @@ export default function StaffOrderPortalPage() {
     if (next) playOrderChime();
     try {
       localStorage.setItem('dishora_order_sound_enabled', String(next));
-    } catch {}
+    } catch { }
   };
 
   // Fetch active orders & service calls via the staff-aware _auto endpoint
   const fetchOrders = async (isManual = false) => {
+    const fetchStartedAt = Date.now();
     try {
       if (isManual) setRefreshing(true);
 
@@ -126,6 +146,32 @@ export default function StaffOrderPortalPage() {
         return;
       }
 
+      if (ordersRes.status === 402) {
+        const pausedJson = await ordersRes.json().catch(() => ({}));
+        setSubscriptionPaused({
+          error:
+            pausedJson.error ||
+            'Your 14-day free trial or subscription has ended. Ask the owner to activate a plan in Owner Billing.',
+          code: pausedJson.code,
+          supportPhone: pausedJson.supportPhone || SUPPORT_PHONE_DISPLAY,
+          restaurantName: pausedJson.restaurantName,
+        });
+        return;
+      }
+
+      if (callsRes && callsRes.status === 402) {
+        const pausedJson = await callsRes.json().catch(() => ({}));
+        setSubscriptionPaused({
+          error:
+            pausedJson.error ||
+            'Your 14-day free trial or subscription has ended. Ask the owner to activate a plan in Owner Billing.',
+          code: pausedJson.code,
+          supportPhone: pausedJson.supportPhone || SUPPORT_PHONE_DISPLAY,
+          restaurantName: pausedJson.restaurantName,
+        });
+        return;
+      }
+
       if (ordersRes.status === 403) {
         const errJson = await ordersRes.json().catch(() => ({}));
         setError(errJson.error || 'Access denied for this restaurant.');
@@ -133,14 +179,59 @@ export default function StaffOrderPortalPage() {
       }
 
       if (ordersRes.ok) {
+        setSubscriptionPaused(null);
         const data = await ordersRes.json();
         setRestaurantData(data);
-        setOrders(data.orders || []);
+        const fetchedOrders: any[] = data.orders || [];
+
+        setOrders((prevOrders) => {
+          const now = Date.now();
+          const prevById = new Map(prevOrders.map((o) => [o.id, o]));
+          const handledIds = new Set<string>();
+          const merged: any[] = [];
+
+          for (const serverOrder of fetchedOrders) {
+            handledIds.add(serverOrder.id);
+            const inFlight = inFlightMutationsRef.current.has(serverOrder.id);
+            const recent = recentlyUpdatedRef.current.get(serverOrder.id);
+            const localOrder = prevById.get(serverOrder.id);
+
+            if (inFlight) {
+              if (localOrder) merged.push(localOrder);
+              continue;
+            }
+            if (recent && recent.expiresAt > now) {
+              if (recent.status === 'COMPLETED' || recent.status === 'REJECTED' || recent.status === 'CANCELLED') {
+                continue;
+              }
+              if (localOrder && serverOrder.status !== recent.status) {
+                merged.push(localOrder);
+                continue;
+              }
+            }
+            merged.push(serverOrder);
+          }
+
+          // Preserve brand-new optimistic non-terminal orders during in-flight / overlap window
+          for (const localOrder of prevOrders) {
+            if (handledIds.has(localOrder.id)) continue;
+            const inFlight = inFlightMutationsRef.current.has(localOrder.id);
+            const recent = recentlyUpdatedRef.current.get(localOrder.id);
+            if (inFlight || (recent && recent.expiresAt > now && recent.expiresAt > fetchStartedAt)) {
+              if (!['COMPLETED', 'REJECTED', 'CANCELLED'].includes(localOrder.status)) {
+                merged.unshift(localOrder);
+              }
+            }
+          }
+
+          return merged;
+        });
+
         setError(null);
 
         // Detect new incoming orders and trigger audio chime
-        const placedCount = (data.orders || []).filter((o: any) => o.status === 'PLACED').length;
-        if (placedCount > previousPlacedCount.current && soundEnabled) {
+        const placedCount = fetchedOrders.filter((o: any) => o.status === 'PLACED').length;
+        if (placedCount > previousPlacedCount.current && soundEnabledRef.current) {
           playOrderChime();
         }
         previousPlacedCount.current = placedCount;
@@ -152,7 +243,7 @@ export default function StaffOrderPortalPage() {
         setServiceCalls(activeCalls);
 
         // Sound alert if new waiter call arrived
-        if (activeCalls.length > previousCallCount.current && soundEnabled) {
+        if (activeCalls.length > previousCallCount.current && soundEnabledRef.current) {
           playOrderChime();
         }
         previousCallCount.current = activeCalls.length;
@@ -173,6 +264,18 @@ export default function StaffOrderPortalPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ callId }),
       });
+      if (res.status === 402) {
+        const pausedJson = await res.json().catch(() => ({}));
+        setSubscriptionPaused({
+          error:
+            pausedJson.error ||
+            'Your 14-day free trial or subscription has ended. Ask the owner to activate a plan in Owner Billing.',
+          code: pausedJson.code,
+          supportPhone: pausedJson.supportPhone || SUPPORT_PHONE_DISPLAY,
+          restaurantName: pausedJson.restaurantName || restaurantData?.restaurantName,
+        });
+        return;
+      }
       if (res.ok) {
         setServiceCalls((prev) => prev.filter((c) => c.id !== callId));
         previousCallCount.current = Math.max(0, previousCallCount.current - 1);
@@ -185,6 +288,7 @@ export default function StaffOrderPortalPage() {
   };
 
   useEffect(() => {
+    if (subscriptionPaused) return;
     fetchOrders();
 
     // 4-second polling loop
@@ -193,9 +297,47 @@ export default function StaffOrderPortalPage() {
     }, 4000);
 
     return () => clearInterval(interval);
-  }, [soundEnabled]);
+  }, [subscriptionPaused]);
 
   const handleUpdateStatus = async (orderId: string, targetStatus: string, reason?: string) => {
+    if (inFlightMutationsRef.current.has(orderId)) return;
+
+    const existingOrder = orders.find((o) => o.id === orderId);
+    if (!existingOrder) return;
+
+    const seq = ++mutationSeqRef.current;
+    inFlightMutationsRef.current.set(orderId, seq);
+    setActionError(null);
+    setUpdatingOrders((prev) => ({ ...prev, [orderId]: targetStatus }));
+
+    const isTerminal =
+      targetStatus === 'COMPLETED' || targetStatus === 'REJECTED' || targetStatus === 'CANCELLED';
+    const nowIso = new Date().toISOString();
+
+    // Immediate optimistic transition so Kanban reflects new state at 0ms
+    setOrders((prev) => {
+      if (isTerminal) {
+        return prev.filter((o) => o.id !== orderId);
+      }
+      return prev.map((o) =>
+        o.id === orderId
+          ? {
+            ...o,
+            status: targetStatus,
+            updatedAt: nowIso,
+            ...(targetStatus === 'ACCEPTED' ? { acceptedAt: nowIso } : {}),
+            ...(targetStatus === 'PREPARING' ? { preparingAt: nowIso } : {}),
+            ...(targetStatus === 'READY' ? { readyAt: nowIso } : {}),
+            ...(targetStatus === 'SERVED' ? { servedAt: nowIso } : {}),
+          }
+          : o
+      );
+    });
+
+    if (selectedOrder?.id === orderId) {
+      setSelectedOrder(null);
+    }
+
     try {
       const restId = restaurantData?.restaurantId || '_auto';
 
@@ -204,18 +346,70 @@ export default function StaffOrderPortalPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: targetStatus, reason }),
       });
+      const data = await res.json().catch(() => ({}));
 
-      if (res.ok) {
-        await fetchOrders();
-        if (selectedOrder?.id === orderId) {
-          setSelectedOrder(null);
-        }
-      } else {
-        const data = await res.json();
-        alert(`Status update failed: ${data.error || 'Action rejected'}`);
+      if (res.status === 402) {
+        setSubscriptionPaused({
+          error:
+            data.error ||
+            'Your 14-day free trial or subscription has ended. Ask the owner to activate a plan in Owner Billing.',
+          code: data.code,
+          supportPhone: data.supportPhone || SUPPORT_PHONE_DISPLAY,
+          restaurantName: data.restaurantName || restaurantData?.restaurantName,
+        });
+        throw new Error(data.error || 'Subscription required');
+      }
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Action rejected');
+      }
+
+      recentlyUpdatedRef.current.set(orderId, {
+        status: targetStatus,
+        expiresAt: Date.now() + 4500,
+      });
+
+      const serverOrder = data.order;
+      if (serverOrder && !isTerminal) {
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.id === orderId
+              ? {
+                ...o,
+                status: serverOrder.status,
+                acceptedAt: serverOrder.acceptedAt ?? o.acceptedAt,
+                preparingAt: serverOrder.preparingAt ?? o.preparingAt,
+                readyAt: serverOrder.readyAt ?? o.readyAt,
+                servedAt: serverOrder.servedAt ?? o.servedAt,
+                updatedAt: serverOrder.updatedAt ?? o.updatedAt,
+              }
+              : o
+          )
+        );
       }
     } catch (err: any) {
-      alert(`Error updating order: ${err.message}`);
+      // Roll back optimistic state cleanly and show non-blocking error banner
+      setOrders((prev) => {
+        if (prev.some((o) => o.id === orderId)) {
+          return prev.map((o) => (o.id === orderId ? existingOrder : o));
+        }
+        return [existingOrder, ...prev].sort(
+          (a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime()
+        );
+      });
+      setActionError(
+        `Ticket #${existingOrder.orderNumber}: ${err?.message || 'Status update failed'}`
+      );
+    } finally {
+      if (inFlightMutationsRef.current.get(orderId) === seq) {
+        inFlightMutationsRef.current.delete(orderId);
+      }
+      setUpdatingOrders((prev) => {
+        if (!(orderId in prev)) return prev;
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
     }
   };
 
@@ -253,6 +447,77 @@ export default function StaffOrderPortalPage() {
           <p className="text-sm font-serif font-semibold tracking-wide text-cream-100">
             Connecting to Live Kitchen Display...
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (subscriptionPaused) {
+    const pausedSupportPhone = subscriptionPaused.supportPhone || SUPPORT_PHONE_DISPLAY;
+    const pausedVenueName =
+      subscriptionPaused.restaurantName || restaurantData?.restaurantName || 'this venue';
+
+    return (
+      <div
+        style={staffTypographyStyle}
+        className="min-h-screen flex items-center justify-center bg-[#0A0705] text-cream-100 p-4 font-sans selection:bg-terracotta selection:text-white"
+      >
+        <div className="w-full max-w-md p-6 sm:p-8 bg-[#140E0A] border border-amber-700/50 rounded-3xl shadow-2xl text-center space-y-5">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto">
+            <Lock className="w-7 h-7" />
+          </div>
+          <div className="space-y-1.5">
+            <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-mono uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30">
+              {subscriptionPaused.code === 'TRIAL_EXPIRED' ? '14-Day Free Trial Ended' : 'Subscription Paused'}
+            </span>
+            <h1 className="font-serif text-2xl font-bold text-cream-50 pt-1">
+              Kitchen & Service Terminal Paused
+            </h1>
+            <p className="text-xs text-taupe-300 leading-relaxed pt-1">
+              {subscriptionPaused.error ||
+                `Live kitchen ticketing and table service alerts for ${pausedVenueName} are paused until the owner activates a subscription in the Billing panel.`}
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+            <Link
+              href="/login"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white text-xs font-bold transition-colors shadow-lg shadow-terracotta/20"
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              <span>Owner Billing Console</span>
+            </Link>
+            <button
+              type="button"
+              onClick={() => fetchOrders(true)}
+              disabled={refreshing}
+              className="px-4 py-2.5 rounded-xl bg-espresso-800 hover:bg-espresso-700 text-cream-100 text-xs font-semibold transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>Check Status</span>
+            </button>
+          </div>
+
+          <div className="pt-3 border-t border-espresso-800/80 flex flex-col items-center gap-2 text-xs">
+            <span className="text-[11px] text-taupe-400">
+              Setup &amp; billing queries? Contact support:
+            </span>
+            <a
+              href={SUPPORT_PHONE_HREF}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-espresso-900 border border-espresso-700 text-amber-300 hover:text-amber-200 font-mono font-semibold transition-colors"
+            >
+              <Phone className="w-3.5 h-3.5" />
+              <span>{pausedSupportPhone}</span>
+            </a>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center gap-1 text-[11px] text-taupe-400 hover:text-rose-400 transition-colors pt-1"
+            >
+              <LogOut className="w-3 h-3" />
+              <span>Switch or Log Out Terminal</span>
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -312,11 +577,10 @@ export default function StaffOrderPortalPage() {
           {/* Sound Chime Toggle */}
           <button
             onClick={toggleSound}
-            className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
-              soundEnabled
+            className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${soundEnabled
                 ? 'bg-amber-950/80 border-amber-600/70 text-amber-300 ring-1 ring-amber-500/30'
                 : 'bg-espresso-900 border-espresso-800 text-taupe-400 hover:text-white hover:bg-espresso-800'
-            }`}
+              }`}
             title={soundEnabled ? 'Order audio chime enabled (Click to mute)' : 'Order audio chime disabled (Click to enable)'}
           >
             {soundEnabled ? <Bell className="w-3.5 h-3.5 text-amber-400 animate-bounce" /> : <BellOff className="w-3.5 h-3.5" />}
@@ -366,6 +630,24 @@ export default function StaffOrderPortalPage() {
         </div>
       )}
 
+      {/* Non-blocking status action error banner */}
+      {actionError && (
+        <div role="alert" className="bg-amber-950/95 border-b border-amber-700/80 px-4 py-2 text-xs text-amber-100 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>{actionError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="text-amber-300 hover:text-white p-0.5 rounded"
+            aria-label="Dismiss status error"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Live Table Service Calls Alert Banner */}
       {serviceCalls.length > 0 && (
         <div className="bg-gradient-to-r from-[#2B1705] via-[#3D1E08] to-[#2B1705] border-b-2 border-amber-500 px-4 sm:px-6 py-3 shadow-2xl relative z-10 animate-fade-in">
@@ -393,10 +675,10 @@ export default function StaffOrderPortalPage() {
                   call.callType === 'WATER'
                     ? '💧 Water & Glasses'
                     : call.callType === 'CUTLERY'
-                    ? '🍽️ Cutlery & Napkins'
-                    : call.callType === 'BILL'
-                    ? '🧾 Bring Bill'
-                    : '🙋 Needs Waiter';
+                      ? '🍽️ Cutlery & Napkins'
+                      : call.callType === 'BILL'
+                        ? '🧾 Bring Bill'
+                        : '🙋 Needs Waiter';
                 return (
                   <div
                     key={call.id}
@@ -452,11 +734,10 @@ export default function StaffOrderPortalPage() {
           <button
             key={tab.id}
             onClick={() => setActiveStageFilter(tab.id as any)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-              activeStageFilter === tab.id
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${activeStageFilter === tab.id
                 ? 'bg-terracotta text-white shadow-md'
                 : 'bg-espresso-900/80 text-taupe-300 hover:text-white border border-espresso-800'
-            }`}
+              }`}
           >
             <span>{tab.label}</span>
             <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-black/40">
@@ -490,9 +771,11 @@ export default function StaffOrderPortalPage() {
               <div className="flex-1 overflow-y-auto p-2.5 space-y-3">
                 {placedOrders.map((order) => {
                   const elapsed = getElapsedInfo(order.placedAt);
+                  const isSyncing = Boolean(updatingOrders[order.id]);
                   return (
                     <div
                       key={order.id}
+                      aria-busy={isSyncing}
                       className="p-4 bg-gradient-to-br from-[#1C130D] to-[#140D0A] rounded-2xl border-2 border-rose-500/70 shadow-xl space-y-3 animate-fade-in relative overflow-hidden"
                     >
                       {/* Top Order Identifier Strip */}
@@ -512,18 +795,25 @@ export default function StaffOrderPortalPage() {
                           </div>
                         </div>
 
-                        <span
-                          className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-md flex items-center gap-1 ${
-                            elapsed.urgency === 'critical'
-                              ? 'bg-rose-500 text-white animate-pulse'
-                              : elapsed.urgency === 'warn'
-                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                              : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                          }`}
-                        >
-                          <Timer className="w-3 h-3" />
-                          {elapsed.text}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {isSyncing && (
+                            <span className="text-[10px] font-mono font-semibold text-amber-200 bg-amber-950/80 border border-amber-700/60 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                              <RefreshCw className="w-2.5 h-2.5 animate-spin motion-reduce:animate-none" />
+                              Syncing
+                            </span>
+                          )}
+                          <span
+                            className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-md flex items-center gap-1 ${elapsed.urgency === 'critical'
+                                ? 'bg-rose-500 text-white animate-pulse'
+                                : elapsed.urgency === 'warn'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                              }`}
+                          >
+                            <Timer className="w-3 h-3" />
+                            {elapsed.text}
+                          </span>
+                        </div>
                       </div>
 
                       {/* Line Items List */}
@@ -579,14 +869,16 @@ export default function StaffOrderPortalPage() {
 
                         <div className="flex items-center gap-1.5">
                           <button
+                            disabled={isSyncing}
                             onClick={() => handleUpdateStatus(order.id, 'REJECTED', 'Kitchen unable to fulfill')}
-                            className="px-2.5 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-semibold transition-colors"
+                            className="px-2.5 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-semibold transition-colors disabled:opacity-50"
                           >
                             Reject
                           </button>
                           <button
+                            disabled={isSyncing}
                             onClick={() => handleUpdateStatus(order.id, 'ACCEPTED')}
-                            className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 flex items-center gap-1"
+                            className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 flex items-center gap-1 disabled:opacity-50"
                           >
                             <Check className="w-3.5 h-3.5" /> Accept
                           </button>
@@ -624,9 +916,11 @@ export default function StaffOrderPortalPage() {
               <div className="flex-1 overflow-y-auto p-2.5 space-y-3">
                 {acceptedOrders.map((order) => {
                   const elapsed = getElapsedInfo(order.placedAt);
+                  const isSyncing = Boolean(updatingOrders[order.id]);
                   return (
                     <div
                       key={order.id}
+                      aria-busy={isSyncing}
                       className="p-3.5 bg-[#17110D] rounded-xl border border-espresso-700/80 shadow space-y-2.5 animate-fade-in"
                     >
                       <div className="flex items-start justify-between gap-1">
@@ -638,9 +932,17 @@ export default function StaffOrderPortalPage() {
                             📍 {order.table?.name}
                           </div>
                         </div>
-                        <span className="text-[10px] font-mono text-taupe-400 bg-black/40 px-2 py-0.5 rounded">
-                          {elapsed.text}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {isSyncing && (
+                            <span className="text-[10px] font-mono font-semibold text-amber-200 bg-amber-950/80 border border-amber-700/60 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
+                              <RefreshCw className="w-2.5 h-2.5 animate-spin motion-reduce:animate-none" />
+                              Syncing
+                            </span>
+                          )}
+                          <span className="text-[10px] font-mono text-taupe-400 bg-black/40 px-2 py-0.5 rounded">
+                            {elapsed.text}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="text-xs space-y-1 text-cream-200">
@@ -658,10 +960,16 @@ export default function StaffOrderPortalPage() {
                           {formatCurrencyMinor(order.totalMinor, order.currency)}
                         </span>
                         <button
+                          disabled={isSyncing}
                           onClick={() => handleUpdateStatus(order.id, 'PREPARING')}
-                          className="px-3 py-1 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white text-xs font-semibold shadow-sm transition-all flex items-center gap-1"
+                          className="px-3 py-1 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white text-xs font-semibold shadow-sm transition-all flex items-center gap-1 disabled:opacity-60"
                         >
-                          <Flame className="w-3.5 h-3.5" /> Start Cooking
+                          {isSyncing ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" />
+                          ) : (
+                            <Flame className="w-3.5 h-3.5" />
+                          )}
+                          {isSyncing ? 'Syncing...' : 'Start Cooking'}
                         </button>
                       </div>
                     </div>
@@ -695,9 +1003,11 @@ export default function StaffOrderPortalPage() {
               <div className="flex-1 overflow-y-auto p-2.5 space-y-3">
                 {preparingOrders.map((order) => {
                   const elapsed = getElapsedInfo(order.placedAt);
+                  const isSyncing = Boolean(updatingOrders[order.id]);
                   return (
                     <div
                       key={order.id}
+                      aria-busy={isSyncing}
                       className="p-3.5 bg-[#17110D] rounded-xl border border-orange-700/50 shadow-md space-y-2.5 animate-fade-in"
                     >
                       <div className="flex items-start justify-between gap-1">
@@ -709,9 +1019,17 @@ export default function StaffOrderPortalPage() {
                             📍 {order.table?.name}
                           </div>
                         </div>
-                        <span className="text-[10px] font-mono font-bold text-orange-300 bg-orange-950/80 border border-orange-800/50 px-2 py-0.5 rounded">
-                          Cooking ({elapsed.text})
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {isSyncing && (
+                            <span className="text-[10px] font-mono font-semibold text-orange-200 bg-orange-950/90 border border-orange-700/60 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
+                              <RefreshCw className="w-2.5 h-2.5 animate-spin motion-reduce:animate-none" />
+                              Syncing
+                            </span>
+                          )}
+                          <span className="text-[10px] font-mono font-bold text-orange-300 bg-orange-950/80 border border-orange-800/50 px-2 py-0.5 rounded">
+                            Cooking ({elapsed.text})
+                          </span>
+                        </div>
                       </div>
 
                       <div className="text-xs space-y-1 text-cream-100">
@@ -729,10 +1047,16 @@ export default function StaffOrderPortalPage() {
                           {formatCurrencyMinor(order.totalMinor, order.currency)}
                         </span>
                         <button
+                          disabled={isSyncing}
                           onClick={() => handleUpdateStatus(order.id, 'READY')}
-                          className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1 active:scale-95"
+                          className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1 active:scale-95 disabled:opacity-60"
                         >
-                          <Bell className="w-3.5 h-3.5" /> Order Ready 🔔
+                          {isSyncing ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" />
+                          ) : (
+                            <Bell className="w-3.5 h-3.5" />
+                          )}
+                          {isSyncing ? 'Syncing...' : 'Order Ready 🔔'}
                         </button>
                       </div>
                     </div>
@@ -765,10 +1089,11 @@ export default function StaffOrderPortalPage() {
 
               <div className="flex-1 overflow-y-auto p-2.5 space-y-3">
                 {readyOrders.map((order) => {
-                  const elapsed = getElapsedInfo(order.placedAt);
+                  const isSyncing = Boolean(updatingOrders[order.id]);
                   return (
                     <div
                       key={order.id}
+                      aria-busy={isSyncing}
                       className="p-3.5 bg-[#17110D] rounded-xl border-2 border-blue-500/70 shadow-lg space-y-2.5 animate-fade-in"
                     >
                       <div className="flex items-start justify-between gap-1">
@@ -780,9 +1105,17 @@ export default function StaffOrderPortalPage() {
                             📍 {order.table?.name}
                           </div>
                         </div>
-                        <span className="text-[10px] font-mono font-bold text-blue-300 bg-blue-950 px-2 py-0.5 rounded border border-blue-800/60">
-                          Plated
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {isSyncing && (
+                            <span className="text-[10px] font-mono font-semibold text-blue-200 bg-blue-950/90 border border-blue-700/60 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
+                              <RefreshCw className="w-2.5 h-2.5 animate-spin motion-reduce:animate-none" />
+                              Syncing
+                            </span>
+                          )}
+                          <span className="text-[10px] font-mono font-bold text-blue-300 bg-blue-950 px-2 py-0.5 rounded border border-blue-800/60">
+                            Plated
+                          </span>
+                        </div>
                       </div>
 
                       <div className="text-xs space-y-1 text-cream-200">
@@ -800,10 +1133,16 @@ export default function StaffOrderPortalPage() {
                           {formatCurrencyMinor(order.totalMinor, order.currency)}
                         </span>
                         <button
+                          disabled={isSyncing}
                           onClick={() => handleUpdateStatus(order.id, 'SERVED')}
-                          className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1 active:scale-95"
+                          className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1 active:scale-95 disabled:opacity-60"
                         >
-                          <Check className="w-3.5 h-3.5" /> Serve to Table ✓
+                          {isSyncing ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" />
+                          ) : (
+                            <Check className="w-3.5 h-3.5" />
+                          )}
+                          {isSyncing ? 'Syncing...' : 'Serve to Table ✓'}
                         </button>
                       </div>
                     </div>
@@ -835,36 +1174,52 @@ export default function StaffOrderPortalPage() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-2.5 space-y-3">
-                {servedOrders.map((order) => (
-                  <div
-                    key={order.id}
-                    className="p-3.5 bg-[#17110D] rounded-xl border border-espresso-800 shadow space-y-2 opacity-95 hover:opacity-100 transition-opacity"
-                  >
-                    <div className="flex items-start justify-between gap-1">
-                      <div>
-                        <div className="font-mono font-bold text-base text-cream-50">
-                          #{order.orderNumber}
+                {servedOrders.map((order) => {
+                  const isSyncing = Boolean(updatingOrders[order.id]);
+                  return (
+                    <div
+                      key={order.id}
+                      aria-busy={isSyncing}
+                      className="p-3.5 bg-[#17110D] rounded-xl border border-espresso-800 shadow space-y-2 opacity-95 hover:opacity-100 transition-opacity"
+                    >
+                      <div className="flex items-start justify-between gap-1">
+                        <div>
+                          <div className="font-mono font-bold text-base text-cream-50">
+                            #{order.orderNumber}
+                          </div>
+                          <div className="text-xs text-taupe-400 mt-0.5">📍 {order.table?.name}</div>
                         </div>
-                        <div className="text-xs text-taupe-400 mt-0.5">📍 {order.table?.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          {isSyncing && (
+                            <span className="text-[10px] font-mono font-semibold text-emerald-200 bg-emerald-950/80 border border-emerald-700/60 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
+                              <RefreshCw className="w-2.5 h-2.5 animate-spin motion-reduce:animate-none" />
+                              Syncing
+                            </span>
+                          )}
+                          <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
+                            Dining
+                          </span>
+                        </div>
                       </div>
-                      <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
-                        Dining
-                      </span>
-                    </div>
 
-                    <div className="pt-2 border-t border-espresso-800 flex items-center justify-between">
-                      <span className="font-mono text-xs text-taupe-300">
-                        {formatCurrencyMinor(order.totalMinor, order.currency)}
-                      </span>
-                      <button
-                        onClick={() => handleUpdateStatus(order.id, 'COMPLETED')}
-                        className="px-3 py-1 rounded-xl bg-espresso-800 hover:bg-espresso-700 text-cream-200 text-xs font-semibold transition-colors"
-                      >
-                        Complete Ticket
-                      </button>
+                      <div className="pt-2 border-t border-espresso-800 flex items-center justify-between">
+                        <span className="font-mono text-xs text-taupe-300">
+                          {formatCurrencyMinor(order.totalMinor, order.currency)}
+                        </span>
+                        <button
+                          disabled={isSyncing}
+                          onClick={() => handleUpdateStatus(order.id, 'COMPLETED')}
+                          className="px-3 py-1 rounded-xl bg-espresso-800 hover:bg-espresso-700 text-cream-200 text-xs font-semibold transition-colors inline-flex items-center gap-1 disabled:opacity-60"
+                        >
+                          {isSyncing && (
+                            <RefreshCw className="w-3 h-3 animate-spin motion-reduce:animate-none" />
+                          )}
+                          {isSyncing ? 'Closing...' : 'Complete Ticket'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 {servedOrders.length === 0 && (
                   <div className="py-16 text-center text-xs text-taupe-500">

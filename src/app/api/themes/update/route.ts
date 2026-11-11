@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
+import { createOwnerAccessDeniedResponse, requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import { normalizeThemeFont, validateThemeAccessibility } from '@/lib/theme/theme-presets';
 import prisma from '@/lib/db/prisma';
 import { getCache } from '@/lib/cache/redis';
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
 
     const auth = await requireRestaurantAccess(restaurantId);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
+      return createOwnerAccessDeniedResponse(auth, 403);
     }
 
     const themeFields = {

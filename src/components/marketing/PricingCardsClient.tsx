@@ -2,8 +2,9 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Check, Sparkles } from 'lucide-react';
-import type { PlanDefinition } from '@/lib/payments/plans';
+import { ArrowRight, Check, Sparkles, ShieldCheck, Phone } from 'lucide-react';
+import { TRIAL_PLAN, type PlanDefinition } from '@/lib/payments/plans';
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
 import { trackConversionEvent } from '@/lib/analytics/events';
 
 interface PricingCardsClientProps {
@@ -109,6 +110,46 @@ export function PricingCardsClient({
           {heading}
         </HeadingTag>
         <p className="text-sm text-taupe-600 mx-auto menzy-copy-pretty">{subheading}</p>
+      </div>
+
+      {/* 14-Day Free Trial Highlight */}
+      <div className="mb-8 rounded-3xl bg-white border border-emerald-200 shadow-soft p-5 sm:p-7 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+        <div className="space-y-2 max-w-2xl">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-bold uppercase tracking-wider text-emerald-800">
+              <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>{TRIAL_PLAN.name} Plan • {TRIAL_PLAN.trialDays} Days Free</span>
+            </span>
+            <span className="text-xs font-semibold text-espresso-700">
+              No payment method or card required
+            </span>
+          </div>
+          <h3 className="font-serif text-2xl font-bold text-espresso-900">
+            Start with our {TRIAL_PLAN.trialDays}-Day Free Trial — ₹0 / $0
+          </h3>
+          <p className="text-xs sm:text-sm text-taupe-600 leading-relaxed">
+            Sign up or claim your pre-built demo menu to get instant full access (up to {TRIAL_PLAN.itemLimit} dishes, {TRIAL_PLAN.imageCreditsMonthly} 3D credits, {TRIAL_PLAN.aiQuestionsMonthly.toLocaleString()} AI queries, Table QR ordering &amp; Live KDS). After {TRIAL_PLAN.trialDays} days, access pauses cleanly until you buy a paid subscription inside Billing.
+          </p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-taupe-700 pt-0.5">
+            <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" aria-hidden="true" />
+            <span>Setup queries? Call or WhatsApp</span>
+            <a
+              href={SUPPORT_PHONE_HREF}
+              className="font-semibold text-espresso-900 hover:text-terracotta underline underline-offset-2"
+            >
+              {SUPPORT_PHONE_DISPLAY}
+            </a>
+          </div>
+        </div>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+          <Link
+            href="/signup?plan=trial"
+            className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-espresso-900 hover:bg-espresso-800 text-white text-sm font-semibold transition-all shadow-md"
+          >
+            <span>Start 14-Day Free Trial</span>
+            <ArrowRight className="w-4 h-4" aria-hidden="true" />
+          </Link>
+        </div>
       </div>
 
       <div className="menzy-card-grid" aria-busy={plans === null}>

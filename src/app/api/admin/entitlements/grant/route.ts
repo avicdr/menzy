@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getAdminSession, logAdminAction } from '@/lib/auth/admin-auth';
+import { getCache } from '@/lib/cache/redis';
 import { GrantType } from '@prisma/client';
 
 export async function POST(req: Request) {
@@ -22,6 +23,11 @@ export async function POST(req: Request) {
 
     const org = await prisma.organization.findUnique({
       where: { id: organizationId },
+      include: {
+        restaurants: {
+          select: { slug: true },
+        },
+      },
     });
 
     if (!org) {
@@ -72,6 +78,14 @@ export async function POST(req: Request) {
       afterState: grant,
       reason: founderReason,
     });
+
+    if (
+      (grantType === 'COMPLIMENTARY_PLAN' || grantType === 'EXTENSION') &&
+      org.restaurants.length > 0
+    ) {
+      const cache = getCache();
+      await Promise.all(org.restaurants.map((r) => cache.del(`menu:slug:${r.slug}`)));
+    }
 
     return NextResponse.json({ success: true, grant });
   } catch (error: any) {

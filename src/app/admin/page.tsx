@@ -33,6 +33,7 @@ import {
   Upload,
   KeyRound,
   X,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { Portal } from '@/components/ui/Portal';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
@@ -43,6 +44,10 @@ import {
   isGenericCategory,
   resolvePrimaryDietaryBucket,
 } from '@/lib/menu/deduplicate';
+import {
+  validateBannerFileMeta,
+  validateBannerUrlInput,
+} from '@/lib/banner/banner-validation';
 
 interface DemoDishDraft {
   localId: string;
@@ -158,6 +163,15 @@ export default function SuperAdminPortalPage() {
   const [activeSection, setActiveSection] = useState<'overview' | 'restaurants' | 'subscriptions' | 'costs' | 'canonical' | 'claims' | 'orders'>('overview');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [sectionLoading, setSectionLoading] = useState({
+    restaurants: true,
+    subscriptions: true,
+    costs: true,
+    canonical: true,
+    claims: true,
+    orders: true,
+  });
+  const loadSeqRef = React.useRef(0);
 
   const [restaurants, setRestaurants] = useState<any[]>([]);
   const [subscriptionData, setSubscriptionData] = useState<any>(null);
@@ -170,6 +184,7 @@ export default function SuperAdminPortalPage() {
   const [restaurantSearch, setRestaurantSearch] = useState('');
   const [restaurantFilter, setRestaurantFilter] = useState<'ALL' | 'IN' | 'US' | 'CLAIMED' | 'DEMO'>('ALL');
   const [subSearch, setSubSearch] = useState('');
+  const [subFilter, setSubFilter] = useState<'ALL' | 'PAID' | 'TRIAL' | 'TRIAL_EXPIRED' | 'EXPIRED'>('ALL');
   const [canonicalSearch, setCanonicalSearch] = useState('');
   const [canonicalCategoryFilter, setCanonicalCategoryFilter] = useState<string>('ALL');
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
@@ -192,6 +207,14 @@ export default function SuperAdminPortalPage() {
   const [demoCountry, setDemoCountry] = useState<'IN' | 'US'>('IN');
   const [demoCity, setDemoCity] = useState('Mumbai');
   const [demoDescription, setDemoDescription] = useState('');
+  const [demoCoverUrl, setDemoCoverUrl] = useState('');
+  const [demoBannerUploading, setDemoBannerUploading] = useState(false);
+  const [demoBannerError, setDemoBannerError] = useState<string | null>(null);
+  const [demoBannerPreviewError, setDemoBannerPreviewError] = useState(false);
+  const [demoBannerDimensions, setDemoBannerDimensions] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
   const [demoThemePreset, setDemoThemePreset] = useState<
     'WARM_EDITORIAL' | 'MIDNIGHT_ESPRESSO' | 'BOTANICAL_CAFE' | 'PASTEL_PATISSERIE'
   >('WARM_EDITORIAL');
@@ -278,50 +301,79 @@ export default function SuperAdminPortalPage() {
   const [claimError, setClaimError] = useState<string | null>(null);
 
   const loadData = async (isManualRefresh = false) => {
+    const reqSeq = ++loadSeqRef.current;
+
+    if (isManualRefresh) setRefreshing(true);
+    else setLoading(true);
+
+    setSectionLoading({
+      restaurants: true,
+      subscriptions: true,
+      costs: true,
+      canonical: true,
+      claims: true,
+      orders: true,
+    });
+
+    const fetchSection = async (
+      key: 'restaurants' | 'subscriptions' | 'costs' | 'canonical' | 'claims' | 'orders',
+      url: string,
+      onSuccess: (data: any) => void
+    ): Promise<'OK' | 'UNAUTH' | 'ERR'> => {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (loadSeqRef.current !== reqSeq) return 'ERR';
+        if (res.status === 401) {
+          router.push('/admin/login');
+          return 'UNAUTH';
+        }
+        if (res.ok) {
+          const data = await res.json();
+          if (loadSeqRef.current !== reqSeq) return 'ERR';
+          onSuccess(data);
+        }
+        return 'OK';
+      } catch (err) {
+        console.error(`Super-admin load error (${key}):`, err);
+        return 'ERR';
+      } finally {
+        if (loadSeqRef.current === reqSeq) {
+          setSectionLoading((prev) => ({ ...prev, [key]: false }));
+        }
+      }
+    };
+
+    const rPromise = fetchSection('restaurants', '/api/admin/restaurants', (rData) =>
+      setRestaurants(rData.restaurants || [])
+    );
+    const sPromise = fetchSection('subscriptions', '/api/admin/subscriptions', (sData) =>
+      setSubscriptionData(sData)
+    );
+    const cPromise = fetchSection('costs', '/api/admin/costs', (cData) =>
+      setCostsData(cData)
+    );
+    const canonPromise = fetchSection('canonical', '/api/admin/canonical', (canonData) =>
+      setCanonicalDishes(canonData.dishes || [])
+    );
+    const claimPromise = fetchSection('claims', '/api/admin/claims', (clData) =>
+      setClaims(clData.claims || [])
+    );
+    const ordersPromise = fetchSection('orders', '/api/admin/orders', (oData) =>
+      setOrdersData(oData)
+    );
+
     try {
-      if (isManualRefresh) setRefreshing(true);
-      else setLoading(true);
-
-      const [rRes, sRes, cRes, canonRes, claimRes, ordersRes] = await Promise.all([
-        fetch('/api/admin/restaurants', { cache: 'no-store' }),
-        fetch('/api/admin/subscriptions', { cache: 'no-store' }),
-        fetch('/api/admin/costs', { cache: 'no-store' }),
-        fetch('/api/admin/canonical', { cache: 'no-store' }),
-        fetch('/api/admin/claims', { cache: 'no-store' }),
-        fetch('/api/admin/orders', { cache: 'no-store' }),
-      ]);
-
-      if (rRes.status === 401 || sRes.status === 401) {
-        router.push('/admin/login');
-        return;
+      const [rStatus, sStatus] = await Promise.all([rPromise, sPromise]);
+      if (loadSeqRef.current === reqSeq && rStatus !== 'UNAUTH' && sStatus !== 'UNAUTH') {
+        setLoading(false);
       }
 
-      if (rRes.ok) {
-        const rData = await rRes.json();
-        setRestaurants(rData.restaurants || []);
-      }
-      if (sRes.ok) {
-        setSubscriptionData(await sRes.json());
-      }
-      if (cRes.ok) {
-        setCostsData(await cRes.json());
-      }
-      if (canonRes.ok) {
-        const canonData = await canonRes.json();
-        setCanonicalDishes(canonData.dishes || []);
-      }
-      if (claimRes.ok) {
-        const clData = await claimRes.json();
-        setClaims(clData.claims || []);
-      }
-      if (ordersRes && ordersRes.ok) {
-        setOrdersData(await ordersRes.json());
-      }
-    } catch (err) {
-      console.error('Super-admin load error:', err);
+      await Promise.allSettled([cPromise, canonPromise, claimPromise, ordersPromise]);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (loadSeqRef.current === reqSeq) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   };
 
@@ -375,6 +427,7 @@ export default function SuperAdminPortalPage() {
 
   const openDemoModal = () => {
     setDemoError(null);
+    setDemoBannerError(null);
     setGeneratedDemoResult(null);
     setCopiedClaimUrl(false);
     if (demoDishes.length === 0) {
@@ -413,10 +466,82 @@ export default function SuperAdminPortalPage() {
   const handleResetDemoForm = () => {
     setDemoName('');
     setDemoDescription('');
+    setDemoCoverUrl('');
+    setDemoBannerError(null);
+    setDemoBannerPreviewError(false);
+    setDemoBannerDimensions(null);
     setDemoDishes(buildDefaultDemoDishes(demoCountry));
     setGeneratedDemoResult(null);
     setDemoError(null);
     setCopiedClaimUrl(false);
+  };
+
+  const readDemoBannerDimensions = (
+    file: File
+  ): Promise<{ width: number; height: number } | null> =>
+    new Promise((resolve) => {
+      const objectUrl = URL.createObjectURL(file);
+      const img = new window.Image();
+      img.onload = () => {
+        const dims = { width: img.naturalWidth, height: img.naturalHeight };
+        URL.revokeObjectURL(objectUrl);
+        resolve(dims);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(null);
+      };
+      img.src = objectUrl;
+    });
+
+  const handleUploadDemoBanner = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setDemoBannerError(null);
+    setDemoBannerPreviewError(false);
+
+    const fileValidation = validateBannerFileMeta(file);
+    if (!fileValidation.ok) {
+      setDemoBannerError(fileValidation.error);
+      e.target.value = '';
+      return;
+    }
+
+    setDemoBannerUploading(true);
+    try {
+      const dims = await readDemoBannerDimensions(file);
+      const formData = new FormData();
+      formData.append('file', file);
+      if (dims?.width) formData.append('width', String(dims.width));
+      if (dims?.height) formData.append('height', String(dims.height));
+
+      const res = await fetch('/api/admin/restaurants/upload-banner', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.asset?.publicUrl) {
+        throw new Error(data?.error || 'Failed to upload cafe banner image.');
+      }
+
+      setDemoCoverUrl(data.asset.publicUrl);
+      setDemoBannerDimensions(dims);
+      if (generatedDemoResult) setGeneratedDemoResult(null);
+    } catch (err: any) {
+      setDemoBannerError(err?.message || 'Error uploading cafe banner image.');
+    } finally {
+      setDemoBannerUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleClearDemoBanner = () => {
+    setDemoCoverUrl('');
+    setDemoBannerError(null);
+    setDemoBannerPreviewError(false);
+    setDemoBannerDimensions(null);
+    if (generatedDemoResult) setGeneratedDemoResult(null);
   };
 
   const handleExtractDemoDishes = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -542,6 +667,12 @@ export default function SuperAdminPortalPage() {
       return;
     }
 
+    const bannerUrlValidation = validateBannerUrlInput(demoCoverUrl);
+    if (!bannerUrlValidation.ok) {
+      setDemoError(bannerUrlValidation.error);
+      return;
+    }
+
     const nonEmptyDishes = demoDishes.filter((d) => d.name.trim().length > 0);
     const { uniqueItems: validDishes } = deduplicateDemoDishDrafts(nonEmptyDishes);
     if (validDishes.length === 0) {
@@ -574,6 +705,7 @@ export default function SuperAdminPortalPage() {
           city: demoCity.trim(),
           currency: demoCountry === 'US' ? 'USD' : 'INR',
           description: demoDescription.trim(),
+          coverUrl: bannerUrlValidation.value ?? null,
           themePreset: demoThemePreset,
           tableCount: 1,
           sampleDishes: payloadDishes,
@@ -714,15 +846,67 @@ export default function SuperAdminPortalPage() {
     return true;
   });
 
+  const getAdminSubBadge = (sub: any) => {
+    const isTrialPlan = sub.planKey === 'FREE_TRIAL' || sub.status === 'TRIAL';
+    const paidThroughTime = sub.paidThrough ? new Date(sub.paidThrough).getTime() : null;
+    const isLapsed = paidThroughTime !== null && paidThroughTime <= Date.now();
+
+    if (sub.status === 'ACTIVE' && !isTrialPlan) {
+      return isLapsed
+        ? {
+            label: 'LAPSED',
+            toneClass: 'bg-red-950/80 border border-red-800/80 text-red-300',
+            group: 'EXPIRED' as const,
+          }
+        : {
+            label: 'ACTIVE',
+            toneClass: 'bg-emerald-950/80 border border-emerald-800/80 text-emerald-300',
+            group: 'PAID' as const,
+          };
+    }
+
+    if (sub.status === 'TRIAL' && !isLapsed) {
+      return {
+        label: '14D TRIAL',
+        toneClass: 'bg-amber-950/80 border border-amber-700/70 text-amber-300',
+        group: 'TRIAL' as const,
+      };
+    }
+
+    if (isTrialPlan && (sub.status === 'EXPIRED' || isLapsed)) {
+      return {
+        label: 'TRIAL ENDED',
+        toneClass: 'bg-red-950/80 border border-red-800/80 text-red-300',
+        group: 'TRIAL_EXPIRED' as const,
+      };
+    }
+
+    return {
+      label: String(sub.status || 'INACTIVE'),
+      toneClass: 'bg-red-950/80 border border-red-800/80 text-red-300',
+      group: 'EXPIRED' as const,
+    };
+  };
+
   // Filter subscriptions
   const filteredSubscriptions = (subscriptionData?.subscriptions || []).filter((sub: any) => {
     const orgName = sub.organization?.name || '';
     const restName = sub.organization?.restaurants?.[0]?.displayName || '';
-    return (
-      orgName.toLowerCase().includes(subSearch.toLowerCase()) ||
-      restName.toLowerCase().includes(subSearch.toLowerCase()) ||
-      sub.planKey.toLowerCase().includes(subSearch.toLowerCase())
-    );
+    const q = subSearch.toLowerCase();
+    const matchesSearch =
+      !q ||
+      orgName.toLowerCase().includes(q) ||
+      restName.toLowerCase().includes(q) ||
+      String(sub.planKey || '').toLowerCase().includes(q) ||
+      String(sub.provider || '').toLowerCase().includes(q);
+    if (!matchesSearch) return false;
+
+    const badge = getAdminSubBadge(sub);
+    if (subFilter === 'PAID') return badge.group === 'PAID';
+    if (subFilter === 'TRIAL') return badge.group === 'TRIAL';
+    if (subFilter === 'TRIAL_EXPIRED') return badge.group === 'TRIAL_EXPIRED';
+    if (subFilter === 'EXPIRED') return badge.group === 'EXPIRED' || badge.group === 'TRIAL_EXPIRED';
+    return true;
   });
 
   // Filter canonical dishes
@@ -779,7 +963,7 @@ export default function SuperAdminPortalPage() {
             className="p-2 rounded-xl text-taupe-400 hover:text-white hover:bg-espresso-800 border border-espresso-700/60 transition-all shrink-0"
             title="Refresh Live Data"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-terracotta' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin motion-reduce:animate-none text-terracotta' : ''}`} />
           </button>
 
           <button
@@ -823,11 +1007,31 @@ export default function SuperAdminPortalPage() {
         {[
           { key: 'overview', label: 'Executive Overview', icon: Activity, count: null },
           { key: 'restaurants', label: 'Restaurants', icon: Utensils, count: restaurants.length },
-          { key: 'orders', label: 'Orders & Tables', icon: ChefHat, count: ordersData?.metrics?.totalOrders ?? null },
+          {
+            key: 'orders',
+            label: 'Orders & Tables',
+            icon: ChefHat,
+            count: ordersData?.metrics?.totalOrders ?? (sectionLoading.orders ? '...' : null),
+          },
           { key: 'subscriptions', label: 'Subscriptions', icon: CreditCard, count: subscriptionData?.subscriptions?.length || 0 },
           { key: 'costs', label: 'AI Cost Intelligence', icon: Cpu, count: null },
-          { key: 'canonical', label: 'Canonical Library', icon: Bot, count: canonicalDishes.length },
-          { key: 'claims', label: 'Claims Review', icon: ShieldAlert, count: claims.length },
+          {
+            key: 'canonical',
+            label: 'Canonical Library',
+            icon: Bot,
+            count:
+              canonicalDishes.length > 0
+                ? canonicalDishes.length
+                : sectionLoading.canonical
+                ? '...'
+                : 0,
+          },
+          {
+            key: 'claims',
+            label: 'Claims Review',
+            icon: ShieldAlert,
+            count: claims.length > 0 ? claims.length : sectionLoading.claims ? '...' : 0,
+          },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeSection === tab.key;
@@ -877,7 +1081,9 @@ export default function SuperAdminPortalPage() {
                   {subscriptionData?.metrics?.totalActive || 0}
                 </div>
                 <div className="text-xs text-emerald-400 mt-2 flex items-center gap-1 font-medium">
-                  <TrendingUp className="w-3.5 h-3.5 shrink-0" /> Multi-tenant retention active
+                  <TrendingUp className="w-3.5 h-3.5 shrink-0" />{' '}
+                  {subscriptionData?.metrics?.activeTrialsCount || 0} active 14d trials •{' '}
+                  {subscriptionData?.metrics?.expiredTrialsCount || 0} lapsed
                 </div>
               </div>
 
@@ -899,10 +1105,14 @@ export default function SuperAdminPortalPage() {
                   <span>AI Operating Cost</span>
                   <Cpu className="w-3.5 h-3.5 text-blue-400" />
                 </span>
-                <div className="text-2xl font-bold text-cream-50 mt-2 font-mono tracking-tight">
-                  ${globalMetrics.totalAiCostUsd}
+                <div className="text-2xl font-bold text-cream-50 mt-2 font-mono tracking-tight tabular-nums">
+                  {!costsData && sectionLoading.costs ? '—' : `$${globalMetrics.totalAiCostUsd}`}
                 </div>
-                <div className="text-xs text-taupe-400 mt-2">{globalMetrics.totalAiRequests} total Gemini API calls</div>
+                <div className="text-xs text-taupe-400 mt-2">
+                  {!costsData && sectionLoading.costs
+                    ? 'Aggregating Gemini usage...'
+                    : `${globalMetrics.totalAiRequests} total Gemini API calls`}
+                </div>
               </div>
 
               <div className="p-5 bg-gradient-to-br from-[#160F0B] to-[#120C09] rounded-2xl border border-espresso-800 shadow-md relative overflow-hidden">
@@ -944,7 +1154,8 @@ export default function SuperAdminPortalPage() {
                   <p className="text-xs text-taupe-400">Tenants sorted by paid-through date with one-click entitlement overrides</p>
                 </div>
                 <span className="text-xs text-taupe-400 font-mono">
-                  {subscriptionData?.subscriptions?.length || 0} active subscriptions
+                  {subscriptionData?.metrics?.totalActive || 0} paid •{' '}
+                  {subscriptionData?.metrics?.activeTrialsCount || 0} free trials
                 </span>
               </div>
 
@@ -960,44 +1171,43 @@ export default function SuperAdminPortalPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-espresso-800/60">
-                    {(subscriptionData?.subscriptions || []).map((sub: any) => (
-                      <tr key={sub.id} className="hover:bg-espresso-800/30 transition-colors">
-                        <td className="py-3.5 px-4">
-                          <div className="font-semibold text-cream-50">{sub.organization.name}</div>
-                          <div className="text-taupe-400 text-[11px]">{sub.organization.restaurants[0]?.displayName}</div>
-                        </td>
-                        <td className="py-3.5 px-4 font-mono font-medium text-cream-200">
-                          <span className="px-2 py-0.5 rounded bg-espresso-800/80 border border-espresso-700/60 text-cream-200 text-[11px]">
-                            {sub.planKey}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              sub.status === 'ACTIVE'
-                                ? 'bg-emerald-950/80 border border-emerald-800/80 text-emerald-300'
-                                : 'bg-red-950/80 border border-red-800/80 text-red-300'
-                            }`}
-                          >
-                            {sub.status}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 font-mono text-taupe-300">
-                          {sub.paidThrough ? new Date(sub.paidThrough).toLocaleDateString() : '—'}
-                        </td>
-                        <td className="py-3.5 px-4 text-right">
-                          <button
-                            onClick={() => {
-                              setSelectedOrgId(sub.organizationId);
-                              setIsGrantModalOpen(true);
-                            }}
-                            className="px-3 py-1.5 rounded-lg bg-espresso-800 hover:bg-espresso-700 border border-espresso-700 text-cream-200 text-xs font-semibold whitespace-nowrap transition-all shadow-sm"
-                          >
-                            Grant Entitlement
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {(subscriptionData?.subscriptions || []).map((sub: any) => {
+                      const badge = getAdminSubBadge(sub);
+                      return (
+                        <tr key={sub.id} className="hover:bg-espresso-800/30 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="font-semibold text-cream-50">{sub.organization.name}</div>
+                            <div className="text-taupe-400 text-[11px]">{sub.organization.restaurants[0]?.displayName}</div>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono font-medium text-cream-200">
+                            <span className="px-2 py-0.5 rounded bg-espresso-800/80 border border-espresso-700/60 text-cream-200 text-[11px]">
+                              {sub.planKey === 'FREE_TRIAL' ? 'Trial (14D Free)' : sub.planKey}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${badge.toneClass}`}
+                            >
+                              {badge.label}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-taupe-300">
+                            {sub.paidThrough ? new Date(sub.paidThrough).toLocaleDateString() : '—'}
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              onClick={() => {
+                                setSelectedOrgId(sub.organizationId);
+                                setIsGrantModalOpen(true);
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-espresso-800 hover:bg-espresso-700 border border-espresso-700 text-cream-200 text-xs font-semibold whitespace-nowrap transition-all shadow-sm"
+                            >
+                              Grant Entitlement
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {(subscriptionData?.subscriptions || []).length === 0 && (
                       <tr>
                         <td colSpan={5} className="py-8 text-center text-taupe-400">
@@ -1166,8 +1376,10 @@ export default function SuperAdminPortalPage() {
             <div className="bg-[#140E0A] rounded-3xl border border-espresso-800 p-5 sm:p-6 shadow-md space-y-4">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
-                  <h3 className="font-serif text-lg font-bold text-cream-50">Active Customer Subscriptions</h3>
-                  <p className="text-xs text-taupe-400">All tenant Razorpay and complimentary subscriptions</p>
+                  <h3 className="font-serif text-lg font-bold text-cream-50">Tenant Subscriptions &amp; Trials</h3>
+                  <p className="text-xs text-taupe-400">
+                    All 14-day free trials, Razorpay subscriptions, and complimentary grants
+                  </p>
                 </div>
                 <div className="relative w-full sm:w-64">
                   <Search className="w-3.5 h-3.5 text-taupe-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1182,6 +1394,29 @@ export default function SuperAdminPortalPage() {
                 </div>
               </div>
 
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  { key: 'ALL', label: 'All' },
+                  { key: 'PAID', label: 'Paid Active' },
+                  { key: 'TRIAL', label: '14D Free Trials' },
+                  { key: 'TRIAL_EXPIRED', label: 'Trials Ended' },
+                  { key: 'EXPIRED', label: 'All Lapsed' },
+                ].map((chip) => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={() => setSubFilter(chip.key as any)}
+                    className={`px-3 py-1 rounded-full text-[11px] font-semibold transition-colors ${
+                      subFilter === chip.key
+                        ? 'bg-terracotta text-white shadow-sm'
+                        : 'bg-[#1A120D] text-taupe-400 border border-espresso-800 hover:text-cream-100'
+                    }`}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+
               <div className="overflow-x-auto w-full">
                 <table className="w-full min-w-[640px] text-left text-xs">
                   <thead className="bg-[#19120E] text-taupe-400 uppercase text-[10px] tracking-wider border-b border-espresso-800">
@@ -1189,53 +1424,59 @@ export default function SuperAdminPortalPage() {
                       <th className="py-3 px-4 font-semibold">Organization / Restaurant</th>
                       <th className="py-3 px-4 font-semibold">Plan Key</th>
                       <th className="py-3 px-4 font-semibold">Status</th>
-                      <th className="py-3 px-4 font-semibold">Current Period Start</th>
-                      <th className="py-3 px-4 font-semibold">Paid Through</th>
+                      <th className="py-3 px-4 font-semibold">Started / Provider</th>
+                      <th className="py-3 px-4 font-semibold">Paid / Trial Through</th>
                       <th className="py-3 px-4 font-semibold text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-espresso-800/60">
-                    {filteredSubscriptions.map((sub: any) => (
-                      <tr key={sub.id} className="hover:bg-espresso-800/30 transition-colors">
-                        <td className="py-3.5 px-4">
-                          <div className="font-semibold text-cream-50">{sub.organization.name}</div>
-                          <div className="text-taupe-400 text-[11px]">{sub.organization.restaurants[0]?.displayName}</div>
-                        </td>
-                        <td className="py-3.5 px-4 font-mono font-medium text-cream-200">
-                          <span className="px-2 py-0.5 rounded bg-espresso-800/80 border border-espresso-700/60 text-cream-200 text-[11px]">
-                            {sub.planKey}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              sub.status === 'ACTIVE'
-                                ? 'bg-emerald-950/80 border border-emerald-800/80 text-emerald-300'
-                                : 'bg-red-950/80 border border-red-800/80 text-red-300'
-                            }`}
-                          >
-                            {sub.status}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 font-mono text-taupe-300">
-                          {sub.currentPeriodStart ? new Date(sub.currentPeriodStart).toLocaleDateString() : '—'}
-                        </td>
-                        <td className="py-3.5 px-4 font-mono text-taupe-300">
-                          {sub.paidThrough ? new Date(sub.paidThrough).toLocaleDateString() : '—'}
-                        </td>
-                        <td className="py-3.5 px-4 text-right">
-                          <button
-                            onClick={() => {
-                              setSelectedOrgId(sub.organizationId);
-                              setIsGrantModalOpen(true);
-                            }}
-                            className="px-3 py-1.5 rounded-lg bg-espresso-800 hover:bg-espresso-700 border border-espresso-700 text-cream-200 text-xs font-semibold whitespace-nowrap transition-all shadow-sm"
-                          >
-                            Grant Entitlement
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredSubscriptions.map((sub: any) => {
+                      const badge = getAdminSubBadge(sub);
+                      const providerLabel =
+                        sub.provider === 'TRIAL'
+                          ? 'Trial'
+                          : sub.provider === 'FOUNDER_GRANT'
+                          ? 'Founder Grant'
+                          : sub.provider || 'Razorpay';
+                      return (
+                        <tr key={sub.id} className="hover:bg-espresso-800/30 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="font-semibold text-cream-50">{sub.organization.name}</div>
+                            <div className="text-taupe-400 text-[11px]">{sub.organization.restaurants[0]?.displayName}</div>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono font-medium text-cream-200">
+                            <span className="px-2 py-0.5 rounded bg-espresso-800/80 border border-espresso-700/60 text-cream-200 text-[11px]">
+                              {sub.planKey === 'FREE_TRIAL' ? 'Trial (14D Free)' : sub.planKey}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${badge.toneClass}`}
+                            >
+                              {badge.label}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-taupe-300">
+                            <div>{sub.createdAt ? new Date(sub.createdAt).toLocaleDateString() : '—'}</div>
+                            <div className="text-[10px] text-taupe-400">{providerLabel}</div>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-taupe-300">
+                            {sub.paidThrough ? new Date(sub.paidThrough).toLocaleDateString() : '—'}
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              onClick={() => {
+                                setSelectedOrgId(sub.organizationId);
+                                setIsGrantModalOpen(true);
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-espresso-800 hover:bg-espresso-700 border border-espresso-700 text-cream-200 text-xs font-semibold whitespace-nowrap transition-all shadow-sm"
+                            >
+                              Grant Entitlement
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {filteredSubscriptions.length === 0 && (
                       <tr>
                         <td colSpan={6} className="py-8 text-center text-taupe-400">
@@ -1309,7 +1550,9 @@ export default function SuperAdminPortalPage() {
                     {(costsData?.restaurants || []).length === 0 && (
                       <tr>
                         <td colSpan={6} className="py-8 text-center text-taupe-400">
-                          No tenant operational cost records logged yet.
+                          {!costsData && sectionLoading.costs
+                            ? 'Loading tenant AI operational margins...'
+                            : 'No tenant operational cost records logged yet.'}
                         </td>
                       </tr>
                     )}
@@ -1435,7 +1678,9 @@ export default function SuperAdminPortalPage() {
                     {filteredCanonical.length === 0 && (
                       <tr>
                         <td colSpan={5} className="py-8 text-center text-taupe-400">
-                          No canonical dishes match your search.
+                          {canonicalDishes.length === 0 && sectionLoading.canonical
+                            ? 'Loading canonical dish library...'
+                            : 'No canonical dishes match your search.'}
                         </td>
                       </tr>
                     )}
@@ -1545,7 +1790,9 @@ export default function SuperAdminPortalPage() {
                     {claims.length === 0 && (
                       <tr>
                         <td colSpan={5} className="py-8 text-center text-taupe-400">
-                          No ownership claims in queue.
+                          {sectionLoading.claims
+                            ? 'Loading ownership claims...'
+                            : 'No ownership claims in queue.'}
                         </td>
                       </tr>
                     )}
@@ -1647,7 +1894,9 @@ export default function SuperAdminPortalPage() {
 
               {(!ordersData?.recentOrders || ordersData.recentOrders.length === 0) ? (
                 <div className="py-12 text-center text-taupe-500 text-xs">
-                  No orders recorded on the platform yet.
+                  {!ordersData && sectionLoading.orders
+                    ? 'Loading cross-tenant orders...'
+                    : 'No orders recorded on the platform yet.'}
                 </div>
               ) : (
                 <div className="overflow-x-auto w-full">
@@ -2063,6 +2312,155 @@ export default function SuperAdminPortalPage() {
                   />
                 </div>
 
+                {/* Optional Cafe / Restaurant Banner */}
+                <div className="p-3.5 bg-[#110C09] rounded-2xl border border-espresso-800 space-y-2.5">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-cream-100">
+                          Cafe / Venue Banner
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-espresso-800 border border-espresso-700 text-[10px] font-medium text-taupe-300">
+                          Optional
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-taupe-400 mt-0.5">
+                        Shown above the QR header card. Leave blank for a clean text header — no dish image fallback is shown.
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-mono text-taupe-400 bg-[#18100C] border border-espresso-800 px-2 py-1 rounded-lg shrink-0">
+                      1200 × 600 px (2:1)
+                    </span>
+                  </div>
+
+                  {demoBannerError && (
+                    <div role="alert" className="p-2.5 rounded-xl bg-red-950/90 border border-red-800 text-[11px] text-red-200">
+                      {demoBannerError}
+                    </div>
+                  )}
+
+                  {demoCoverUrl.trim() ? (
+                    <div className="space-y-2">
+                      <div className="rounded-xl overflow-hidden border border-espresso-700 bg-[#0D0907] aspect-[2/1] flex items-center justify-center">
+                        {!demoBannerPreviewError ? (
+                          <img
+                            src={demoCoverUrl.trim()}
+                            alt="Demo venue banner preview"
+                            onError={() => setDemoBannerPreviewError(true)}
+                            className="w-full h-full object-cover block"
+                          />
+                        ) : (
+                          <span className="text-[11px] text-taupe-400 px-3 text-center">
+                            Banner preview unavailable for this URL
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] font-mono text-taupe-400">
+                          {demoBannerDimensions ? (
+                            <span
+                              className={
+                                demoBannerDimensions.width < 800 ||
+                                demoBannerDimensions.height < 400 ||
+                                demoBannerDimensions.width <= demoBannerDimensions.height
+                                  ? 'text-amber-300'
+                                  : 'text-emerald-300'
+                              }
+                            >
+                              {demoBannerDimensions.width} × {demoBannerDimensions.height} px
+                              {(demoBannerDimensions.width < 800 ||
+                                demoBannerDimensions.height < 400 ||
+                                demoBannerDimensions.width <= demoBannerDimensions.height) &&
+                                ' (prefer 1200 × 600 landscape)'}
+                            </span>
+                          ) : (
+                            'Banner attached'
+                          )}
+                        </span>
+
+                        <div className="flex items-center gap-2">
+                          <label className="px-2.5 py-1.5 rounded-lg bg-espresso-800 hover:bg-espresso-700 border border-espresso-700 text-cream-100 text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1.5">
+                            {demoBannerUploading ? (
+                              <RefreshCw className="w-3 h-3 animate-spin text-terracotta" />
+                            ) : (
+                              <Upload className="w-3 h-3 text-terracotta" />
+                            )}
+                            <span>{demoBannerUploading ? 'Uploading...' : 'Replace Banner'}</span>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              disabled={demoBannerUploading || demoLoading}
+                              onChange={handleUploadDemoBanner}
+                              className="hidden"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            disabled={demoBannerUploading || demoLoading}
+                            onClick={handleClearDemoBanner}
+                            className="px-2.5 py-1.5 rounded-lg bg-red-950/70 hover:bg-red-900/70 border border-red-800/70 text-red-200 text-[11px] font-semibold inline-flex items-center gap-1 disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Remove</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="cursor-pointer flex items-center justify-between gap-3 p-3 rounded-xl border border-dashed border-espresso-700 hover:border-terracotta bg-[#140E0A] hover:bg-[#19110C] transition-colors">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-espresso-900 border border-espresso-700 flex items-center justify-center text-terracotta shrink-0">
+                          {demoBannerUploading ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <ImageIcon className="w-3.5 h-3.5" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-cream-100 truncate">
+                            {demoBannerUploading ? 'Uploading Cafe Banner...' : 'Upload Cafe Banner Image'}
+                          </div>
+                          <div className="text-[11px] text-taupe-400">
+                            JPG, PNG, or WebP • Ideal 1200 × 600 px • Max 5 MB
+                          </div>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-lg bg-espresso-800 border border-espresso-700 text-[11px] font-semibold text-cream-100 shrink-0">
+                        Browse
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        disabled={demoBannerUploading || demoLoading}
+                        onChange={handleUploadDemoBanner}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+
+                  <div>
+                    <label htmlFor="demo-cover-url" className="sr-only">
+                      Optional Banner Image URL
+                    </label>
+                    <input
+                      id="demo-cover-url"
+                      type="text"
+                      value={demoCoverUrl}
+                      onChange={(e) => {
+                        setDemoCoverUrl(e.target.value);
+                        setDemoBannerError(null);
+                        setDemoBannerPreviewError(false);
+                        setDemoBannerDimensions(null);
+                        if (generatedDemoResult) setGeneratedDemoResult(null);
+                      }}
+                      placeholder="Or paste banner image URL (/uploads/banners/... or https://...)"
+                      style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
+                      className="w-full px-3 py-1.5 rounded-lg bg-[#140E0A] border border-espresso-800 text-[11px] font-mono text-cream-100 placeholder:text-taupe-500 focus:outline-none focus:border-terracotta dark-input"
+                    />
+                  </div>
+                </div>
+
                 {/* Starter Dishes Builder + AI Upload Extraction */}
                 <div className="p-3.5 bg-[#110C09] rounded-2xl border border-espresso-800 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2262,11 +2660,18 @@ export default function SuperAdminPortalPage() {
                   </button>
                   <button
                     type="submit"
-                    disabled={demoLoading || demoExtracting || Boolean(generatedDemoResult)}
+                    disabled={
+                      demoLoading ||
+                      demoExtracting ||
+                      demoBannerUploading ||
+                      Boolean(generatedDemoResult)
+                    }
                     className="px-4 py-2 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white font-semibold text-xs transition-all shadow-md disabled:opacity-50"
                   >
                     {demoLoading
                       ? 'Creating Demo...'
+                      : demoBannerUploading
+                      ? 'Uploading Banner...'
                       : generatedDemoResult
                       ? 'Demo Created'
                       : 'Create Demo Restaurant'}

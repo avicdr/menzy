@@ -20,7 +20,9 @@ import {
   ChevronLeft,
   QrCode,
   Clock,
+  Phone,
 } from 'lucide-react';
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
 import { DishCard } from '@/components/diner/DishCard';
 import { DishDetailSheet } from '@/components/diner/DishDetailSheet';
 import { AIChatSheet } from '@/components/diner/AIChatSheet';
@@ -31,9 +33,14 @@ import { WifiConnectModal } from '@/components/diner/WifiConnectModal';
 import { CallWaiterModal } from '@/components/diner/CallWaiterModal';
 import { RescanTableModal } from '@/components/diner/RescanTableModal';
 import { CartProvider, useCart } from '@/lib/diner/cart-context';
+import {
+  DEFAULT_SCAN_TIMEOUT_MINUTES,
+  type TableSessionTimeoutKind,
+} from '@/lib/diner/table-session-config';
 import { generateThemeVariables, THEME_PRESETS } from '@/lib/theme/theme-presets';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
 import { matchesDietaryFilter } from '@/lib/diner/dietary';
+import { resolveLandingHeroMedia } from '@/lib/banner/banner-validation';
 
 export default function DinerMenuPage() {
   const params = useParams();
@@ -68,6 +75,8 @@ function DinerMenuContent() {
     setTableInfo,
     tableSessionExpired,
     expiredTableName,
+    expiredTimeoutMinutes,
+    expiredTimeoutKind,
     extendTableSession,
     expireTableSession,
     items,
@@ -76,9 +85,40 @@ function DinerMenuContent() {
     setIsCartOpen,
   } = useCart();
 
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pausedState, setPausedState] = useState<{
+    paused: boolean;
+    code?: string;
+    message?: string;
+    restaurantName?: string;
+    supportPhone?: string;
+  } | null>(null);
+
+  const restaurantNameRef = useRef<string | undefined>(undefined);
+  restaurantNameRef.current = data?.restaurant?.displayName;
+
+  const markMenuPaused = useCallback(
+    (payload?: any) => {
+      setIsChatOpen(false);
+      setIsCartOpen(false);
+      setIsCallWaiterOpen(false);
+      setIsRescanOpen(false);
+      setPausedState({
+        paused: true,
+        code: payload?.code,
+        message:
+          payload?.error ||
+          "This restaurant's 14-day free trial or subscription has ended. Live menu viewing and ordering will resume once renewed in the Owner Panel.",
+        restaurantName: payload?.restaurant?.displayName || restaurantNameRef.current,
+        supportPhone: payload?.supportPhone || SUPPORT_PHONE_DISPLAY,
+      });
+    },
+    [setIsCartOpen]
+  );
 
   const [sessionToken, setSessionToken] = useState<string>('');
   const [sessionId, setSessionId] = useState<string>('');
@@ -104,6 +144,7 @@ function DinerMenuContent() {
   const [isRescanOpen, setIsRescanOpen] = useState(false);
   const [rescanReason, setRescanReason] = useState<'EXPIRED' | 'REQUIRED' | 'INVALID_TOKEN'>('EXPIRED');
   const [bannerError, setBannerError] = useState(false);
+  const [logoError, setLogoError] = useState(false);
 
   // Order Confirmation sheet
   const [placedOrder, setPlacedOrder] = useState<any | null>(null);
@@ -121,7 +162,8 @@ function DinerMenuContent() {
 
   useEffect(() => {
     setBannerError(false);
-  }, [data?.restaurant?.coverUrl]);
+    setLogoError(false);
+  }, [data?.restaurant?.coverUrl, data?.restaurant?.logoUrl]);
 
   // 1. Fetch menu & initialize table session
   useEffect(() => {
@@ -145,6 +187,13 @@ function DinerMenuContent() {
 
         if (!alreadyLoadedForSlug) {
           const res = await fetch(`/api/diner/menu?slug=${slug}`, { cache: 'no-store' });
+          if (res.status === 402) {
+            const pausedPayload = await res.json().catch(() => ({}));
+            if (!cancelled) {
+              markMenuPaused(pausedPayload);
+            }
+            return;
+          }
           if (!res.ok) {
             throw new Error('Menu not found');
           }
@@ -177,6 +226,14 @@ function DinerMenuContent() {
 
         if (cancelled) return;
 
+        if (sessRes.status === 402) {
+          const pausedPayload = await sessRes.json().catch(() => ({}));
+          if (!cancelled) {
+            markMenuPaused(pausedPayload);
+          }
+          return;
+        }
+
         if (sessRes.ok) {
           const sessData = await sessRes.json();
           if (cancelled) return;
@@ -208,9 +265,16 @@ function DinerMenuContent() {
               verifiedAt: sessData.tableVerifiedAt || undefined,
               lastOrderAt: sessData.lastOrderAt ?? null,
               expiresAt: sessData.expiresAt || undefined,
+              timeoutMinutes: sessData.timeoutMinutes ?? undefined,
+              timeoutKind: sessData.timeoutKind ?? undefined,
+              scanTimeoutMinutes: sessData.scanTimeoutMinutes ?? undefined,
+              orderExtensionMinutes: sessData.orderExtensionMinutes ?? undefined,
             });
           } else if (sessData.sessionExpired) {
-            expireTableSession(sessData.expiredTableName || null);
+            expireTableSession(sessData.expiredTableName || null, {
+              timeoutMinutes: sessData.timeoutMinutes ?? null,
+              timeoutKind: sessData.timeoutKind ?? null,
+            });
             autoPromptedExpiredRef.current = true;
             openRescanPrompt('EXPIRED');
           } else {
@@ -253,16 +317,21 @@ function DinerMenuContent() {
     return () => {
       cancelled = true;
     };
-  }, [slug, tableToken, tableIdParam, incomingTableToken, incomingQueryKey, setTableInfo, expireTableSession, openRescanPrompt]);
+  }, [slug, tableToken, tableIdParam, incomingTableToken, incomingQueryKey, setTableInfo, expireTableSession, openRescanPrompt, markMenuPaused]);
 
-  // 2. Enforce 30-minute idle timeout in real time across timers, focus & visibility changes
+  // 2. Enforce customized idle timeout in real time across timers, focus & visibility changes
   useEffect(() => {
     if (!tableInfo?.expiresAt) return;
 
     const checkTimeout = () => {
+      const currentNow = Date.now();
+      setNowMs(currentNow);
       const expiresMs = Date.parse(tableInfo.expiresAt!);
-      if (!Number.isNaN(expiresMs) && Date.now() > expiresMs) {
-        expireTableSession(tableInfo.tableName);
+      if (!Number.isNaN(expiresMs) && currentNow > expiresMs) {
+        expireTableSession(tableInfo.tableName, {
+          timeoutMinutes: tableInfo.timeoutMinutes ?? null,
+          timeoutKind: tableInfo.timeoutKind ?? null,
+        });
         autoPromptedExpiredRef.current = true;
         openRescanPrompt('EXPIRED');
         return true;
@@ -292,7 +361,14 @@ function DinerMenuContent() {
       window.removeEventListener('focus', handleWakeUp);
       document.removeEventListener('visibilitychange', handleWakeUp);
     };
-  }, [tableInfo?.expiresAt, tableInfo?.tableName, expireTableSession, openRescanPrompt]);
+  }, [
+    tableInfo?.expiresAt,
+    tableInfo?.tableName,
+    tableInfo?.timeoutMinutes,
+    tableInfo?.timeoutKind,
+    expireTableSession,
+    openRescanPrompt,
+  ]);
 
   // Prompt once on reload if localStorage already flagged an expired table session
   useEffect(() => {
@@ -383,10 +459,22 @@ function DinerMenuContent() {
 
   const handleOrderPlaced = (
     order: any,
-    tableSession?: { lastOrderAt: string; expiresAt: string }
+    tableSession?: {
+      lastOrderAt: string;
+      expiresAt: string;
+      timeoutMinutes?: number;
+      timeoutKind?: TableSessionTimeoutKind;
+      scanTimeoutMinutes?: number;
+      orderExtensionMinutes?: number;
+    }
   ) => {
     if (tableSession?.lastOrderAt && tableSession?.expiresAt) {
-      extendTableSession(tableSession.lastOrderAt, tableSession.expiresAt);
+      extendTableSession(tableSession.lastOrderAt, tableSession.expiresAt, {
+        timeoutMinutes: tableSession.timeoutMinutes,
+        timeoutKind: tableSession.timeoutKind,
+        scanTimeoutMinutes: tableSession.scanTimeoutMinutes,
+        orderExtensionMinutes: tableSession.orderExtensionMinutes,
+      });
     }
     setPlacedOrder(order);
     setIsOrderConfirmationOpen(true);
@@ -398,6 +486,46 @@ function DinerMenuContent() {
         <div className="flex flex-col items-center gap-3">
           <div className="w-10 h-10 border-4 border-terracotta border-t-transparent rounded-full animate-spin" />
           <p className="font-serif text-sm">Preparing visual menu...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (pausedState) {
+    const supportPhone = pausedState.supportPhone || SUPPORT_PHONE_DISPLAY;
+    const supportTelHref = `tel:${supportPhone.replace(/[^+\d]/g, '')}` || SUPPORT_PHONE_HREF;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F7F3EC] p-6 text-center">
+        <div className="max-w-md w-full bg-white p-8 rounded-3xl border border-cream-300 shadow-lifted space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center mx-auto">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <div className="space-y-1.5">
+            {pausedState.restaurantName && (
+              <p className="text-xs font-mono font-bold uppercase tracking-wider text-terracotta">
+                {pausedState.restaurantName}
+              </p>
+            )}
+            <h1 className="font-serif text-2xl font-bold text-espresso-900">
+              Digital Menu Temporarily Paused
+            </h1>
+          </div>
+          <p className="text-sm text-taupe-600 leading-relaxed">
+            {pausedState.message ||
+              "This restaurant's 14-day free trial or subscription has ended. Live menu viewing and table ordering will resume once renewed in the Owner Panel."}
+          </p>
+          <div className="pt-3 border-t border-cream-200 space-y-2">
+            <p className="text-xs text-taupe-500">
+              Restaurant owner? Sign in to buy a subscription in your Billing panel, or call for setup-related queries:
+            </p>
+            <a
+              href={supportTelHref}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-cream-100 hover:bg-cream-200 border border-cream-300 text-xs font-mono font-bold text-espresso-900 transition-colors"
+            >
+              <Phone className="w-3.5 h-3.5 text-terracotta" />
+              <span>{supportPhone}</span>
+            </a>
+          </div>
         </div>
       </div>
     );
@@ -422,6 +550,17 @@ function DinerMenuContent() {
   const { restaurant } = data;
   const theme = data.theme || restaurant?.theme;
   const wifiConfig = data.wifi;
+  const configuredScanTimeoutMinutes: number =
+    data?.tableSession?.scanTimeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES;
+  const effectiveExpiredTimeoutMinutes =
+    expiredTimeoutMinutes ?? configuredScanTimeoutMinutes;
+  const remainingMinutesLabel = (() => {
+    if (!tableInfo?.expiresAt) return null;
+    const expiresMs = Date.parse(tableInfo.expiresAt);
+    if (Number.isNaN(expiresMs) || expiresMs <= nowMs) return null;
+    const mins = Math.max(1, Math.ceil((expiresMs - nowMs) / 60_000));
+    return `${mins}m left`;
+  })();
 
   // Generate dynamic CSS variables
   const themeVars = theme
@@ -452,13 +591,12 @@ function DinerMenuContent() {
       `${restaurant.displayName} ${restaurant.city || ''} review`.trim()
     )}`;
 
-  // Sample showcase dish image for hero emblem if logo is absent
-  const heroArtUrl =
-    restaurant.logoUrl ||
-    allItems.find((i) => i.imageOverride?.publicUrl || i.canonical?.imageAsset?.publicUrl)
-      ?.imageOverride?.publicUrl ||
-    allItems.find((i) => i.canonical?.imageAsset?.publicUrl)?.canonical?.imageAsset?.publicUrl ||
-    '/placeholder-dish.svg';
+  const { bannerUrl: heroBannerUrl, logoUrl: heroLogoUrl } = resolveLandingHeroMedia({
+    coverUrl: restaurant.coverUrl,
+    bannerError,
+    logoUrl: restaurant.logoUrl,
+    logoError,
+  });
 
   return (
     <div
@@ -472,10 +610,10 @@ function DinerMenuContent() {
         <main className="min-h-screen max-w-md mx-auto px-4 py-6 sm:py-10 flex flex-col justify-between">
           <div className="space-y-4 animate-fade-in">
             {/* Hero Branded Card */}
-            {restaurant.coverUrl && !bannerError ? (
+            {heroBannerUrl ? (
               <article className="rounded-3xl overflow-hidden shadow-lifted border border-[var(--dishora-border)] bg-[var(--dishora-surface)]">
                 <img
-                  src={restaurant.coverUrl}
+                  src={heroBannerUrl}
                   alt={`${restaurant.displayName} banner`}
                   fetchPriority="high"
                   onError={() => setBannerError(true)}
@@ -501,6 +639,7 @@ function DinerMenuContent() {
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-[var(--dishora-bg)] text-[var(--dishora-text)] border border-[var(--dishora-border)] shadow-2xs">
                         📍 {tableInfo.tableName}
                         {tableInfo.tableSection ? ` • ${tableInfo.tableSection}` : ''}
+                        {remainingMinutesLabel ? ` • ${remainingMinutesLabel}` : ''}
                       </span>
                     ) : tableSessionExpired ? (
                       <button
@@ -529,27 +668,26 @@ function DinerMenuContent() {
               </article>
             ) : (
               <article
-                className="relative rounded-3xl overflow-hidden shadow-lifted border border-[var(--dishora-border)] p-5 sm:p-6 flex flex-col justify-end min-h-[180px]"
+                className="relative rounded-3xl overflow-hidden shadow-lifted border border-[var(--dishora-border)] p-5 sm:p-6 flex flex-col justify-end"
                 style={{
                   background: `linear-gradient(135deg, ${theme?.accentColor || '#B86D52'}20 0%, ${theme?.surfaceColor || '#FFFFFF'} 100%)`,
                   backgroundColor: 'var(--dishora-surface)',
                 }}
               >
-                {/* Decorative Floating Food Art */}
-                <div className="flex justify-end mb-2">
-                  <div className="w-24 h-24 rounded-2xl overflow-hidden bg-black/5 border border-[var(--dishora-border)] shadow-md">
-                    <img
-                      src={heroArtUrl}
-                      alt={restaurant.displayName}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.src = '/placeholder-dish.svg';
-                      }}
-                    />
+                {heroLogoUrl && (
+                  <div className="flex justify-end mb-3">
+                    <div className="w-20 h-20 rounded-2xl overflow-hidden bg-black/5 border border-[var(--dishora-border)] shadow-md">
+                      <img
+                        src={heroLogoUrl}
+                        alt={restaurant.displayName}
+                        className="w-full h-full object-cover"
+                        onError={() => setLogoError(true)}
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
-                <header className="space-y-2">
+                <header className="space-y-2.5">
                   <div className="flex items-center gap-2.5">
                     <div className="w-10 h-10 rounded-full bg-[var(--dishora-accent)] text-white font-serif font-bold text-lg flex items-center justify-center shadow-sm shrink-0">
                       {restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'}
@@ -569,6 +707,7 @@ function DinerMenuContent() {
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-[var(--dishora-bg)] text-[var(--dishora-text)] border border-[var(--dishora-border)] shadow-2xs">
                         📍 {tableInfo.tableName}
                         {tableInfo.tableSection ? ` • ${tableInfo.tableSection}` : ''}
+                        {remainingMinutesLabel ? ` • ${remainingMinutesLabel}` : ''}
                       </span>
                     ) : tableSessionExpired ? (
                       <button
@@ -602,7 +741,13 @@ function DinerMenuContent() {
                 <div className="flex items-start gap-2.5 min-w-0">
                   <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                   <p className="text-xs text-amber-950 leading-snug">
-                    No order placed in the last 30 min{expiredTableName ? ` (${expiredTableName})` : ''}. Rescan QR to order.
+                    {expiredTimeoutKind === 'ORDER_EXTENSION'
+                      ? `Your ${effectiveExpiredTimeoutMinutes}-min post-order window ended${
+                          expiredTableName ? ` (${expiredTableName})` : ''
+                        }. Rescan QR to order.`
+                      : `No order placed in the last ${effectiveExpiredTimeoutMinutes} min${
+                          expiredTableName ? ` (${expiredTableName})` : ''
+                        }. Rescan QR to order.`}
                   </p>
                 </div>
                 <button
@@ -818,6 +963,7 @@ function DinerMenuContent() {
                 {tableInfo ? (
                   <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
                     📍 Dining at {tableInfo.tableName}
+                    {remainingMinutesLabel ? ` • ${remainingMinutesLabel}` : ''}
                   </span>
                 ) : tableSessionExpired ? (
                   <button
@@ -1015,6 +1161,7 @@ function DinerMenuContent() {
         onClearFocusedDish={() => setFocusedDishForChat(null)}
         onSelectDish={handleOpenDetail}
         publishedItems={allItems}
+        onMenuPaused={markMenuPaused}
       />
 
       {/* Cart Bottom Sheet */}
@@ -1024,11 +1171,13 @@ function DinerMenuContent() {
         currency={restaurant.currency}
         sessionId={sessionId}
         sessionToken={sessionToken}
+        defaultTimeoutMinutes={configuredScanTimeoutMinutes}
         onOrderPlaced={handleOrderPlaced}
         onRequestRescan={(reason) => {
           setIsCartOpen(false);
           openRescanPrompt(reason);
         }}
+        onMenuPaused={markMenuPaused}
       />
 
       {/* Order Confirmation Bottom Sheet */}
@@ -1068,14 +1217,19 @@ function DinerMenuContent() {
         sessionId={sessionId}
         sessionToken={sessionToken}
         tableExpiresAt={tableInfo?.expiresAt}
+        timeoutMinutes={tableInfo?.timeoutMinutes ?? configuredScanTimeoutMinutes}
+        timeoutKind={tableInfo?.timeoutKind ?? 'SCAN'}
         isSessionExpired={tableSessionExpired}
         expiredTableName={expiredTableName}
+        expiredTimeoutMinutes={effectiveExpiredTimeoutMinutes}
+        expiredTimeoutKind={expiredTimeoutKind}
         onSessionExpired={expireTableSession}
         onSyncTable={setTableInfo}
         onRequestRescan={(reason) => {
           setIsCallWaiterOpen(false);
           openRescanPrompt(reason);
         }}
+        onMenuPaused={markMenuPaused}
       />
 
       {/* Table Session Rescan Prompt Modal */}
@@ -1086,6 +1240,8 @@ function DinerMenuContent() {
         restaurantName={restaurant.displayName}
         reason={rescanReason}
         expiredTableName={expiredTableName}
+        timeoutMinutes={effectiveExpiredTimeoutMinutes}
+        timeoutKind={expiredTimeoutKind}
       />
     </div>
   );

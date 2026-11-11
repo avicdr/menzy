@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
+import { createOwnerAccessDeniedResponse, requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import { createSubscriptionSession } from '@/lib/payments/razorpay';
-import { PLAN_CATALOG, PlanKey } from '@/lib/payments/plans';
+import { PLAN_CATALOG, PlanKey, TRIAL_PLAN_KEY } from '@/lib/payments/plans';
 
 export async function POST(req: Request) {
   try {
@@ -11,14 +11,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'restaurantId and planKey are required' }, { status: 400 });
     }
 
+    if (planKey === TRIAL_PLAN_KEY) {
+      return NextResponse.json(
+        { error: 'Trial plan is activated automatically for 14 days with no payment method required.' },
+        { status: 400 }
+      );
+    }
+
     const plan = PLAN_CATALOG[planKey as PlanKey];
     if (!plan) {
       return NextResponse.json({ error: 'Invalid subscription plan key.' }, { status: 400 });
     }
 
-    const auth = await requireRestaurantAccess(restaurantId);
+    const auth = await requireRestaurantAccess(restaurantId, {
+      allowDuringExpiredSubscription: true,
+    });
     if (!auth.authorized || !auth.restaurant?.organizationId) {
-      return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
+      return createOwnerAccessDeniedResponse(auth, 403);
     }
 
     const accountCountry = (

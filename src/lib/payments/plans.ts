@@ -6,6 +6,43 @@ export type PlanKey =
   | 'US_GROWTH'
   | 'US_PRO';
 
+export const FREE_TRIAL_DAYS = 14;
+export const TRIAL_PLAN_KEY = 'FREE_TRIAL' as const;
+
+export interface TrialPlanDefinition {
+  key: typeof TRIAL_PLAN_KEY;
+  tier: 'TRIAL';
+  name: string;
+  trialDays: number;
+  priceMinor: 0;
+  monthlyPriceFormatted: string;
+  requiresPaymentMethod: false;
+  itemLimit: number;
+  imageCreditsMonthly: number;
+  aiQuestionsMonthly: number;
+  allowCustomColors: boolean;
+  allowUpsellingPairings: boolean;
+  allowMultipleMenus: boolean;
+  analyticsTier: 'BASIC' | 'ADVANCED';
+}
+
+export const TRIAL_PLAN: TrialPlanDefinition = {
+  key: TRIAL_PLAN_KEY,
+  tier: 'TRIAL',
+  name: 'Trial',
+  trialDays: FREE_TRIAL_DAYS,
+  priceMinor: 0,
+  monthlyPriceFormatted: 'Free for 14 days',
+  requiresPaymentMethod: false,
+  itemLimit: 100,
+  imageCreditsMonthly: 15,
+  aiQuestionsMonthly: 1000,
+  allowCustomColors: true,
+  allowUpsellingPairings: true,
+  allowMultipleMenus: true,
+  analyticsTier: 'ADVANCED',
+};
+
 export interface PlanDefinition {
   key: PlanKey;
   tier: 'STARTER' | 'GROWTH' | 'PRO';

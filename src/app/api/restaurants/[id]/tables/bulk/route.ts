@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
+import { createTenantAccessDeniedResponse, verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 import { bulkCreateRestaurantTables } from '@/lib/tables/table-service';
 import { normalizeSiteUrl } from '@/lib/seo';
 
@@ -11,7 +11,7 @@ export async function POST(
     const { id } = await params;
     const auth = await verifyRestaurantOwnerAccess(id);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
     }
 
     const body = await req.json();

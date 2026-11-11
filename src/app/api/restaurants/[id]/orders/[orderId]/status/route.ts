@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { verifyStaffOrOwnerAccess } from '@/lib/auth/tenant-verify';
+import { createTenantAccessDeniedResponse, verifyStaffOrOwnerAccess } from '@/lib/auth/tenant-verify';
 import { updateOrderStatus } from '@/lib/orders/order-service';
 import { OrderStatus } from '@prisma/client';
 
@@ -9,9 +9,9 @@ export async function PATCH(
 ) {
   try {
     const { id, orderId } = await params;
-    const auth = await verifyStaffOrOwnerAccess(id);
+    const auth = await verifyStaffOrOwnerAccess(id, undefined, { includeDetails: false });
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
     }
 
     const body = await req.json();

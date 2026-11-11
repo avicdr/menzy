@@ -2,6 +2,11 @@
 
 import React, { useEffect, useRef, useState, useCallback, useId } from 'react';
 import { QrCode, Camera, Clock, X, ShieldAlert, AlertTriangle, RefreshCw } from 'lucide-react';
+import {
+  DEFAULT_SCAN_TIMEOUT_MINUTES,
+  formatMinutesLabel,
+  type TableSessionTimeoutKind,
+} from '@/lib/diner/table-session-config';
 
 interface BarcodeDetectionResult {
   rawValue?: string;
@@ -23,6 +28,8 @@ interface RescanTableModalProps {
   restaurantName: string;
   reason?: 'EXPIRED' | 'REQUIRED' | 'INVALID_TOKEN';
   expiredTableName?: string | null;
+  timeoutMinutes?: number | null;
+  timeoutKind?: TableSessionTimeoutKind | null;
 }
 
 export function RescanTableModal({
@@ -32,6 +39,8 @@ export function RescanTableModal({
   restaurantName,
   reason = 'EXPIRED',
   expiredTableName,
+  timeoutMinutes,
+  timeoutKind,
 }: RescanTableModalProps) {
   const headingId = useId();
   const dialogRef = useRef<HTMLDialogElement | null>(null);
@@ -231,6 +240,12 @@ export function RescanTableModal({
     pointerDownOutsideRef.current = false;
   };
 
+  const effectiveTimeoutMinutes =
+    typeof timeoutMinutes === 'number' && Number.isFinite(timeoutMinutes) && timeoutMinutes >= 1
+      ? Math.round(timeoutMinutes)
+      : DEFAULT_SCAN_TIMEOUT_MINUTES;
+  const effectiveDurationLabel = formatMinutesLabel(effectiveTimeoutMinutes);
+
   const titleText =
     reason === 'INVALID_TOKEN'
       ? 'Table QR Updated'
@@ -243,9 +258,13 @@ export function RescanTableModal({
       ? 'This table QR link is no longer valid or was refreshed by staff. Please scan the current QR code at your table.'
       : reason === 'REQUIRED'
         ? 'Connect to your table by scanning the table QR code before sending orders to the kitchen or calling a waiter.'
-        : `No order has been placed from this device in the last 30 minutes${
-            expiredTableName ? ` (${expiredTableName})` : ''
-          }. To ensure only guests currently seated at the table can place orders, please rescan the table QR code.`;
+        : timeoutKind === 'ORDER_EXTENSION'
+          ? `Your ${effectiveDurationLabel} ordering window after your last order has ended${
+              expiredTableName ? ` (${expiredTableName})` : ''
+            }. To order additional items, please rescan the table QR code.`
+          : `No order has been placed from this device in the last ${effectiveDurationLabel}${
+              expiredTableName ? ` (${expiredTableName})` : ''
+            }. To ensure only guests currently seated at the table can place orders, please rescan the table QR code.`;
 
   return (
     <dialog
@@ -276,7 +295,7 @@ export function RescanTableModal({
             <div>
               <span className="inline-block text-[10px] font-mono font-bold uppercase tracking-wider text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full mb-1">
                 {reason === 'EXPIRED'
-                  ? '30-Min Session Timeout'
+                  ? `${effectiveTimeoutMinutes}-Min Session Timeout`
                   : reason === 'INVALID_TOKEN'
                     ? 'QR Code Verification'
                     : 'Table Verification Required'}

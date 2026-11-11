@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { PublicationState, Role } from '@prisma/client';
 import prisma from '../src/lib/db/prisma';
+import { provisionTrialSubscriptionWithinTx } from '../src/lib/billing/subscription-access';
 
 vi.mock('next/headers', () => ({
   cookies: async () => ({
@@ -34,31 +36,86 @@ describe('Table Session 30-Minute Idle Expiry & Rescan Enforcement', () => {
   const createdSessionTokens: string[] = [];
   const createdOrderIds: string[] = [];
   const createdServiceCallIds: string[] = [];
+  let createdRestaurantId: string | null = null;
+  let createdOrgId: string | null = null;
+  let createdOwnerUserId: string | null = null;
 
   beforeAll(async () => {
-    restaurant = await prisma.restaurant.findFirst({
-      where: { slug: 'chai-and-chutney' },
-      include: {
-        menuItems: {
-          where: { isPublished: true, isAvailable: true },
-          include: {
-            modifierGroups: {
-              include: { options: true },
-            },
-          },
-        },
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const ownerUser = await prisma.user.create({
+      data: {
+        email: `expiry-owner-${suffix}@menzy.test`,
+        name: 'Expiry Test Owner',
+        passwordHash: 'test-hash',
+      },
+    });
+    createdOwnerUserId = ownerUser.id;
+
+    const org = await prisma.organization.create({
+      data: {
+        name: `Expiry Test Org ${suffix}`,
+        ownerUserId: ownerUser.id,
+        billingCountry: 'IN',
+        billingCurrency: 'INR',
+      },
+    });
+    createdOrgId = org.id;
+
+    await prisma.organizationMember.create({
+      data: {
+        organizationId: org.id,
+        userId: ownerUser.id,
+        role: Role.OWNER,
       },
     });
 
-    expect(restaurant).not.toBeNull();
-    menuItem = restaurant.menuItems[0];
-    expect(menuItem).toBeDefined();
+    await provisionTrialSubscriptionWithinTx(prisma, {
+      organizationId: org.id,
+      currency: 'INR',
+    });
 
-    for (const grp of menuItem.modifierGroups || []) {
-      if (grp.required && grp.options?.length > 0) {
-        requiredModifierIds.push(grp.options[0].id);
-      }
-    }
+    const createdRestaurant = await prisma.restaurant.create({
+      data: {
+        organizationId: org.id,
+        slug: `test-session-expiry-${suffix}`,
+        displayName: `Test Session Expiry ${suffix}`,
+        country: 'IN',
+        city: 'Bengaluru',
+        currency: 'INR',
+        publicationState: PublicationState.PUBLISHED,
+        isClaimed: true,
+      },
+    });
+    createdRestaurantId = createdRestaurant.id;
+
+    const menu = await prisma.menu.create({
+      data: {
+        restaurantId: createdRestaurant.id,
+        title: 'Test Menu',
+        active: true,
+      },
+    });
+    const category = await prisma.menuCategory.create({
+      data: {
+        menuId: menu.id,
+        name: 'Mains',
+        sortOrder: 1,
+      },
+    });
+    menuItem = await prisma.restaurantMenuItem.create({
+      data: {
+        restaurantId: createdRestaurant.id,
+        menuId: menu.id,
+        categoryId: category.id,
+        customName: 'Masala Chai',
+        priceMinor: 12000,
+        currency: 'INR',
+        isPublished: true,
+        isAvailable: true,
+        sortOrder: 1,
+      },
+    });
+    restaurant = createdRestaurant;
 
     const t1 = await createRestaurantTable({
       restaurantId: restaurant.id,
@@ -102,6 +159,21 @@ describe('Table Session 30-Minute Idle Expiry & Rescan Enforcement', () => {
     if (createdTableIds.length > 0) {
       await prisma.restaurantTable
         .deleteMany({ where: { id: { in: createdTableIds } } })
+        .catch(() => {});
+    }
+    if (createdRestaurantId) {
+      await prisma.restaurant
+        .deleteMany({ where: { id: createdRestaurantId } })
+        .catch(() => {});
+    }
+    if (createdOrgId) {
+      await prisma.organization
+        .deleteMany({ where: { id: createdOrgId } })
+        .catch(() => {});
+    }
+    if (createdOwnerUserId) {
+      await prisma.user
+        .deleteMany({ where: { id: createdOwnerUserId } })
         .catch(() => {});
     }
   });

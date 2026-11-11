@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
+import {
+  createSubscriptionExpiredResponse,
+  evaluateOrganizationAccess,
+} from '@/lib/billing/subscription-access';
 
 export async function GET(
   req: Request,
@@ -7,12 +11,50 @@ export async function GET(
 ) {
   try {
     const { orderId } = await params;
+    const now = new Date();
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: {
         table: { select: { name: true, section: true } },
-        restaurant: { select: { displayName: true, slug: true, currency: true } },
+        restaurant: {
+          select: {
+            id: true,
+            displayName: true,
+            slug: true,
+            currency: true,
+            isClaimed: true,
+            organizationId: true,
+            organization: {
+              select: {
+                subscriptions: {
+                  take: 1,
+                  select: {
+                    planKey: true,
+                    status: true,
+                    provider: true,
+                    billingPeriod: true,
+                    paidThrough: true,
+                    cancelAtPeriodEnd: true,
+                    createdAt: true,
+                  },
+                },
+                entitlements: {
+                  where: {
+                    isActive: true,
+                    expirationDate: { gt: now },
+                  },
+                  select: {
+                    grantType: true,
+                    tierOrValue: true,
+                    isActive: true,
+                    expirationDate: true,
+                  },
+                },
+              },
+            },
+          },
+        },
         items: true,
         statusHistory: {
           orderBy: { createdAt: 'asc' },
@@ -23,6 +65,22 @@ export async function GET(
 
     if (!order) {
       return NextResponse.json({ error: 'Order not found.' }, { status: 404 });
+    }
+
+    const subAccess = evaluateOrganizationAccess({
+      organizationId: order.restaurant.organizationId,
+      isClaimed: order.restaurant.isClaimed,
+      subscription: order.restaurant.organization?.subscriptions?.[0] ?? null,
+      activeGrants: order.restaurant.organization?.entitlements ?? [],
+      now,
+    });
+    if (!subAccess.allowed) {
+      return createSubscriptionExpiredResponse(subAccess, {
+        restaurantId: order.restaurant.id,
+        restaurantSlug: order.restaurant.slug,
+        restaurantName: order.restaurant.displayName,
+        audience: 'DINER',
+      });
     }
 
     return NextResponse.json({

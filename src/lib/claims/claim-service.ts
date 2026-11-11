@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import prisma from '@/lib/db/prisma';
 import { ClaimStatus } from '@prisma/client';
 import { normalizeSiteUrl } from '@/lib/seo';
+import { provisionTrialSubscriptionWithinTx } from '@/lib/billing/subscription-access';
 
 export function hashClaimToken(rawClaimToken: string): string {
   return crypto.createHash('sha256').update(rawClaimToken).digest('hex');
@@ -258,9 +259,15 @@ export async function redeemClaimWithinTransaction(
       },
     });
     if (callerMember) {
+      const { subscription, created: trialCreated } = await provisionTrialSubscriptionWithinTx(tx, {
+        organizationId: claim.restaurant.organizationId,
+        currency: claim.restaurant.currency,
+      });
       return {
         restaurant: claim.restaurant,
         organizationId: claim.restaurant.organizationId,
+        subscription,
+        trialCreated,
         alreadyClaimedByUser: true,
       };
     }
@@ -346,6 +353,12 @@ export async function redeemClaimWithinTransaction(
 
   const updatedRestaurant = await tx.restaurant.findUniqueOrThrow({
     where: { id: claim.restaurantId },
+  });
+
+  // Automatically provision a 14-day Free Trial with zero payment method required
+  const { subscription, created: trialCreated } = await provisionTrialSubscriptionWithinTx(tx, {
+    organizationId: targetOrgId,
+    currency: updatedRestaurant.currency,
   });
 
   await tx.restaurantSettings.upsert({
@@ -434,6 +447,8 @@ export async function redeemClaimWithinTransaction(
   return {
     restaurant: updatedRestaurant,
     organizationId: targetOrgId,
+    subscription,
+    trialCreated,
     alreadyClaimedByUser: false,
   };
 }

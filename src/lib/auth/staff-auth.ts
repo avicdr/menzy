@@ -13,6 +13,25 @@ export interface StaffSessionPayload {
   displayName: string;
   loginId: string;
   role: StaffRole;
+  organizationId?: string | null;
+  isClaimed?: boolean;
+  organization?: {
+    subscriptions: Array<{
+      planKey: string;
+      status: string;
+      provider: string;
+      billingPeriod: string;
+      paidThrough: Date | null;
+      cancelAtPeriodEnd: boolean;
+      createdAt: Date;
+    }>;
+    entitlements: Array<{
+      grantType: string;
+      tierOrValue: string | null;
+      isActive: boolean;
+      expirationDate: Date;
+    }>;
+  } | null;
 }
 
 export type StaffAction =
@@ -197,6 +216,7 @@ export async function getStaffSession(): Promise<StaffSessionPayload | null> {
 
   const sessionTokenHash = hashToken(token);
 
+  const now = new Date();
   const session = await prisma.staffSession.findUnique({
     where: { sessionTokenHash },
     include: {
@@ -208,6 +228,36 @@ export async function getStaffSession(): Promise<StaffSessionPayload | null> {
               slug: true,
               displayName: true,
               publicationState: true,
+              organizationId: true,
+              isClaimed: true,
+              organization: {
+                select: {
+                  subscriptions: {
+                    take: 1,
+                    select: {
+                      planKey: true,
+                      status: true,
+                      provider: true,
+                      billingPeriod: true,
+                      paidThrough: true,
+                      cancelAtPeriodEnd: true,
+                      createdAt: true,
+                    },
+                  },
+                  entitlements: {
+                    where: {
+                      isActive: true,
+                      expirationDate: { gt: now },
+                    },
+                    select: {
+                      grantType: true,
+                      tierOrValue: true,
+                      isActive: true,
+                      expirationDate: true,
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -217,7 +267,7 @@ export async function getStaffSession(): Promise<StaffSessionPayload | null> {
 
   if (!session) return null;
   if (session.revokedAt) return null;
-  if (new Date() > session.expiresAt) return null;
+  if (now > session.expiresAt) return null;
   if (!session.staff.isActive) return null; // Disabled staff accounts lose access immediately
 
   return {
@@ -228,6 +278,9 @@ export async function getStaffSession(): Promise<StaffSessionPayload | null> {
     displayName: session.staff.displayName,
     loginId: session.staff.loginId,
     role: session.staff.role,
+    organizationId: session.staff.restaurant.organizationId,
+    isClaimed: session.staff.restaurant.isClaimed,
+    organization: session.staff.restaurant.organization,
   };
 }
 

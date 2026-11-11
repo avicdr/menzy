@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import prisma from '../db/prisma';
+import { getCache } from '../cache/redis';
 import { PLAN_CATALOG, PlanDefinition, PlanKey } from './plans';
 import { SubscriptionStatus } from '@prisma/client';
 
@@ -120,21 +121,25 @@ export async function createSubscriptionSession(params: {
         customer_notify: 1,
       });
 
-      // Upsert pending subscription in DB
+      // Upsert pending subscription in DB (preserve existing paidThrough while checkout is pending)
       await prisma.subscription.upsert({
         where: { organizationId: params.organizationId },
         update: {
+          provider: 'RAZORPAY',
           planKey: plan.key,
           providerSubscriptionId: sub.id,
           status: SubscriptionStatus.PENDING,
           currency: plan.currency,
+          billingPeriod: 'MONTHLY',
         },
         create: {
           organizationId: params.organizationId,
+          provider: 'RAZORPAY',
           planKey: plan.key,
           providerSubscriptionId: sub.id,
           status: SubscriptionStatus.PENDING,
           currency: plan.currency,
+          billingPeriod: 'MONTHLY',
         },
       });
 
@@ -155,17 +160,21 @@ export async function createSubscriptionSession(params: {
   await prisma.subscription.upsert({
     where: { organizationId: params.organizationId },
     update: {
+      provider: 'RAZORPAY',
       planKey: plan.key,
       providerSubscriptionId: mockSubId,
       status: SubscriptionStatus.PENDING,
       currency: plan.currency,
+      billingPeriod: 'MONTHLY',
     },
     create: {
       organizationId: params.organizationId,
+      provider: 'RAZORPAY',
       planKey: plan.key,
       providerSubscriptionId: mockSubId,
       status: SubscriptionStatus.PENDING,
       currency: plan.currency,
+      billingPeriod: 'MONTHLY',
     },
   });
 
@@ -245,6 +254,8 @@ export async function processRazorpayWebhookEvent(event: {
       await prisma.subscription.update({
         where: { id: subscription.id },
         data: {
+          provider: 'RAZORPAY',
+          billingPeriod: 'MONTHLY',
           status: SubscriptionStatus.ACTIVE,
           paidThrough,
           cancelAtPeriodEnd: false,
@@ -259,13 +270,22 @@ export async function processRazorpayWebhookEvent(event: {
         });
 
         if (!existingCredit) {
+          const currentBalance = await prisma.creditLedger.aggregate({
+            where: {
+              organizationId: subscription.organizationId,
+              creditType: 'IMAGE_GENERATION',
+            },
+            _sum: { delta: true },
+          });
+          const balanceAfter = (currentBalance._sum.delta ?? 0) + plan.imageCreditsMonthly;
+
           await prisma.creditLedger.create({
             data: {
               organizationId: subscription.organizationId,
               subscriptionId: subscription.id,
               creditType: 'IMAGE_GENERATION',
               delta: plan.imageCreditsMonthly,
-              balanceAfter: plan.imageCreditsMonthly,
+              balanceAfter,
               reason: `Monthly renewal: ${plan.name}`,
               idempotencyKey: creditKey,
             },
@@ -291,6 +311,16 @@ export async function processRazorpayWebhookEvent(event: {
       });
       break;
     }
+  }
+
+  // Invalidate cached public menu payloads so restoration or pause takes effect immediately
+  const orgRestaurants = await prisma.restaurant.findMany({
+    where: { organizationId: subscription.organizationId },
+    select: { slug: true },
+  });
+  if (orgRestaurants.length > 0) {
+    const cache = getCache();
+    await Promise.all(orgRestaurants.map((r) => cache.del(`menu:slug:${r.slug}`)));
   }
 
   return { status: 'PROCESSED_SUCCESSFULLY' };

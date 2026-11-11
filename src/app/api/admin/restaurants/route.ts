@@ -13,6 +13,7 @@ import {
   normalizeCategoryKey,
   resolvePrimaryDietaryBucket,
 } from '@/lib/menu/deduplicate';
+import { validateBannerUrlInput } from '@/lib/banner/banner-validation';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,20 +24,34 @@ export async function GET() {
   }
 
   const restaurants = await prisma.restaurant.findMany({
-    include: {
+    select: {
+      id: true,
+      slug: true,
+      displayName: true,
+      description: true,
+      country: true,
+      city: true,
+      currency: true,
+      coverUrl: true,
+      publicationState: true,
+      isClaimed: true,
+      organizationId: true,
+      createdAt: true,
       organization: {
-        include: {
-          subscriptions: true,
-          members: { include: { user: true } },
-          entitlements: { where: { isActive: true } },
+        select: {
+          id: true,
+          name: true,
+          subscriptions: {
+            take: 1,
+            select: {
+              id: true,
+              planKey: true,
+              status: true,
+              paidThrough: true,
+            },
+          },
         },
       },
-      menus: {
-        include: {
-          _count: { select: { items: true } },
-        },
-      },
-      theme: true,
       claimRequests: {
         orderBy: { createdAt: 'desc' },
         take: 1,
@@ -97,6 +112,7 @@ export async function POST(req: Request) {
       city,
       currency,
       description,
+      coverUrl,
       themePreset,
       tableCount,
       sampleDishes,
@@ -106,6 +122,12 @@ export async function POST(req: Request) {
     if (!trimmedName) {
       return NextResponse.json({ error: 'Restaurant display name required' }, { status: 400 });
     }
+
+    const coverUrlValidation = validateBannerUrlInput(coverUrl);
+    if (!coverUrlValidation.ok) {
+      return NextResponse.json({ error: coverUrlValidation.error }, { status: 400 });
+    }
+    const resolvedCoverUrl = coverUrlValidation.value ?? null;
 
     const selectedCountry = country === 'US' ? 'US' : 'IN';
     const selectedCurrency =
@@ -271,6 +293,7 @@ export async function POST(req: Request) {
             description:
               (typeof description === 'string' ? description.trim() : '') ||
               'Artisanal demo menu curated by the Menzy team.',
+            coverUrl: resolvedCoverUrl,
             publicationState: PublicationState.PUBLISHED,
             isClaimed: false,
           },
@@ -437,6 +460,8 @@ export async function POST(req: Request) {
         duplicatesSkippedCount,
         canonicalMatchedCount,
         themePreset: resolvedPresetKey,
+        hasCoverBanner: Boolean(resolvedCoverUrl),
+        coverUrl: resolvedCoverUrl,
       },
       reason: 'Created authorized demo menu for prospective venue',
     });

@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server';
-import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
+import { createOwnerAccessDeniedResponse, requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import prisma from '@/lib/db/prisma';
 import { getCache } from '@/lib/cache/redis';
 import { normalizeGuestWifiInput, type GuestWifiConfig } from '@/lib/wifi/wifi-qr';
+import { validateBannerUrlInput } from '@/lib/banner/banner-validation';
+import { THEME_PRESETS, normalizeThemeFont } from '@/lib/theme/theme-presets';
+import {
+  extractTableSessionConfig,
+  normalizeTableSessionConfigInput,
+  type TableSessionConfig,
+} from '@/lib/diner/table-session-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,30 +23,46 @@ export async function GET(req: Request) {
     }
 
     const auth = await requireRestaurantAccess(restaurantId);
-    if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
+    if (!auth.authorized || !auth.restaurant) {
+      return createOwnerAccessDeniedResponse(auth, 403);
     }
 
-    const restaurant = await prisma.restaurant.findUnique({
-      where: { id: restaurantId },
-      include: {
-        settings: true,
-        orderingSettings: true,
-      },
-    });
+    const hasEmbeddedSettings =
+      'settings' in auth.restaurant && 'theme' in auth.restaurant;
 
-    if (!restaurant) {
-      return NextResponse.json({ error: 'Restaurant not found' }, { status: 404 });
-    }
+    const [orderingSettings, hydratedRestaurant] = await Promise.all([
+      prisma.restaurantOrderingSettings.findUnique({
+        where: { restaurantId: auth.restaurant.id },
+        select: { notificationSettings: true },
+      }),
+      hasEmbeddedSettings
+        ? Promise.resolve(null)
+        : prisma.restaurant.findUnique({
+            where: { id: auth.restaurant.id },
+            include: { settings: true, theme: true },
+          }),
+    ]);
 
-    const notifSettings = (restaurant.orderingSettings?.notificationSettings as Record<string, any>) || {};
+    const restaurantRecord = hydratedRestaurant || auth.restaurant;
+    const rawTheme = restaurantRecord.theme || THEME_PRESETS.WARM_EDITORIAL;
+    const theme = {
+      ...rawTheme,
+      headingFont: normalizeThemeFont(rawTheme.headingFont, 'Plus Jakarta Sans'),
+      bodyFont: normalizeThemeFont(rawTheme.bodyFont, 'Inter'),
+    };
+
+    const { organization: _org, theme: _theme, ...restaurant } = restaurantRecord;
+    const notifSettings = (orderingSettings?.notificationSettings as Record<string, any>) || {};
     const wifi = notifSettings?.wifi || { enabled: false, ssid: '', password: '', security: 'WPA' };
+    const tableSession = extractTableSessionConfig(notifSettings);
 
     return NextResponse.json(
       {
         restaurant,
         wifi,
-        settings: restaurant.settings || {
+        tableSession,
+        theme,
+        settings: restaurantRecord.settings || {
           welcomeMessage: 'Welcome! Explore our dishes or ask our AI waiter anything.',
           aiTone: 'Warm Editorial & Helpful',
           allowDinerChat: true,
@@ -72,6 +95,7 @@ export async function PATCH(req: Request) {
       googleReviewUrl,
       coverUrl,
       wifi,
+      tableSession,
       welcomeMessage,
       aiTone,
       allowDinerChat,
@@ -85,7 +109,7 @@ export async function PATCH(req: Request) {
 
     const auth = await requireRestaurantAccess(restaurantId);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
+      return createOwnerAccessDeniedResponse(auth, 403);
     }
 
     // Validate Wi-Fi configuration before mutating restaurant or settings records
@@ -101,6 +125,25 @@ export async function PATCH(req: Request) {
       savedWifi = parsedWifi.wifi;
     }
 
+    // Validate Table Session timeout configuration before mutating records
+    let savedTableSession: TableSessionConfig | undefined;
+    let existingNotifSettings: Record<string, any> | undefined;
+    if (tableSession !== undefined) {
+      const existingOrd = await prisma.restaurantOrderingSettings.findUnique({
+        where: { restaurantId },
+        select: { notificationSettings: true },
+      });
+      existingNotifSettings = (existingOrd?.notificationSettings as Record<string, any>) || {};
+      const parsedTableSession = normalizeTableSessionConfigInput(
+        tableSession,
+        extractTableSessionConfig(existingNotifSettings)
+      );
+      if (!parsedTableSession.ok) {
+        return NextResponse.json({ error: parsedTableSession.error }, { status: 400 });
+      }
+      savedTableSession = parsedTableSession.tableSession;
+    }
+
     // 1. Update Restaurant base attributes
     const restaurantUpdates: any = {};
     if (displayName !== undefined) restaurantUpdates.displayName = displayName;
@@ -114,25 +157,11 @@ export async function PATCH(req: Request) {
     if (email !== undefined) restaurantUpdates.email = email;
     if (googleReviewUrl !== undefined) restaurantUpdates.googleReviewUrl = googleReviewUrl;
     if (coverUrl !== undefined) {
-      if (coverUrl === null || (typeof coverUrl === 'string' && coverUrl.trim() === '')) {
-        restaurantUpdates.coverUrl = null;
-      } else if (typeof coverUrl === 'string') {
-        const trimmedUrl = coverUrl.trim();
-        if (
-          !trimmedUrl.startsWith('/uploads/') &&
-          !trimmedUrl.startsWith('/api/storage/') &&
-          !trimmedUrl.startsWith('https://') &&
-          !trimmedUrl.startsWith('http://')
-        ) {
-          return NextResponse.json(
-            { error: 'Banner image URL must be an uploaded asset path or a valid http(s) URL.' },
-            { status: 400 }
-          );
-        }
-        restaurantUpdates.coverUrl = trimmedUrl;
-      } else {
-        return NextResponse.json({ error: 'Invalid banner image URL' }, { status: 400 });
+      const parsedCover = validateBannerUrlInput(coverUrl);
+      if (!parsedCover.ok) {
+        return NextResponse.json({ error: parsedCover.error }, { status: 400 });
       }
+      restaurantUpdates.coverUrl = parsedCover.value;
     }
 
     const updatedRestaurant = await prisma.restaurant.update({
@@ -161,26 +190,29 @@ export async function PATCH(req: Request) {
       update: settingsUpdates,
     });
 
-    if (savedWifi) {
-      const existingOrd = await prisma.restaurantOrderingSettings.findUnique({
-        where: { restaurantId },
-        select: { notificationSettings: true },
-      });
-      const currentNotifs = (existingOrd?.notificationSettings as Record<string, any>) || {};
+    if (savedWifi || savedTableSession) {
+      const currentNotifs =
+        existingNotifSettings ??
+        ((
+          await prisma.restaurantOrderingSettings.findUnique({
+            where: { restaurantId },
+            select: { notificationSettings: true },
+          })
+        )?.notificationSettings as Record<string, any>) ??
+        {};
+      const nextNotifs: Record<string, any> = {
+        ...currentNotifs,
+        ...(savedWifi ? { wifi: savedWifi } : {}),
+        ...(savedTableSession ? { tableSession: { ...savedTableSession } } : {}),
+      };
       await prisma.restaurantOrderingSettings.upsert({
         where: { restaurantId },
         create: {
           restaurantId,
-          notificationSettings: {
-            ...currentNotifs,
-            wifi: savedWifi,
-          },
+          notificationSettings: nextNotifs as any,
         },
         update: {
-          notificationSettings: {
-            ...currentNotifs,
-            wifi: savedWifi,
-          },
+          notificationSettings: nextNotifs as any,
         },
       });
     }
@@ -194,6 +226,7 @@ export async function PATCH(req: Request) {
       restaurant: updatedRestaurant,
       settings: updatedSettings,
       ...(savedWifi ? { wifi: savedWifi } : {}),
+      ...(savedTableSession ? { tableSession: savedTableSession } : {}),
     });
   } catch (error: any) {
     console.error('Restaurant settings PATCH error:', error);

@@ -6,6 +6,10 @@ import {
   hashToken,
   setStaffSessionCookie,
 } from '@/lib/auth/staff-auth';
+import {
+  checkRestaurantSubscriptionAccess,
+  createSubscriptionExpiredResponse,
+} from '@/lib/billing/subscription-access';
 
 export async function POST(req: Request) {
   try {
@@ -47,6 +51,16 @@ export async function POST(req: Request) {
     const isValid = verifyStaffPassword(password, staff.passwordHash);
     if (!isValid) {
       return NextResponse.json({ error: 'Invalid staff credentials.' }, { status: 401 });
+    }
+
+    const subAccess = await checkRestaurantSubscriptionAccess(staff.restaurantId, { byIdOnly: true });
+    if (subAccess.found && !subAccess.access.allowed) {
+      return createSubscriptionExpiredResponse(subAccess.access, {
+        restaurantId: subAccess.restaurant?.id || staff.restaurantId,
+        restaurantSlug: subAccess.restaurant?.slug || staff.restaurant.slug,
+        restaurantName: subAccess.restaurant?.displayName || staff.restaurant.displayName,
+        audience: 'STAFF',
+      });
     }
 
     // Generate secure session

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { verifyStaffOrOwnerAccess } from '@/lib/auth/tenant-verify';
+import { createTenantAccessDeniedResponse, verifyStaffOrOwnerAccess } from '@/lib/auth/tenant-verify';
 import {
   getHourInTimezone,
   getStartOfDayInTimezone,
@@ -15,7 +15,7 @@ export async function GET(
     const { id } = await params;
     const auth = await verifyStaffOrOwnerAccess(id, 'VIEW_ANALYTICS');
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
     }
 
     const now = new Date();

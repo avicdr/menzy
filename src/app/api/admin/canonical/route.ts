@@ -13,14 +13,22 @@ export async function GET() {
   }
 
   const rawDishes = await prisma.canonicalDish.findMany({
-    include: {
-      imageAsset: true,
-      canonicalAliases: true,
-      canonicalAssets: {
-        include: { asset: true },
+    select: {
+      id: true,
+      normalizedName: true,
+      cuisine: true,
+      generalizedDescription: true,
+      reviewState: true,
+      aliases: true,
+      imageAsset: {
+        select: {
+          publicUrl: true,
+        },
       },
-      _count: {
-        select: { restaurantMenuItems: true },
+      canonicalAliases: {
+        select: {
+          normalizedAlias: true,
+        },
       },
     },
     orderBy: { normalizedName: 'asc' },

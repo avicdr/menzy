@@ -1,7 +1,37 @@
 import prisma from '../db/prisma';
+import {
+  computeTableSessionWindow,
+  DEFAULT_ORDER_EXTENSION_MINUTES,
+  DEFAULT_SCAN_TIMEOUT_MINUTES,
+  extractTableSessionConfig,
+  formatSessionExpiredSummary,
+  type TableSessionConfig,
+  type TableSessionTimeoutKind,
+} from './table-session-config';
 
-export const TABLE_SESSION_TIMEOUT_MINUTES = 30;
+export const TABLE_SESSION_TIMEOUT_MINUTES = DEFAULT_SCAN_TIMEOUT_MINUTES;
 export const TABLE_SESSION_TIMEOUT_MS = TABLE_SESSION_TIMEOUT_MINUTES * 60 * 1000;
+
+export interface ResolvedRestaurantTableSessionConfig extends TableSessionConfig {
+  scanTimeoutMs: number;
+  orderExtensionMs: number;
+}
+
+export async function getRestaurantTableSessionConfig(
+  restaurantId: string
+): Promise<ResolvedRestaurantTableSessionConfig> {
+  const settings = await prisma.restaurantOrderingSettings.findUnique({
+    where: { restaurantId },
+    select: { notificationSettings: true },
+  });
+
+  const config = extractTableSessionConfig(settings?.notificationSettings);
+  return {
+    ...config,
+    scanTimeoutMs: config.scanTimeoutMinutes * 60 * 1000,
+    orderExtensionMs: config.orderExtensionMinutes * 60 * 1000,
+  };
+}
 
 export function getDinerSessionCookieName(restaurantId: string): string {
   const safeId = restaurantId.replace(/[^a-zA-Z0-9_-]/g, '');
@@ -43,6 +73,10 @@ export interface ActiveBoundTableSummary {
   verifiedAt: string;
   lastOrderAt: string | null;
   expiresAt: string;
+  timeoutMinutes: number;
+  timeoutKind: TableSessionTimeoutKind;
+  scanTimeoutMinutes: number;
+  orderExtensionMinutes: number;
 }
 
 export interface EvaluateDeviceTableSessionResult {
@@ -58,6 +92,9 @@ export interface EvaluateDeviceTableSessionResult {
   expiresAt?: Date;
   expiredAt?: Date;
   timeoutMinutes?: number;
+  timeoutKind?: TableSessionTimeoutKind;
+  scanTimeoutMinutes?: number;
+  orderExtensionMinutes?: number;
   session?: {
     id: string;
     sessionToken: string;
@@ -80,9 +117,10 @@ export interface EvaluateDeviceTableSessionResult {
  *   1. Cookie token (`HttpOnly`) and body `sessionToken`/`dinerSessionId` must belong to the same device session.
  *   2. Lookup uses the cryptographic `sessionToken` (`ds_...`), never trusting raw table IDs from client state.
  *   3. A session checked in at Table A is strictly rejected (`TABLE_MISMATCH`) for Table B.
- *   4. A table session remains valid for 30 minutes from whichever happened later on that device
- *      for that table (`ScanEvent.timestamp` or `Order.placedAt`); once idle past 30 minutes,
- *      `DinerSession.tableId` is cleared and the guest must rescan the table QR.
+ *   4. A table session remains valid for the restaurant's customized `scanTimeoutMinutes` (default 30 min)
+ *      after scanning, and extends by `orderExtensionMinutes` (default 30 min) whenever an order is placed
+ *      on that device for that table; once past expiry, `DinerSession.tableId` is cleared and the guest
+ *      must rescan the table QR.
  */
 export async function evaluateDeviceTableSession(params: {
   restaurantId: string;
@@ -92,9 +130,10 @@ export async function evaluateDeviceTableSession(params: {
   dinerSessionId?: string | null;
   now?: Date;
   timeoutMs?: number;
+  scanTimeoutMinutes?: number;
+  orderExtensionMinutes?: number;
   clearTableOnExpiry?: boolean;
 }): Promise<EvaluateDeviceTableSessionResult> {
-  const timeoutMs = params.timeoutMs ?? TABLE_SESSION_TIMEOUT_MS;
   const now = params.now ?? new Date();
   const clearTableOnExpiry = params.clearTableOnExpiry !== false;
 
@@ -152,20 +191,43 @@ export async function evaluateDeviceTableSession(params: {
     };
   }
 
-  const table = await prisma.restaurantTable.findFirst({
-    where: {
-      id: params.tableId,
-      restaurantId: params.restaurantId,
-      isActive: true,
-      isArchived: false,
-    },
-    select: {
-      id: true,
-      name: true,
-      section: true,
-      capacity: true,
-    },
-  });
+  const [table, storedConfig] = await Promise.all([
+    prisma.restaurantTable.findFirst({
+      where: {
+        id: params.tableId,
+        restaurantId: params.restaurantId,
+        isActive: true,
+        isArchived: false,
+      },
+      select: {
+        id: true,
+        name: true,
+        section: true,
+        capacity: true,
+      },
+    }),
+    params.scanTimeoutMinutes === undefined &&
+    params.orderExtensionMinutes === undefined &&
+    params.timeoutMs === undefined
+      ? getRestaurantTableSessionConfig(params.restaurantId)
+      : Promise.resolve(null),
+  ]);
+
+  const legacyMinutes =
+    params.timeoutMs !== undefined
+      ? Math.max(1, Math.round(params.timeoutMs / 60_000))
+      : undefined;
+
+  const resolvedScanTimeoutMinutes =
+    params.scanTimeoutMinutes ??
+    storedConfig?.scanTimeoutMinutes ??
+    legacyMinutes ??
+    DEFAULT_SCAN_TIMEOUT_MINUTES;
+  const resolvedOrderExtensionMinutes =
+    params.orderExtensionMinutes ??
+    storedConfig?.orderExtensionMinutes ??
+    legacyMinutes ??
+    DEFAULT_ORDER_EXTENSION_MINUTES;
 
   if (!table) {
     return {
@@ -217,11 +279,14 @@ export async function evaluateDeviceTableSession(params: {
 
       const verifiedAt = currScan?.timestamp ?? session.lastActiveAt;
       const lastOrderAt = currOrder?.placedAt ?? null;
-      const anchorAt =
-        lastOrderAt && lastOrderAt.getTime() > verifiedAt.getTime() ? lastOrderAt : verifiedAt;
-      const expiresAt = new Date(anchorAt.getTime() + timeoutMs);
+      const currentWindow = computeTableSessionWindow({
+        lastScanAt: verifiedAt,
+        lastOrderAt,
+        scanTimeoutMinutes: resolvedScanTimeoutMinutes,
+        orderExtensionMinutes: resolvedOrderExtensionMinutes,
+      });
 
-      if (now.getTime() <= expiresAt.getTime()) {
+      if (now.getTime() <= currentWindow.expiresAt.getTime()) {
         activeCurrentSummary = {
           tableId: currentTable.id,
           tableName: currentTable.name,
@@ -229,7 +294,11 @@ export async function evaluateDeviceTableSession(params: {
           tableCapacity: currentTable.capacity,
           verifiedAt: verifiedAt.toISOString(),
           lastOrderAt: lastOrderAt?.toISOString() ?? null,
-          expiresAt: expiresAt.toISOString(),
+          expiresAt: currentWindow.expiresAt.toISOString(),
+          timeoutMinutes: currentWindow.timeoutMinutes,
+          timeoutKind: currentWindow.timeoutKind,
+          scanTimeoutMinutes: currentWindow.scanTimeoutMinutes,
+          orderExtensionMinutes: currentWindow.orderExtensionMinutes,
         };
       }
     }
@@ -273,9 +342,12 @@ export async function evaluateDeviceTableSession(params: {
     if (latestScan || latestOrder) {
       const lastScanAt = latestScan?.timestamp ?? session.lastActiveAt;
       const lastOrderAt = latestOrder?.placedAt ?? null;
-      const anchorAt =
-        lastOrderAt && lastOrderAt.getTime() > lastScanAt.getTime() ? lastOrderAt : lastScanAt;
-      const expiredAt = new Date(anchorAt.getTime() + timeoutMs);
+      const expiredWindow = computeTableSessionWindow({
+        lastScanAt,
+        lastOrderAt,
+        scanTimeoutMinutes: resolvedScanTimeoutMinutes,
+        orderExtensionMinutes: resolvedOrderExtensionMinutes,
+      });
 
       return {
         valid: false,
@@ -283,10 +355,17 @@ export async function evaluateDeviceTableSession(params: {
         tableName: table.name,
         lastScanAt,
         lastOrderAt,
-        anchorAt,
-        expiredAt,
-        timeoutMinutes: TABLE_SESSION_TIMEOUT_MINUTES,
-        error: `No order has been placed from your device in the last ${TABLE_SESSION_TIMEOUT_MINUTES} minutes. Please rescan the QR code on ${table.name} to continue.`,
+        anchorAt: expiredWindow.anchorAt,
+        expiredAt: expiredWindow.expiresAt,
+        timeoutMinutes: expiredWindow.timeoutMinutes,
+        timeoutKind: expiredWindow.timeoutKind,
+        scanTimeoutMinutes: expiredWindow.scanTimeoutMinutes,
+        orderExtensionMinutes: expiredWindow.orderExtensionMinutes,
+        error: formatSessionExpiredSummary({
+          timeoutMinutes: expiredWindow.timeoutMinutes,
+          timeoutKind: expiredWindow.timeoutKind,
+          tableName: table.name,
+        }),
       };
     }
 
@@ -301,11 +380,14 @@ export async function evaluateDeviceTableSession(params: {
   // Session is bound to this table: require a scan event or fallback session activity timestamp
   const lastScanAt = latestScan?.timestamp ?? session.lastActiveAt;
   const lastOrderAt = latestOrder?.placedAt ?? null;
-  const anchorAt =
-    lastOrderAt && lastOrderAt.getTime() > lastScanAt.getTime() ? lastOrderAt : lastScanAt;
-  const expiresAt = new Date(anchorAt.getTime() + timeoutMs);
+  const windowInfo = computeTableSessionWindow({
+    lastScanAt,
+    lastOrderAt,
+    scanTimeoutMinutes: resolvedScanTimeoutMinutes,
+    orderExtensionMinutes: resolvedOrderExtensionMinutes,
+  });
 
-  if (now.getTime() > expiresAt.getTime()) {
+  if (now.getTime() > windowInfo.expiresAt.getTime()) {
     if (clearTableOnExpiry) {
       await prisma.dinerSession.updateMany({
         where: {
@@ -324,10 +406,17 @@ export async function evaluateDeviceTableSession(params: {
       tableName: table.name,
       lastScanAt,
       lastOrderAt,
-      anchorAt,
-      expiredAt: expiresAt,
-      timeoutMinutes: TABLE_SESSION_TIMEOUT_MINUTES,
-      error: `No order has been placed from your device in the last ${TABLE_SESSION_TIMEOUT_MINUTES} minutes. Please rescan the QR code on ${table.name} to continue.`,
+      anchorAt: windowInfo.anchorAt,
+      expiredAt: windowInfo.expiresAt,
+      timeoutMinutes: windowInfo.timeoutMinutes,
+      timeoutKind: windowInfo.timeoutKind,
+      scanTimeoutMinutes: windowInfo.scanTimeoutMinutes,
+      orderExtensionMinutes: windowInfo.orderExtensionMinutes,
+      error: formatSessionExpiredSummary({
+        timeoutMinutes: windowInfo.timeoutMinutes,
+        timeoutKind: windowInfo.timeoutKind,
+        tableName: table.name,
+      }),
     };
   }
 
@@ -336,9 +425,12 @@ export async function evaluateDeviceTableSession(params: {
     tableName: table.name,
     lastScanAt,
     lastOrderAt,
-    anchorAt,
-    expiresAt,
-    timeoutMinutes: TABLE_SESSION_TIMEOUT_MINUTES,
+    anchorAt: windowInfo.anchorAt,
+    expiresAt: windowInfo.expiresAt,
+    timeoutMinutes: windowInfo.timeoutMinutes,
+    timeoutKind: windowInfo.timeoutKind,
+    scanTimeoutMinutes: windowInfo.scanTimeoutMinutes,
+    orderExtensionMinutes: windowInfo.orderExtensionMinutes,
     session,
     table,
   };

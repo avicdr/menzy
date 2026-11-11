@@ -13,8 +13,10 @@ import {
   UtensilsCrossed,
   Coffee,
   Zap,
+  Phone,
 } from 'lucide-react';
 import type { PlanDefinition } from '@/lib/payments/plans';
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
 import { HOMEPAGE_FAQS } from '@/content/seo-pages';
 import { MarketingHeader } from './MarketingHeader';
 import { MarketingFooter } from './MarketingFooter';
@@ -53,7 +55,7 @@ export function LandingPageClient({ authoritativeGeo, initialPlans }: LandingPag
               href="/signup"
               className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 rounded-full bg-espresso-900 text-white font-semibold text-sm sm:text-base hover:bg-espresso-800 active:scale-95 transition-all shadow-lifted flex items-center justify-center gap-2 whitespace-nowrap"
             >
-              <span>Create Your Menu Free</span>
+              <span>Start 14-Day Free Trial</span>
               <ArrowRight className="w-4 h-4 shrink-0" aria-hidden="true" />
             </Link>
             <Link
@@ -63,6 +65,18 @@ export function LandingPageClient({ authoritativeGeo, initialPlans }: LandingPag
               <span>Explore Live Menu Demo</span>
               <ExternalLink className="w-3.5 h-3.5 text-terracotta shrink-0" aria-hidden="true" />
             </Link>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-xs text-taupe-600 pt-1">
+            <span>Includes 14-day free &quot;Trial&quot; plan • No payment method required</span>
+            <span className="hidden sm:inline text-taupe-400">•</span>
+            <a
+              href={SUPPORT_PHONE_HREF}
+              className="inline-flex items-center gap-1.5 font-semibold text-espresso-900 hover:text-terracotta transition-colors"
+            >
+              <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" aria-hidden="true" />
+              <span>Setup queries: {SUPPORT_PHONE_DISPLAY}</span>
+            </a>
           </div>
 
           {/* Interactive Diner Preview */}

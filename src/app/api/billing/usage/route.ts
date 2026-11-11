@@ -1,7 +1,15 @@
 import { NextResponse } from 'next/server';
-import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
+import { createOwnerAccessDeniedResponse, requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import prisma from '@/lib/db/prisma';
-import { PLAN_CATALOG, PlanKey, getPlansForCountry } from '@/lib/payments/plans';
+import {
+  PLAN_CATALOG,
+  PlanKey,
+  TRIAL_PLAN,
+  TRIAL_PLAN_KEY,
+  getPlansForCountry,
+} from '@/lib/payments/plans';
+import { evaluateOrganizationAccess } from '@/lib/billing/subscription-access';
+import { SUPPORT_PHONE } from '@/lib/support/contact';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,14 +21,54 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'restaurantId required' }, { status: 400 });
   }
 
-  const auth = await requireRestaurantAccess(restaurantId);
+  const auth = await requireRestaurantAccess(restaurantId, {
+    allowDuringExpiredSubscription: true,
+  });
   if (!auth.authorized || !auth.restaurant?.organizationId) {
-    return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
+    return createOwnerAccessDeniedResponse(auth, 403);
   }
 
   const orgId = auth.restaurant.organizationId;
-  const subscription = await prisma.subscription.findUnique({
-    where: { organizationId: orgId },
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const hasLoadedSubscriptions = Array.isArray(auth.restaurant.organization?.subscriptions);
+  const preloadedSubscription = auth.restaurant.organization?.subscriptions?.[0] ?? null;
+  const hasLoadedGrants = Array.isArray(auth.restaurant.organization?.entitlements);
+  const preloadedGrants = auth.restaurant.organization?.entitlements ?? [];
+
+  const [subscriptionResult, creditSum, chatQueriesThisMonth, activeGrants] = await Promise.all([
+    hasLoadedSubscriptions
+      ? Promise.resolve(preloadedSubscription)
+      : prisma.subscription.findUnique({ where: { organizationId: orgId } }),
+    prisma.creditLedger.aggregate({
+      where: { organizationId: orgId, creditType: 'IMAGE_GENERATION' },
+      _sum: { delta: true },
+    }),
+    prisma.aIUsageEvent.count({
+      where: {
+        restaurantId: auth.restaurant.id,
+        operationType: 'DINER_CHAT',
+        createdAt: { gte: startOfMonth },
+      },
+    }),
+    hasLoadedGrants
+      ? Promise.resolve(preloadedGrants)
+      : prisma.entitlementGrant.findMany({
+          where: {
+            organizationId: orgId,
+            isActive: true,
+            expirationDate: { gt: now },
+          },
+        }),
+  ]);
+
+  const subscription = subscriptionResult || null;
+  const access = evaluateOrganizationAccess({
+    organizationId: orgId,
+    isClaimed: auth.restaurant.isClaimed,
+    subscription,
+    activeGrants,
+    now,
   });
 
   const rawCountry = (
@@ -30,52 +78,44 @@ export async function GET(req: Request) {
   ).toUpperCase();
   const billingCountry: 'IN' | 'US' = rawCountry === 'US' ? 'US' : 'IN';
 
-  const subPlanKey = subscription?.planKey as PlanKey | undefined;
-  const subPlan = subPlanKey ? PLAN_CATALOG[subPlanKey] : undefined;
-  const planKey: PlanKey =
-    subPlan && subPlan.country === billingCountry
-      ? subPlan.key
-      : billingCountry === 'US'
-      ? 'US_STARTER'
-      : 'IN_STARTER';
-  const plan = PLAN_CATALOG[planKey];
+  const complimentaryGrant = activeGrants.find(
+    (g: any) => g.grantType === 'COMPLIMENTARY_PLAN' && g.tierOrValue
+  );
+  const effectivePlanKey = complimentaryGrant?.tierOrValue || subscription?.planKey || TRIAL_PLAN_KEY;
+  const catalogPlan =
+    effectivePlanKey !== TRIAL_PLAN_KEY ? PLAN_CATALOG[effectivePlanKey as PlanKey] : undefined;
+  const normalizedComplimentaryKey = complimentaryGrant?.tierOrValue
+    ? (`${billingCountry}_${String(complimentaryGrant.tierOrValue).replace(/^(IN|US)_/, '')}` as PlanKey)
+    : undefined;
+  const resolvedPaidPlan =
+    catalogPlan && catalogPlan.country === billingCountry
+      ? catalogPlan
+      : normalizedComplimentaryKey
+      ? PLAN_CATALOG[normalizedComplimentaryKey]
+      : undefined;
+
+  const isTrial = !resolvedPaidPlan && (effectivePlanKey === TRIAL_PLAN_KEY || access.isTrial);
+  const plan = resolvedPaidPlan || TRIAL_PLAN;
   const availablePlans = getPlansForCountry(billingCountry);
-
-  // Calculate image credit balance from CreditLedger
-  const creditEntries = await prisma.creditLedger.findMany({
-    where: { organizationId: orgId, creditType: 'IMAGE_GENERATION' },
-  });
-  const remainingImageCredits = creditEntries.reduce((acc, c) => acc + c.delta, 0);
-
-  // Count AI queries this month
-  const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-  const chatQueriesThisMonth = await prisma.aIUsageEvent.count({
-    where: {
-      restaurantId,
-      operationType: 'DINER_CHAT',
-      createdAt: { gte: startOfMonth },
-    },
-  });
-
-  // Check active complimentary grants
-  const activeGrants = await prisma.entitlementGrant.findMany({
-    where: {
-      organizationId: orgId,
-      isActive: true,
-      expirationDate: { gt: new Date() },
-    },
-  });
+  const remainingImageCredits = creditSum._sum.delta ?? 0;
+  const bonusQuestions = activeGrants
+    .filter((e: any) => e.grantType === 'BONUS_AI_QUESTIONS')
+    .reduce((acc: number, curr: any) => acc + (curr.quantity || 0), 0);
 
   return NextResponse.json(
     {
       plan,
+      trialPlan: TRIAL_PLAN,
+      isTrial,
+      access,
       billingCountry,
       availablePlans,
       subscription,
       remainingImageCredits: Math.max(0, remainingImageCredits),
       chatQueriesThisMonth,
-      maxChatQueries: plan?.aiQuestionsMonthly || 1000,
+      maxChatQueries: (plan?.aiQuestionsMonthly || TRIAL_PLAN.aiQuestionsMonthly) + bonusQuestions,
       activeGrants,
+      supportPhone: SUPPORT_PHONE,
     },
     { headers: { 'Cache-Control': 'no-store, max-age=0' } }
   );

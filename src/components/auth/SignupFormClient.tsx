@@ -3,13 +3,14 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowRight, AlertCircle, Sparkles, Eye, EyeOff } from 'lucide-react';
+import { ArrowRight, AlertCircle, Sparkles, Eye, EyeOff, ShieldCheck, Phone } from 'lucide-react';
 import {
   BillingRegion,
   detectRegionFromTimezoneAndLocale,
 } from '@/lib/geo/region-shared';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
 import { trackConversionEvent } from '@/lib/analytics/events';
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
 
 interface SignupFormClientProps {
   initialRegion: BillingRegion;
@@ -135,6 +136,13 @@ function SignupFormInner({ initialRegion, authoritativeGeo }: SignupFormClientPr
             ? 'Create your owner account below to unlock and customize your demo menu.'
             : 'Join hundreds of cafés & boutique restaurants delighting guests with interactive AI menus.'}
         </p>
+      </div>
+
+      <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-2xl text-xs flex items-start gap-2.5">
+        <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+        <div className="text-emerald-950 leading-relaxed">
+          <span className="font-semibold">Includes 14-Day Free &quot;Trial&quot; Plan</span> — no payment method or card required. After 14 days, everything pauses until you choose a subscription inside Billing.
+        </div>
       </div>
 
       {claimToken && claimPreview && (
@@ -292,11 +300,20 @@ function SignupFormInner({ initialRegion, authoritativeGeo }: SignupFormClientPr
         </button>
       </form>
 
-      <div className="text-center text-xs text-taupe-500">
-        Already have an account?{' '}
-        <Link href={loginHref} className="font-semibold text-terracotta hover:underline">
-          Sign in
-        </Link>
+      <div className="text-center text-xs text-taupe-500 space-y-2 pt-1">
+        <div>
+          Already have an account?{' '}
+          <Link href={loginHref} className="font-semibold text-terracotta hover:underline">
+            Sign in
+          </Link>
+        </div>
+        <div className="pt-2 border-t border-cream-200 flex items-center justify-center gap-1.5 text-[11px] text-taupe-600">
+          <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" />
+          <span>Setup queries? Call</span>
+          <a href={SUPPORT_PHONE_HREF} className="font-semibold text-espresso-900 hover:text-terracotta underline underline-offset-2">
+            {SUPPORT_PHONE_DISPLAY}
+          </a>
+        </div>
       </div>
     </div>
   );

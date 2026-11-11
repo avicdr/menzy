@@ -15,6 +15,25 @@ async function main() {
   // 1. Seed Plan Catalog
   const plans = [
     {
+      key: 'FREE_TRIAL',
+      tier: PlanTier.TRIAL,
+      name: 'Trial',
+      country: 'GLOBAL',
+      currency: 'INR',
+      priceMinor: 0,
+      itemLimit: 100,
+      imageCreditsMonthly: 15,
+      aiQuestionsMonthly: 1000,
+      features: {
+        trialDays: 14,
+        requiresPaymentMethod: false,
+        allowColors: true,
+        allowPairings: true,
+        allowMultipleMenus: true,
+        analytics: 'ADVANCED',
+      },
+    },
+    {
       key: 'IN_STARTER',
       tier: PlanTier.STARTER,
       name: 'Starter (India)',

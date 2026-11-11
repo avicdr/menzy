@@ -1,6 +1,12 @@
 import crypto from 'crypto';
 import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
 import prisma from '../db/prisma';
+import {
+  buildSubscriptionExpiredPayload,
+  evaluateOrganizationAccess,
+  OrganizationAccessStatus,
+} from '../billing/subscription-access';
 
 const OWNER_COOKIE_NAME = 'dishora_owner_session';
 
@@ -58,20 +64,32 @@ export function verifyOwnerToken(token: string): { userId: string; email: string
   }
 }
 
-export async function getOwnerSession(): Promise<OwnerSession | null> {
+export async function getVerifiedOwnerCookie(): Promise<{ userId: string; email: string } | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(OWNER_COOKIE_NAME)?.value;
   if (!token) return null;
+  return verifyOwnerToken(token);
+}
 
-  const verified = verifyOwnerToken(token);
+export async function getOwnerSession(): Promise<OwnerSession | null> {
+  const verified = await getVerifiedOwnerCookie();
   if (!verified) return null;
 
   const user = await prisma.user.findUnique({
     where: { id: verified.userId },
-    include: {
+    select: {
+      id: true,
+      email: true,
+      name: true,
       memberships: {
-        include: {
-          organization: true,
+        select: {
+          role: true,
+          organization: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
       },
     },
@@ -107,35 +125,105 @@ export async function clearOwnerSessionCookie() {
   cookieStore.delete(OWNER_COOKIE_NAME);
 }
 
-/**
- * Strict server-side check ensuring the current user is authorized to manage the requested restaurant
- */
-export async function requireRestaurantAccess(restaurantIdOrSlug: string): Promise<{
+export interface RequireRestaurantAccessResult {
   authorized: boolean;
+  status?: number;
   user: OwnerSession | null;
   restaurant: any | null;
   error?: string;
-}> {
-  const user = await getOwnerSession();
-  if (!user) {
+  access?: OrganizationAccessStatus;
+  expiredPayload?: ReturnType<typeof buildSubscriptionExpiredPayload>;
+}
+
+export function createOwnerAccessDeniedResponse(
+  auth: Pick<RequireRestaurantAccessResult, 'status' | 'error' | 'expiredPayload'>,
+  fallbackStatus = 403
+) {
+  if (auth.status === 402 && auth.expiredPayload) {
+    return NextResponse.json(auth.expiredPayload, {
+      status: 402,
+      headers: { 'Cache-Control': 'no-store, max-age=0' },
+    });
+  }
+  return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: fallbackStatus });
+}
+
+/**
+ * Strict server-side check ensuring the current user is authorized to manage the requested restaurant
+ */
+export async function requireRestaurantAccess(
+  restaurantIdOrSlug: string,
+  options?: { allowDuringExpiredSubscription?: boolean }
+): Promise<RequireRestaurantAccessResult> {
+  const verified = await getVerifiedOwnerCookie();
+  if (!verified) {
     return { authorized: false, user: null, restaurant: null, error: 'UNAUTHENTICATED' };
   }
 
-  const restaurant = await prisma.restaurant.findFirst({
-    where: {
-      OR: [{ id: restaurantIdOrSlug }, { slug: restaurantIdOrSlug }],
-    },
-    include: {
-      organization: {
-        include: {
-          members: true,
-          subscriptions: true,
+  const now = new Date();
+  const [dbUser, restaurant] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: verified.userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        memberships: {
+          select: {
+            role: true,
+            organization: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
         },
       },
-      settings: true,
-      theme: true,
-    },
-  });
+    }),
+    prisma.restaurant.findFirst({
+      where: {
+        OR: [{ id: restaurantIdOrSlug }, { slug: restaurantIdOrSlug }],
+      },
+      include: {
+        organization: {
+          include: {
+            subscriptions: true,
+            entitlements: {
+              where: {
+                isActive: true,
+                expirationDate: { gt: now },
+              },
+              select: {
+                grantType: true,
+                tierOrValue: true,
+                quantity: true,
+                isActive: true,
+                expirationDate: true,
+              },
+            },
+          },
+        },
+        settings: true,
+        theme: true,
+      },
+    }),
+  ]);
+
+  if (!dbUser) {
+    return { authorized: false, user: null, restaurant: null, error: 'UNAUTHENTICATED' };
+  }
+
+  const user: OwnerSession = {
+    userId: dbUser.id,
+    email: dbUser.email,
+    name: dbUser.name,
+    organizations: dbUser.memberships.map((m) => ({
+      id: m.organization.id,
+      name: m.organization.name,
+      role: m.role,
+    })),
+  };
 
   if (!restaurant) {
     return { authorized: false, user, restaurant: null, error: 'RESTAURANT_NOT_FOUND' };
@@ -149,6 +237,32 @@ export async function requireRestaurantAccess(restaurantIdOrSlug: string): Promi
     return { authorized: false, user, restaurant: null, error: 'FORBIDDEN_TENANT_ACCESS' };
   }
 
-  return { authorized: true, user, restaurant };
+  const access = evaluateOrganizationAccess({
+    organizationId: restaurant.organizationId,
+    isClaimed: restaurant.isClaimed,
+    subscription: restaurant.organization?.subscriptions?.[0] ?? null,
+    activeGrants: restaurant.organization?.entitlements ?? [],
+    now,
+  });
+
+  if (!access.allowed && !options?.allowDuringExpiredSubscription) {
+    const expiredPayload = buildSubscriptionExpiredPayload(access, {
+      restaurantId: restaurant.id,
+      restaurantSlug: restaurant.slug,
+      restaurantName: restaurant.displayName,
+      audience: 'OWNER',
+    });
+    return {
+      authorized: false,
+      status: 402,
+      error: expiredPayload.error,
+      user,
+      restaurant,
+      access,
+      expiredPayload,
+    };
+  }
+
+  return { authorized: true, status: 200, user, restaurant, access };
 }
 

@@ -529,6 +529,7 @@ model GenerationJob {
 // ----------------------------------------------------
 
 enum PlanTier {
+  TRIAL
   STARTER
   GROWTH
   PRO
@@ -536,7 +537,7 @@ enum PlanTier {
 
 model Plan {
   id                   String   @id @default(uuid())
-  key                  String   @unique // IN_STARTER, IN_GROWTH, IN_PRO, US_STARTER, US_GROWTH, US_PRO
+  key                  String   @unique // FREE_TRIAL, IN_STARTER, IN_GROWTH, IN_PRO, US_STARTER, US_GROWTH, US_PRO
   tier                 PlanTier
   name                 String
   country              String   // IN or US
@@ -551,6 +552,7 @@ model Plan {
 
 enum SubscriptionStatus {
   INACTIVE
+  TRIAL
   PENDING
   ACTIVE
   PAST_DUE

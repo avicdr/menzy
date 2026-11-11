@@ -5,6 +5,9 @@ import { hashPassword, createOwnerToken, setOwnerSessionCookie } from '@/lib/aut
 import { getCache } from '@/lib/cache/redis';
 import { ClaimRedeemError, redeemClaimWithinTransaction } from '@/lib/claims/claim-service';
 import { resolveVisitorRegion } from '@/lib/geo/region-server';
+import { provisionTrialSubscriptionWithinTx } from '@/lib/billing/subscription-access';
+import { FREE_TRIAL_DAYS, TRIAL_PLAN, TRIAL_PLAN_KEY } from '@/lib/payments/plans';
+import { SUPPORT_PHONE } from '@/lib/support/contact';
 import { ThemePreset, LayoutMode } from '@prisma/client';
 
 export async function POST(req: Request) {
@@ -89,6 +92,7 @@ export async function POST(req: Request) {
         return {
           user,
           restaurant: claimed.restaurant,
+          subscription: claimed.subscription,
           claimed: true,
         };
       }
@@ -220,7 +224,12 @@ export async function POST(req: Request) {
         },
       });
 
-      return { user, restaurant, claimed: false };
+      const { subscription: trialSub } = await provisionTrialSubscriptionWithinTx(tx, {
+        organizationId: org.id,
+        currency: selectedCurrency,
+      });
+
+      return { user, restaurant, subscription: trialSub, claimed: false };
     }, { maxWait: 10_000, timeout: 20_000 });
 
     if (result.claimed) {
@@ -240,6 +249,16 @@ export async function POST(req: Request) {
         slug: result.restaurant.slug,
         name: result.restaurant.displayName,
       },
+      trial: {
+        planKey: TRIAL_PLAN_KEY,
+        name: TRIAL_PLAN.name,
+        days: FREE_TRIAL_DAYS,
+        requiresPaymentMethod: false,
+        trialEndsAt: result.subscription?.paidThrough
+          ? result.subscription.paidThrough.toISOString()
+          : null,
+      },
+      supportPhone: SUPPORT_PHONE,
     });
   } catch (error: any) {
     if (error instanceof ClaimRedeemError) {

@@ -3,6 +3,11 @@ import prisma from '@/lib/db/prisma';
 import { getCache } from '@/lib/cache/redis';
 import { normalizeThemeFont } from '@/lib/theme/theme-presets';
 import { isWifiVisibleToDiners } from '@/lib/wifi/wifi-qr';
+import { extractTableSessionConfig } from '@/lib/diner/table-session-config';
+import {
+  checkRestaurantSubscriptionAccess,
+  createSubscriptionExpiredResponse,
+} from '@/lib/billing/subscription-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,6 +20,23 @@ export async function GET(req: Request) {
       { error: 'Restaurant slug is required' },
       { status: 400, headers: { 'Cache-Control': 'no-store, max-age=0' } }
     );
+  }
+
+  // Enforce active trial or subscription BEFORE serving Redis-cached menu payloads
+  const subAccess = await checkRestaurantSubscriptionAccess(slug, { bySlug: true });
+  if (!subAccess.found || !subAccess.restaurant) {
+    return NextResponse.json(
+      { error: 'Restaurant not found' },
+      { status: 404, headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
+  }
+  if (!subAccess.access.allowed) {
+    return createSubscriptionExpiredResponse(subAccess.access, {
+      restaurantId: subAccess.restaurant.id,
+      restaurantSlug: subAccess.restaurant.slug,
+      restaurantName: subAccess.restaurant.displayName,
+      audience: 'DINER',
+    });
   }
 
   const cache = getCache();
@@ -78,6 +100,7 @@ export async function GET(req: Request) {
 
   const notifSettings = (restaurant.orderingSettings?.notificationSettings as Record<string, any>) || {};
   const wifiConfig = isWifiVisibleToDiners(notifSettings?.wifi) ? notifSettings.wifi : null;
+  const tableSessionConfig = extractTableSessionConfig(notifSettings);
 
   const normalizedTheme = restaurant.theme
     ? {
@@ -107,6 +130,7 @@ export async function GET(req: Request) {
     settings: restaurant.settings,
     theme: normalizedTheme,
     orderingSettings: restaurant.orderingSettings,
+    tableSession: tableSessionConfig,
     wifi: wifiConfig,
     menus: restaurant.menus,
   };

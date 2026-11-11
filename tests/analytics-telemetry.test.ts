@@ -3,6 +3,10 @@ import prisma from '../src/lib/db/prisma';
 import * as ownerAuth from '../src/lib/auth/owner-auth';
 import * as tenantVerify from '../src/lib/auth/tenant-verify';
 import {
+  evaluateOrganizationAccess,
+  provisionTrialSubscriptionWithinTx,
+} from '../src/lib/billing/subscription-access';
+import {
   getHourInTimezone,
   getStartOfDayInTimezone,
   getStartOfMonthInTimezone,
@@ -67,6 +71,11 @@ describe('Real Analytics & Dish Interaction Telemetry Pipeline', () => {
     });
     createdOrgIds.push(org.id);
 
+    await provisionTrialSubscriptionWithinTx(prisma, {
+      organizationId: org.id,
+      currency: 'INR',
+    });
+
     const restaurant = await prisma.restaurant.create({
       data: {
         organizationId: org.id,
@@ -80,6 +89,18 @@ describe('Real Analytics & Dish Interaction Telemetry Pipeline', () => {
     });
     createdRestaurantIds.push(restaurant.id);
 
+    const activeTrialAccess = evaluateOrganizationAccess({
+      organizationId: org.id,
+      isClaimed: true,
+      subscription: {
+        planKey: 'FREE_TRIAL',
+        status: 'TRIAL',
+        provider: 'TRIAL',
+        billingPeriod: 'TRIAL_14D',
+        paidThrough: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      },
+    });
+
     vi.spyOn(ownerAuth, 'requireRestaurantAccess').mockResolvedValue({
       authorized: true,
       user: {
@@ -89,6 +110,7 @@ describe('Real Analytics & Dish Interaction Telemetry Pipeline', () => {
         organizations: [{ id: org.id, name: org.name, role: 'OWNER' }],
       },
       restaurant,
+      access: activeTrialAccess,
     });
 
     vi.spyOn(tenantVerify, 'verifyStaffOrOwnerAccess').mockResolvedValue({
@@ -97,6 +119,7 @@ describe('Real Analytics & Dish Interaction Telemetry Pipeline', () => {
       role: 'OWNER',
       actorId: user.id,
       actorName: user.name || user.email,
+      access: activeTrialAccess,
       restaurant: {
         ...restaurant,
         theme: null,

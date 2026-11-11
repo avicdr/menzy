@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { getCache } from './redis';
 import prisma from '../db/prisma';
-import { PLAN_CATALOG, PlanKey } from '../payments/plans';
+import { PLAN_CATALOG, PlanKey, TRIAL_PLAN, TRIAL_PLAN_KEY } from '../payments/plans';
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -68,10 +68,16 @@ export async function checkDinerAIRateLimit(
 
   if (restaurant?.organization) {
     const sub = restaurant.organization.subscriptions[0];
-    const planKey = sub?.planKey || 'IN_STARTER';
-    const catalogPlan = PLAN_CATALOG[planKey as PlanKey];
-    const plan = catalogPlan ? null : await prisma.plan.findUnique({ where: { key: planKey } });
-    const baseQuota = catalogPlan?.aiQuestionsMonthly || plan?.aiQuestionsMonthly || 1000;
+    const planKey = sub?.planKey || TRIAL_PLAN_KEY;
+    const isTrial = planKey === TRIAL_PLAN_KEY;
+    const catalogPlan = isTrial ? null : PLAN_CATALOG[planKey as PlanKey];
+    const plan =
+      isTrial || catalogPlan ? null : await prisma.plan.findUnique({ where: { key: planKey } });
+    const baseQuota = isTrial
+      ? TRIAL_PLAN.aiQuestionsMonthly
+      : catalogPlan?.aiQuestionsMonthly ||
+        plan?.aiQuestionsMonthly ||
+        TRIAL_PLAN.aiQuestionsMonthly;
 
     // Check bonus entitlements
     const bonusQuestions = restaurant.organization.entitlements

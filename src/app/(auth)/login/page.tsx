@@ -3,8 +3,9 @@
 import React, { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowRight, AlertCircle, Sparkles, Eye, EyeOff } from 'lucide-react';
+import { ArrowRight, AlertCircle, Sparkles, Eye, EyeOff, Phone } from 'lucide-react';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
 
 function LoginForm() {
   const router = useRouter();
@@ -148,11 +149,20 @@ function LoginForm() {
         </button>
       </form>
 
-      <div className="text-center text-xs text-taupe-500">
-        Don&apos;t have a menu yet?{' '}
-        <Link href={signupHref} className="font-semibold text-terracotta-700 hover:underline">
-          Create your menu
-        </Link>
+      <div className="text-center text-xs text-taupe-500 space-y-2">
+        <div>
+          Don&apos;t have a menu yet?{' '}
+          <Link href={signupHref} className="font-semibold text-terracotta-700 hover:underline">
+            Create your menu
+          </Link>
+        </div>
+        <div className="pt-2 border-t border-cream-200 flex items-center justify-center gap-1.5 text-[11px] text-taupe-600">
+          <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" />
+          <span>Setup queries? Call</span>
+          <a href={SUPPORT_PHONE_HREF} className="font-semibold text-espresso-900 hover:text-terracotta underline underline-offset-2">
+            {SUPPORT_PHONE_DISPLAY}
+          </a>
+        </div>
       </div>
     </div>
   );

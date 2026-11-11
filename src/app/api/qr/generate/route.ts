@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 import QRCode from 'qrcode';
 import prisma from '@/lib/db/prisma';
-import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
+import { createTenantAccessDeniedResponse, verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 import { buildSignedTableQrToken } from '@/lib/tables/table-service';
 import { normalizeSiteUrl } from '@/lib/seo';
+import {
+  createSubscriptionExpiredResponse,
+  evaluateOrganizationAccess,
+} from '@/lib/billing/subscription-access';
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -16,9 +20,26 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Restaurant slug is required' }, { status: 400 });
   }
 
+  const now = new Date();
   const restaurant = await prisma.restaurant.findUnique({
     where: { slug: restaurantSlug },
-    include: { theme: true },
+    include: {
+      theme: true,
+      organization: {
+        include: {
+          subscriptions: { take: 1 },
+          entitlements: {
+            where: { isActive: true, expirationDate: { gt: now } },
+            select: {
+              grantType: true,
+              tierOrValue: true,
+              isActive: true,
+              expirationDate: true,
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!restaurant) {
@@ -30,7 +51,23 @@ export async function GET(req: Request) {
   if (tableId || tableToken) {
     const auth = await verifyRestaurantOwnerAccess(restaurant.id);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
+    }
+  } else {
+    const access = evaluateOrganizationAccess({
+      organizationId: restaurant.organizationId,
+      isClaimed: restaurant.isClaimed,
+      subscription: restaurant.organization?.subscriptions?.[0] ?? null,
+      activeGrants: restaurant.organization?.entitlements ?? [],
+      now,
+    });
+    if (!access.allowed) {
+      return createSubscriptionExpiredResponse(access, {
+        restaurantId: restaurant.id,
+        restaurantSlug: restaurant.slug,
+        restaurantName: restaurant.displayName,
+        audience: 'DINER',
+      });
     }
   }
 

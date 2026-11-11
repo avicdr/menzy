@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
+import { createOwnerAccessDeniedResponse, requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import prisma from '@/lib/db/prisma';
 import { getCache } from '@/lib/cache/redis';
 import { matchCanonicalDish } from '@/lib/canonical/matcher';
@@ -16,7 +16,7 @@ export async function GET(req: Request) {
 
   const auth = await requireRestaurantAccess(restaurantId);
   if (!auth.authorized) {
-    return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
+    return createOwnerAccessDeniedResponse(auth, 403);
   }
 
   const items = await prisma.restaurantMenuItem.findMany({
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
 
     const auth = await requireRestaurantAccess(restaurantId);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
+      return createOwnerAccessDeniedResponse(auth, 403);
     }
 
     let menu = await prisma.menu.findFirst({
@@ -172,7 +172,7 @@ export async function PATCH(req: Request) {
 
     const auth = await requireRestaurantAccess(restaurantId);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
+      return createOwnerAccessDeniedResponse(auth, 403);
     }
 
     const existing = await prisma.restaurantMenuItem.findFirst({
@@ -294,7 +294,7 @@ export async function DELETE(req: Request) {
 
     const auth = await requireRestaurantAccess(restaurantId);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
+      return createOwnerAccessDeniedResponse(auth, 403);
     }
 
     await prisma.restaurantMenuItem.delete({

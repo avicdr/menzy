@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
+import { createOwnerAccessDeniedResponse, requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import { extractMenuFromImages } from '@/lib/gemini/vision-extractor';
 import { matchCanonicalDishesBatch } from '@/lib/canonical/matcher';
 import { readAssetFromUrl } from '@/lib/storage/adapter';
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
 
     const auth = await requireRestaurantAccess(restaurantId);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
+      return createOwnerAccessDeniedResponse(auth, 403);
     }
 
     const upload = await prisma.menuUpload.findUnique({

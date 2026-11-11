@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
+import { createTenantAccessDeniedResponse, verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 
 export async function PATCH(
   req: Request,
@@ -10,7 +10,7 @@ export async function PATCH(
     const { id, tableId } = await params;
     const auth = await verifyRestaurantOwnerAccess(id);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
     }
 
     const table = await prisma.restaurantTable.findFirst({
@@ -72,7 +72,7 @@ export async function DELETE(
     const { id, tableId } = await params;
     const auth = await verifyRestaurantOwnerAccess(id);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
     }
 
     const table = await prisma.restaurantTable.findFirst({

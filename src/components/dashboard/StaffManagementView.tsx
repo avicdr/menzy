@@ -35,9 +35,10 @@ interface StaffMember {
 
 interface StaffManagementViewProps {
   restaurant: any;
+  onSubscriptionExpired?: (payload: any) => void;
 }
 
-export function StaffManagementView({ restaurant }: StaffManagementViewProps) {
+export function StaffManagementView({ restaurant, onSubscriptionExpired }: StaffManagementViewProps) {
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +68,11 @@ export function StaffManagementView({ restaurant }: StaffManagementViewProps) {
       setLoading(true);
       setError(null);
       const res = await fetch(`/api/restaurants/${restaurant.id}/staff`);
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        onSubscriptionExpired?.(payload);
+        return;
+      }
       if (!res.ok) throw new Error('Failed to load staff accounts');
       const data = await res.json();
       setStaffList(data.staff || []);
@@ -115,7 +121,12 @@ export function StaffManagementView({ restaurant }: StaffManagementViewProps) {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        setIsAddModalOpen(false);
+        onSubscriptionExpired?.(data);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || 'Failed to create staff account');
 
       showNotification(`Staff account created for ${data.staff.displayName}!`);
@@ -148,7 +159,12 @@ export function StaffManagementView({ restaurant }: StaffManagementViewProps) {
         body: JSON.stringify({ newPassword: resetPasswordVal }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        setResetModalStaff(null);
+        onSubscriptionExpired?.(data);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || 'Failed to reset password');
 
       showNotification(`Password updated for ${resetModalStaff.displayName}. All prior sessions revoked.`);
@@ -171,7 +187,11 @@ export function StaffManagementView({ restaurant }: StaffManagementViewProps) {
         body: JSON.stringify({ isActive: !staff.isActive }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        onSubscriptionExpired?.(data);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || 'Failed to update staff status');
 
       showNotification(

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
+import { createOwnerAccessDeniedResponse, requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import prisma from '@/lib/db/prisma';
 import { getStartOfDayInTimezone } from '@/lib/analytics/date-window';
 
@@ -16,7 +16,7 @@ export async function GET(req: Request) {
 
     const auth = await requireRestaurantAccess(restaurantId);
     if (!auth.authorized || !auth.restaurant) {
-      return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 403 });
+      return createOwnerAccessDeniedResponse(auth, 403);
     }
 
     const now = new Date();

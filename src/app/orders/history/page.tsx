@@ -14,14 +14,23 @@ import {
   Utensils,
   ChevronLeft,
   ChevronRight,
+  Lock,
+  CreditCard,
+  Phone,
 } from 'lucide-react';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
 import { generateStaffTypographyVars } from '@/lib/theme/theme-presets';
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
 
 export default function StaffOrderHistoryPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [subscriptionPaused, setSubscriptionPaused] = useState<{
+    error?: string;
+    supportPhone?: string;
+    restaurantName?: string;
+  } | null>(null);
 
   const [restaurantData, setRestaurantData] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
@@ -45,6 +54,17 @@ export default function StaffOrderHistoryPage() {
         router.push('/orders/login');
         return;
       }
+      if (autoRes.status === 402) {
+        const pausedJson = await autoRes.json().catch(() => ({}));
+        setSubscriptionPaused({
+          error:
+            pausedJson.error ||
+            'Your 14-day free trial or subscription has ended. Ask the owner to activate a subscription in the Billing panel.',
+          supportPhone: pausedJson.supportPhone || SUPPORT_PHONE_DISPLAY,
+          restaurantName: pausedJson.restaurantName,
+        });
+        return;
+      }
 
       const autoData = await autoRes.json();
       setRestaurantData(autoData);
@@ -59,7 +79,19 @@ export default function StaffOrderHistoryPage() {
 
       const restId = autoData?.restaurantId || '_auto';
       const res = await fetch(`/api/restaurants/${restId}/orders/history?${params.toString()}`);
+      if (res.status === 402) {
+        const pausedJson = await res.json().catch(() => ({}));
+        setSubscriptionPaused({
+          error:
+            pausedJson.error ||
+            'Your 14-day free trial or subscription has ended. Ask the owner to activate a subscription in the Billing panel.',
+          supportPhone: pausedJson.supportPhone || SUPPORT_PHONE_DISPLAY,
+          restaurantName: pausedJson.restaurantName || autoData?.restaurantName,
+        });
+        return;
+      }
       if (res.ok) {
+        setSubscriptionPaused(null);
         const histData = await res.json();
         setOrders(histData.orders || []);
         setMetrics(histData.metrics || null);
@@ -90,6 +122,7 @@ export default function StaffOrderHistoryPage() {
   };
 
   const handleExportCsv = () => {
+    if (subscriptionPaused) return;
     const restId = restaurantData?.restaurantId || '_auto';
     const params = new URLSearchParams({ range });
     if (statusFilter) params.append('status', statusFilter);
@@ -107,6 +140,61 @@ export default function StaffOrderHistoryPage() {
         <div className="flex flex-col items-center gap-3">
           <div className="w-10 h-10 border-4 border-terracotta border-t-transparent rounded-full animate-spin" />
           <p className="text-sm font-serif">Loading Historical Logs...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (subscriptionPaused) {
+    const supportPhone = subscriptionPaused.supportPhone || SUPPORT_PHONE_DISPLAY;
+    return (
+      <div
+        style={staffTypographyStyle}
+        className="min-h-screen flex items-center justify-center bg-[#0C0907] text-cream-100 p-4 font-sans"
+      >
+        <div className="w-full max-w-md p-6 sm:p-8 bg-[#140E0A] border border-amber-700/50 rounded-3xl shadow-2xl text-center space-y-4">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto">
+            <Lock className="w-7 h-7" />
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="font-serif text-2xl font-bold text-cream-50">
+              Order History Paused
+            </h1>
+            {subscriptionPaused.restaurantName && (
+              <p className="text-xs font-mono text-amber-300">{subscriptionPaused.restaurantName}</p>
+            )}
+            <p className="text-xs text-taupe-300 leading-relaxed pt-1">
+              {subscriptionPaused.error ||
+                'Your 14-day free trial or subscription has ended. Ask the owner to activate a plan in the Owner Billing panel to resume terminal and history access.'}
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
+            <Link
+              href="/login"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white text-xs font-bold transition-colors"
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              Owner Billing Console
+            </Link>
+            <button
+              type="button"
+              onClick={() => loadHistory(true)}
+              className="px-4 py-2.5 rounded-xl bg-espresso-800 hover:bg-espresso-700 text-cream-100 text-xs font-semibold transition-colors inline-flex items-center justify-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Retry
+            </button>
+          </div>
+          <div className="pt-3 border-t border-espresso-800/80 text-xs text-taupe-300">
+            <p className="text-[11px] text-taupe-400 mb-1">Setup & Billing Helpline</p>
+            <a
+              href={SUPPORT_PHONE_HREF}
+              className="inline-flex items-center gap-1.5 text-amber-300 hover:text-amber-200 font-mono font-semibold"
+            >
+              <Phone className="w-3.5 h-3.5" />
+              {supportPhone}
+            </a>
+          </div>
         </div>
       </div>
     );

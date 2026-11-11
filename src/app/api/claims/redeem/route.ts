@@ -3,6 +3,8 @@ import prisma from '@/lib/db/prisma';
 import { getOwnerSession } from '@/lib/auth/owner-auth';
 import { getCache } from '@/lib/cache/redis';
 import { ClaimRedeemError, redeemClaimWithinTransaction } from '@/lib/claims/claim-service';
+import { FREE_TRIAL_DAYS, TRIAL_PLAN, TRIAL_PLAN_KEY } from '@/lib/payments/plans';
+import { SUPPORT_PHONE } from '@/lib/support/contact';
 
 export async function POST(req: Request) {
   try {
@@ -45,7 +47,7 @@ export async function POST(req: Request) {
       alreadyClaimedByUser: result.alreadyClaimedByUser,
       message: result.alreadyClaimedByUser
         ? 'You already own this restaurant menu. Opening your workspace...'
-        : 'Ownership claimed! Full menu editing and billing controls are now unlocked.',
+        : 'Ownership claimed! Your 14-day Free Trial is active with no payment method required.',
       restaurant: {
         id: result.restaurant.id,
         slug: result.restaurant.slug,
@@ -53,6 +55,17 @@ export async function POST(req: Request) {
         isClaimed: result.restaurant.isClaimed,
         organizationId: result.organizationId,
       },
+      trial: {
+        planKey: TRIAL_PLAN_KEY,
+        name: TRIAL_PLAN.name,
+        days: FREE_TRIAL_DAYS,
+        requiresPaymentMethod: false,
+        trialCreated: result.trialCreated,
+        trialEndsAt: result.subscription?.paidThrough
+          ? result.subscription.paidThrough.toISOString()
+          : null,
+      },
+      supportPhone: SUPPORT_PHONE,
     });
   } catch (error: any) {
     if (error instanceof ClaimRedeemError) {

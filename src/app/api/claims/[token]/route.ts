@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getOwnerSession } from '@/lib/auth/owner-auth';
 import { getClaimPreviewByToken } from '@/lib/claims/claim-service';
+import { FREE_TRIAL_DAYS, TRIAL_PLAN } from '@/lib/payments/plans';
+import { SUPPORT_PHONE } from '@/lib/support/contact';
 
 export async function GET(
   _req: Request,
@@ -25,6 +27,12 @@ export async function GET(
     return NextResponse.json(
       {
         ...preview,
+        trial: {
+          name: TRIAL_PLAN.name,
+          days: FREE_TRIAL_DAYS,
+          requiresPaymentMethod: false,
+        },
+        supportPhone: SUPPORT_PHONE,
         currentUser: session
           ? {
               userId: session.userId,

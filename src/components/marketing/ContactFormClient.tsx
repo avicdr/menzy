@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { AlertCircle, CheckCircle2, Send } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Phone, Send } from 'lucide-react';
 import { trackConversionEvent } from '@/lib/analytics/events';
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
 
 export function ContactFormClient() {
   const [name, setName] = useState('');
@@ -196,6 +197,17 @@ export function ContactFormClient() {
         <span>{submitting ? 'Sending inquiry...' : 'Send Message'}</span>
         <Send className="w-4 h-4" aria-hidden="true" />
       </button>
+
+      <div className="pt-2 flex flex-wrap items-center justify-center gap-1.5 text-xs text-taupe-600">
+        <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" aria-hidden="true" />
+        <span>Prefer to talk? Setup queries helpline:</span>
+        <a
+          href={SUPPORT_PHONE_HREF}
+          className="font-semibold text-espresso-900 hover:text-terracotta underline underline-offset-2"
+        >
+          {SUPPORT_PHONE_DISPLAY}
+        </a>
+      </div>
     </form>
   );
 }

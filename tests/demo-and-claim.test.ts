@@ -44,6 +44,7 @@ describe('Demo Claim Preview & Atomic Redemption Service', () => {
     expired?: boolean;
     rejected?: boolean;
     withExtraOpenToken?: boolean;
+    coverUrl?: string | null;
   }) {
     const suffix = crypto.randomBytes(4).toString('hex');
     const rawToken = generateRawClaimToken();
@@ -57,6 +58,7 @@ describe('Demo Claim Preview & Atomic Redemption Service', () => {
         city: 'Bengaluru',
         currency: 'INR',
         description: 'Artisanal sourdough and single-origin espresso.',
+        coverUrl: options?.coverUrl ?? null,
         publicationState: PublicationState.PUBLISHED,
         isClaimed: false,
       },
@@ -161,22 +163,28 @@ describe('Demo Claim Preview & Atomic Redemption Service', () => {
     expect(rejectedPreview.valid).toBe(false);
     expect(rejectedPreview.state).toBe('REVOKED');
 
-    const validDemo = await seedUnclaimedDemo({ withExtraOpenToken: true });
+    const validDemo = await seedUnclaimedDemo({
+      withExtraOpenToken: true,
+      coverUrl: '/api/storage/banners/demo-cafe-hero.webp',
+    });
     const validPreview = await getClaimPreviewByToken(validDemo.rawToken);
     expect(validPreview.valid).toBe(true);
     expect(validPreview.state).toBe('UNCLAIMED');
     expect(validPreview.restaurant?.id).toBe(validDemo.restaurant.id);
+    expect(validPreview.restaurant?.coverUrl).toBe('/api/storage/banners/demo-cafe-hero.webp');
     expect(validPreview.restaurant?.dishCount).toBe(2);
     expect(validPreview.restaurant?.sampleDishes.some((d) => d.priceMinor === null)).toBe(true);
 
     // Redeem valid token and ensure preview updates accurately per viewer and revoked sibling stays REVOKED
     const owner = await seedUser('first');
-    const redeemed = await prisma.$transaction((tx) =>
-      redeemClaimWithinTransaction(tx, {
-        rawClaimToken: validDemo.rawToken,
-        userId: owner.id,
-        email: owner.email,
-      })
+    const redeemed = await prisma.$transaction(
+      (tx) =>
+        redeemClaimWithinTransaction(tx, {
+          rawClaimToken: validDemo.rawToken,
+          userId: owner.id,
+          email: owner.email,
+        }),
+      { maxWait: 10_000, timeout: 20_000 }
     );
     createdOrganizationIds.push(redeemed.organizationId);
 
@@ -198,13 +206,15 @@ describe('Demo Claim Preview & Atomic Redemption Service', () => {
     const demo = await seedUnclaimedDemo({ withExtraOpenToken: true });
     const owner = await seedUser('newowner');
 
-    const res = await prisma.$transaction((tx) =>
-      redeemClaimWithinTransaction(tx, {
-        rawClaimToken: demo.rawToken,
-        userId: owner.id,
-        email: owner.email,
-        verificationNotes: 'Verified via unit test',
-      })
+    const res = await prisma.$transaction(
+      (tx) =>
+        redeemClaimWithinTransaction(tx, {
+          rawClaimToken: demo.rawToken,
+          userId: owner.id,
+          email: owner.email,
+          verificationNotes: 'Verified via unit test',
+        }),
+      { maxWait: 10_000, timeout: 20_000 }
     );
     createdOrganizationIds.push(res.organizationId);
 
@@ -227,11 +237,12 @@ describe('Demo Claim Preview & Atomic Redemption Service', () => {
     });
     expect(credits.reduce((sum, entry) => sum + entry.delta, 0)).toBe(15);
 
-    const [settings, orderingSettings, tableCount, claims] = await Promise.all([
+    const [settings, orderingSettings, tableCount, claims, subscription] = await Promise.all([
       prisma.restaurantSettings.findUnique({ where: { restaurantId: demo.restaurant.id } }),
       prisma.restaurantOrderingSettings.findUnique({ where: { restaurantId: demo.restaurant.id } }),
       prisma.restaurantTable.count({ where: { restaurantId: demo.restaurant.id, isArchived: false } }),
       prisma.claimRequest.findMany({ where: { restaurantId: demo.restaurant.id } }),
+      prisma.subscription.findUnique({ where: { organizationId: res.organizationId } }),
     ]);
 
     expect(settings).not.toBeNull();
@@ -239,26 +250,39 @@ describe('Demo Claim Preview & Atomic Redemption Service', () => {
     expect(tableCount).toBe(1);
     expect(claims.filter((c) => c.status === ClaimStatus.APPROVED)).toHaveLength(1);
     expect(claims.filter((c) => c.status === ClaimStatus.REJECTED)).toHaveLength(1);
+    expect(subscription).not.toBeNull();
+    expect(subscription?.planKey).toBe('FREE_TRIAL');
+    expect(subscription?.status).toBe('TRIAL');
+    expect(subscription?.provider).toBe('TRIAL');
+    expect(subscription?.billingPeriod).toBe('TRIAL_14D');
+    expect(subscription?.paidThrough).not.toBeNull();
+    const trialDaysMs = (subscription!.paidThrough!.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+    expect(trialDaysMs).toBeGreaterThan(13);
+    expect(trialDaysMs).toBeLessThanOrEqual(14.1);
 
     // Same user redeeming again is idempotent
-    const repeat = await prisma.$transaction((tx) =>
-      redeemClaimWithinTransaction(tx, {
-        rawClaimToken: demo.rawToken,
-        userId: owner.id,
-        email: owner.email,
-      })
+    const repeat = await prisma.$transaction(
+      (tx) =>
+        redeemClaimWithinTransaction(tx, {
+          rawClaimToken: demo.rawToken,
+          userId: owner.id,
+          email: owner.email,
+        }),
+      { maxWait: 10_000, timeout: 20_000 }
     );
     expect(repeat.alreadyClaimedByUser).toBe(true);
 
     // Second user attempting to hijack the claimed token receives 409
     const intruder = await seedUser('intruder');
     await expect(
-      prisma.$transaction((tx) =>
-        redeemClaimWithinTransaction(tx, {
-          rawClaimToken: demo.rawToken,
-          userId: intruder.id,
-          email: intruder.email,
-        })
+      prisma.$transaction(
+        (tx) =>
+          redeemClaimWithinTransaction(tx, {
+            rawClaimToken: demo.rawToken,
+            userId: intruder.id,
+            email: intruder.email,
+          }),
+        { maxWait: 10_000, timeout: 20_000 }
       )
     ).rejects.toMatchObject({ status: 409 });
   });
@@ -295,12 +319,14 @@ describe('Demo Claim Preview & Atomic Redemption Service', () => {
     });
 
     const demo = await seedUnclaimedDemo();
-    const res = await prisma.$transaction((tx) =>
-      redeemClaimWithinTransaction(tx, {
-        rawClaimToken: demo.rawToken,
-        userId: owner.id,
-        email: owner.email,
-      })
+    const res = await prisma.$transaction(
+      (tx) =>
+        redeemClaimWithinTransaction(tx, {
+          rawClaimToken: demo.rawToken,
+          userId: owner.id,
+          email: owner.email,
+        }),
+      { maxWait: 10_000, timeout: 20_000 }
     );
 
     expect(res.organizationId).toBe(org.id);
@@ -318,22 +344,26 @@ describe('Demo Claim Preview & Atomic Redemption Service', () => {
     const rejectedDemo = await seedUnclaimedDemo({ rejected: true });
 
     await expect(
-      prisma.$transaction((tx) =>
-        redeemClaimWithinTransaction(tx, {
-          rawClaimToken: expiredDemo.rawToken,
-          userId: owner.id,
-          email: owner.email,
-        })
+      prisma.$transaction(
+        (tx) =>
+          redeemClaimWithinTransaction(tx, {
+            rawClaimToken: expiredDemo.rawToken,
+            userId: owner.id,
+            email: owner.email,
+          }),
+        { maxWait: 10_000, timeout: 20_000 }
       )
     ).rejects.toBeInstanceOf(ClaimRedeemError);
 
     await expect(
-      prisma.$transaction((tx) =>
-        redeemClaimWithinTransaction(tx, {
-          rawClaimToken: rejectedDemo.rawToken,
-          userId: owner.id,
-          email: owner.email,
-        })
+      prisma.$transaction(
+        (tx) =>
+          redeemClaimWithinTransaction(tx, {
+            rawClaimToken: rejectedDemo.rawToken,
+            userId: owner.id,
+            email: owner.email,
+          }),
+        { maxWait: 10_000, timeout: 20_000 }
       )
     ).rejects.toMatchObject({ status: 410 });
   });

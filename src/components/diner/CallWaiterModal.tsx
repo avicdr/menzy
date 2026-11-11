@@ -2,6 +2,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { Bell, X, Check, Droplets, Utensils, Receipt, HandMetal, QrCode, Clock } from 'lucide-react';
+import {
+  DEFAULT_SCAN_TIMEOUT_MINUTES,
+  formatSessionExpiredSummary,
+  type TableSessionTimeoutKind,
+} from '@/lib/diner/table-session-config';
 
 interface CallWaiterModalProps {
   isOpen: boolean;
@@ -12,11 +17,19 @@ interface CallWaiterModalProps {
   sessionId?: string;
   sessionToken?: string;
   tableExpiresAt?: string;
+  timeoutMinutes?: number | null;
+  timeoutKind?: TableSessionTimeoutKind | null;
   isSessionExpired?: boolean;
   expiredTableName?: string | null;
-  onSessionExpired?: (tableName?: string | null) => void;
+  expiredTimeoutMinutes?: number | null;
+  expiredTimeoutKind?: TableSessionTimeoutKind | null;
+  onSessionExpired?: (
+    tableName?: string | null,
+    meta?: { timeoutMinutes?: number | null; timeoutKind?: TableSessionTimeoutKind | null }
+  ) => void;
   onSyncTable?: (tableInfo: any | null) => void;
   onRequestRescan?: (reason: 'EXPIRED' | 'REQUIRED') => void;
+  onMenuPaused?: (payload: any) => void;
 }
 
 export function CallWaiterModal({
@@ -28,11 +41,16 @@ export function CallWaiterModal({
   sessionId,
   sessionToken,
   tableExpiresAt,
+  timeoutMinutes,
+  timeoutKind,
   isSessionExpired = false,
   expiredTableName,
+  expiredTimeoutMinutes,
+  expiredTimeoutKind,
   onSessionExpired,
   onSyncTable,
   onRequestRescan,
+  onMenuPaused,
 }: CallWaiterModalProps) {
   const [callType, setCallType] = useState<'ASSISTANCE' | 'WATER' | 'CUTLERY' | 'BILL'>('ASSISTANCE');
   const [notes, setNotes] = useState('');
@@ -46,11 +64,18 @@ export function CallWaiterModal({
       Date.now() > Date.parse(tableExpiresAt)
   );
 
+  const effectiveTimeoutMinutes =
+    expiredTimeoutMinutes ?? timeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES;
+  const effectiveTimeoutKind = expiredTimeoutKind ?? timeoutKind ?? 'SCAN';
+
   useEffect(() => {
     if (isOpen && clientExpired && tableName) {
-      onSessionExpired?.(tableName);
+      onSessionExpired?.(tableName, {
+        timeoutMinutes: timeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES,
+        timeoutKind: timeoutKind ?? 'SCAN',
+      });
     }
-  }, [isOpen, clientExpired, tableName, onSessionExpired]);
+  }, [isOpen, clientExpired, tableName, timeoutMinutes, timeoutKind, onSessionExpired]);
 
   if (!isOpen) return null;
 
@@ -61,7 +86,10 @@ export function CallWaiterModal({
     if (!hasValidTable) {
       const expiredFlag = isSessionExpired || clientExpired;
       if (clientExpired && tableName) {
-        onSessionExpired?.(tableName);
+        onSessionExpired?.(tableName, {
+          timeoutMinutes: timeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES,
+          timeoutKind: timeoutKind ?? 'SCAN',
+        });
       }
       onRequestRescan?.(expiredFlag ? 'EXPIRED' : 'REQUIRED');
       return;
@@ -83,8 +111,13 @@ export function CallWaiterModal({
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (res.status === 402) {
+          onClose();
+          onMenuPaused?.(data);
+          return;
+        }
         if (data.code === 'TABLE_MISMATCH') {
           if (data.currentTable?.tableId && data.currentTable?.tableName) {
             onSyncTable?.(data.currentTable);
@@ -110,7 +143,10 @@ export function CallWaiterModal({
         ) {
           const expiredFlag = data.code === 'TABLE_SCAN_EXPIRED';
           if (expiredFlag) {
-            onSessionExpired?.(data.tableName || tableName || null);
+            onSessionExpired?.(data.tableName || tableName || null, {
+              timeoutMinutes: data.timeoutMinutes ?? timeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES,
+              timeoutKind: data.timeoutKind ?? timeoutKind ?? 'SCAN',
+            });
           }
           setError(data.error || 'Please rescan your table QR code before calling a waiter.');
           onRequestRescan?.(expiredFlag ? 'EXPIRED' : 'REQUIRED');
@@ -207,9 +243,11 @@ export function CallWaiterModal({
               </h3>
               <p className="text-xs text-taupe-400 leading-relaxed max-w-xs mx-auto">
                 {isSessionExpired || clientExpired
-                  ? `No order has been placed from your device in the last 30 minutes${
-                      expiredTableName ? ` (${expiredTableName})` : ''
-                    }. Please rescan the QR code on your table to alert a waiter.`
+                  ? formatSessionExpiredSummary({
+                      timeoutMinutes: effectiveTimeoutMinutes,
+                      timeoutKind: effectiveTimeoutKind,
+                      tableName: expiredTableName || tableName || null,
+                    })
                   : 'Please scan the QR code on your table first so our staff knows which table needs assistance.'}
               </p>
             </div>

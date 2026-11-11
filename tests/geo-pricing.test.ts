@@ -219,33 +219,71 @@ describe('Geolocation-Based Regional Pricing & Enforcement', () => {
   });
 
   it('blocks cross-region plans in /api/billing/usage and /api/billing/create-subscription', async () => {
-    const indianRest = await prisma.restaurant.findFirst({
-      where: { slug: 'chai-and-chutney' },
-      include: {
-        organization: {
-          include: {
-            members: { include: { user: true }, take: 1 },
-          },
-        },
-      },
-    });
-    const usRest = await prisma.restaurant.findFirst({
-      where: { slug: 'the-gilded-fork' },
-      include: {
-        organization: {
-          include: {
-            members: { include: { user: true }, take: 1 },
-          },
-        },
-      },
-    });
+    const suffix = crypto.randomBytes(4).toString('hex');
 
-    if (!indianRest?.organization?.members[0]?.user || !usRest?.organization?.members[0]?.user) {
-      throw new Error('Seeded IN and US restaurants are required for billing isolation test');
-    }
+    const inUser = await prisma.user.create({
+      data: {
+        email: `geo.in.owner.${suffix}@menzy.test`,
+        name: 'India Geo Owner',
+        emailVerified: new Date(),
+      },
+    });
+    createdUserIds.push(inUser.id);
+
+    const inOrg = await prisma.organization.create({
+      data: {
+        name: `IN Geo Org ${suffix}`,
+        ownerUserId: inUser.id,
+        billingCountry: 'IN',
+        billingCurrency: 'INR',
+        members: { create: { userId: inUser.id, role: 'OWNER' } },
+      },
+    });
+    createdOrgIds.push(inOrg.id);
+
+    const indianRest = await prisma.restaurant.create({
+      data: {
+        organizationId: inOrg.id,
+        slug: `geo-in-rest-${suffix}`,
+        displayName: `Geo India Kitchen ${suffix}`,
+        country: 'IN',
+        currency: 'INR',
+      },
+    });
+    createdRestaurantIds.push(indianRest.id);
+
+    const usUser = await prisma.user.create({
+      data: {
+        email: `geo.us.owner.${suffix}@menzy.test`,
+        name: 'US Geo Owner',
+        emailVerified: new Date(),
+      },
+    });
+    createdUserIds.push(usUser.id);
+
+    const usOrg = await prisma.organization.create({
+      data: {
+        name: `US Geo Org ${suffix}`,
+        ownerUserId: usUser.id,
+        billingCountry: 'US',
+        billingCurrency: 'USD',
+        members: { create: { userId: usUser.id, role: 'OWNER' } },
+      },
+    });
+    createdOrgIds.push(usOrg.id);
+
+    const usRest = await prisma.restaurant.create({
+      data: {
+        organizationId: usOrg.id,
+        slug: `geo-us-rest-${suffix}`,
+        displayName: `Geo US Kitchen ${suffix}`,
+        country: 'US',
+        currency: 'USD',
+      },
+    });
+    createdRestaurantIds.push(usRest.id);
 
     // India owner only receives INR plans and gets 403 trying to subscribe to US plan
-    const inUser = indianRest.organization.members[0].user;
     mockOwnerCookieValue = createOwnerToken(inUser.id, inUser.email);
 
     const inUsageRes = await billingUsageGet(
@@ -266,7 +304,6 @@ describe('Geolocation-Based Regional Pricing & Enforcement', () => {
     expect(crossToUsRes.status).toBe(403);
 
     // US owner only receives USD plans and gets 403 trying to subscribe to India plan
-    const usUser = usRest.organization.members[0].user;
     mockOwnerCookieValue = createOwnerToken(usUser.id, usUser.email);
 
     const usUsageRes = await billingUsageGet(

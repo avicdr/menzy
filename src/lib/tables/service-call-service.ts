@@ -60,12 +60,14 @@ export async function ensureServiceCallTableExists(force = false): Promise<void>
 }
 
 /**
- * Executes a TableServiceCall query with automatic 42P01 self-healing initialization and one retry.
+ * Executes a TableServiceCall query directly first, self-healing with CREATE TABLE + one retry only on 42P01.
+ * Avoids running DDL checks on every serverless cold start.
  */
 async function withServiceCallTable<T>(fn: () => Promise<T>): Promise<T> {
-  await ensureServiceCallTableExists();
   try {
-    return await fn();
+    const result = await fn();
+    isTableInitialized = true;
+    return result;
   } catch (err: any) {
     if (isRelationMissingError(err)) {
       isTableInitialized = false;

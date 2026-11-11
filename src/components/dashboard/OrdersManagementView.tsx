@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ChefHat,
   Clock,
@@ -32,17 +32,27 @@ import {
   Users,
 } from 'lucide-react';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
+import {
+  DEFAULT_ORDER_EXTENSION_MINUTES,
+  DEFAULT_SCAN_TIMEOUT_MINUTES,
+  extractTableSessionConfig,
+  MAX_TABLE_SESSION_MINUTES,
+  MIN_TABLE_SESSION_MINUTES,
+  normalizeTableSessionConfigInput,
+} from '@/lib/diner/table-session-config';
 import { Modal } from '@/components/ui/Modal';
 import { GooglePlacesModal } from './GooglePlacesModal';
 
 interface OrdersManagementViewProps {
   restaurant: any;
   initialSubTab?: 'live' | 'history' | 'analytics' | 'settings';
+  onSubscriptionExpired?: (payload: any) => void;
 }
 
 export function OrdersManagementView({
   restaurant,
   initialSubTab = 'live',
+  onSubscriptionExpired,
 }: OrdersManagementViewProps) {
   const [activeSubTab, setActiveSubTab] = useState<'live' | 'history' | 'analytics' | 'settings'>(
     initialSubTab
@@ -61,7 +71,12 @@ export function OrdersManagementView({
   const [tables, setTables] = useState<any[]>([]);
   const [serviceCalls, setServiceCalls] = useState<any[]>([]);
   const [selectedTableFilter, setSelectedTableFilter] = useState<string | null>(null);
-  const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
+  const [updatingOrders, setUpdatingOrders] = useState<Record<string, string>>({});
+  const [resolvingCallId, setResolvingCallId] = useState<string | null>(null);
+  const [subscriptionPaused, setSubscriptionPaused] = useState(false);
+  const inFlightMutationsRef = useRef<Map<string, number>>(new Map());
+  const recentlyUpdatedRef = useRef<Map<string, { status: string; expiresAt: number }>>(new Map());
+  const mutationSeqRef = useRef(0);
 
   // History Orders
   const [historyOrders, setHistoryOrders] = useState<any[]>([]);
@@ -75,7 +90,7 @@ export function OrdersManagementView({
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
-  // Ordering Settings Form (includes Free Wi-Fi & Google Review URL)
+  // Ordering Settings Form (includes Table QR Session Timers, Free Wi-Fi & Google Review URL)
   const [orderingSettings, setOrderingSettings] = useState({
     orderingEnabled: true,
     acceptsNewOrders: true,
@@ -89,6 +104,10 @@ export function OrdersManagementView({
     wifiPassword: '',
     wifiSecurity: 'WPA',
   });
+  const [tableSessionTimers, setTableSessionTimers] = useState({
+    scanTimeoutMinutes: String(DEFAULT_SCAN_TIMEOUT_MINUTES),
+    orderExtensionMinutes: String(DEFAULT_ORDER_EXTENSION_MINUTES),
+  });
   const [googleReviewUrl, setGoogleReviewUrl] = useState(restaurant?.googleReviewUrl || '');
   const [isPlacesModalOpen, setIsPlacesModalOpen] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -100,6 +119,7 @@ export function OrdersManagementView({
 
   // 1. Load Live Orders + Tables + Service Calls
   const loadLiveOrders = async (silent = false) => {
+    const fetchStartedAt = Date.now();
     try {
       if (!silent) setLoading(true);
       setError(null);
@@ -108,9 +128,59 @@ export function OrdersManagementView({
         fetch(`/api/restaurants/${restaurant.id}/tables`),
         fetch(`/api/restaurants/${restaurant.id}/service-calls`),
       ]);
+      if (ordersRes.status === 402 || tablesRes.status === 402 || callsRes.status === 402) {
+        const pausedRes =
+          ordersRes.status === 402 ? ordersRes : tablesRes.status === 402 ? tablesRes : callsRes;
+        const payload = await pausedRes.json().catch(() => ({}));
+        setSubscriptionPaused(true);
+        onSubscriptionExpired?.(payload);
+        return;
+      }
       if (!ordersRes.ok) throw new Error('Failed to load live orders');
       const ordersData = await ordersRes.json();
-      setLiveOrders(ordersData.orders || []);
+      const fetchedOrders: any[] = ordersData.orders || [];
+
+      setLiveOrders((prevOrders) => {
+        const now = Date.now();
+        const prevById = new Map(prevOrders.map((o) => [o.id, o]));
+        const handledIds = new Set<string>();
+        const merged: any[] = [];
+
+        for (const serverOrder of fetchedOrders) {
+          handledIds.add(serverOrder.id);
+          const inFlight = inFlightMutationsRef.current.has(serverOrder.id);
+          const recent = recentlyUpdatedRef.current.get(serverOrder.id);
+          const localOrder = prevById.get(serverOrder.id);
+
+          if (inFlight) {
+            if (localOrder) merged.push(localOrder);
+            continue;
+          }
+          if (recent && recent.expiresAt > now) {
+            if (recent.status === 'REJECTED' || recent.status === 'CANCELLED') {
+              continue;
+            }
+            if (localOrder && serverOrder.status !== recent.status) {
+              merged.push(localOrder);
+              continue;
+            }
+          }
+          merged.push(serverOrder);
+        }
+
+        for (const localOrder of prevOrders) {
+          if (handledIds.has(localOrder.id)) continue;
+          const inFlight = inFlightMutationsRef.current.has(localOrder.id);
+          const recent = recentlyUpdatedRef.current.get(localOrder.id);
+          if (inFlight || (recent && recent.expiresAt > now && recent.expiresAt > fetchStartedAt)) {
+            if (!['REJECTED', 'CANCELLED'].includes(localOrder.status)) {
+              merged.unshift(localOrder);
+            }
+          }
+        }
+
+        return merged;
+      });
       setLiveOrdersLoaded(true);
 
       if (tablesRes.ok) {
@@ -141,6 +211,12 @@ export function OrdersManagementView({
       if (historySearch.trim()) params.set('search', historySearch.trim());
 
       const res = await fetch(`/api/restaurants/${restaurant.id}/orders/history?${params.toString()}`);
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        setSubscriptionPaused(true);
+        onSubscriptionExpired?.(payload);
+        return;
+      }
       if (!res.ok) throw new Error('Failed to load order history');
       const data = await res.json();
       setHistoryOrders(data.orders || []);
@@ -159,6 +235,11 @@ export function OrdersManagementView({
       setAnalyticsError(null);
       const res = await fetch(`/api/restaurants/${restaurant.id}/orders/analytics`);
       const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        setSubscriptionPaused(true);
+        onSubscriptionExpired?.(data);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || 'Failed to load order analytics');
       setAnalyticsData(data);
     } catch (err: any) {
@@ -176,10 +257,19 @@ export function OrdersManagementView({
         fetch(`/api/restaurants/${restaurant.id}/ordering-settings`),
         fetch(`/api/restaurant/settings?restaurantId=${restaurant.id}`),
       ]);
+      if (ordRes.status === 402 || restRes.status === 402) {
+        const pausedRes = ordRes.status === 402 ? ordRes : restRes;
+        const payload = await pausedRes.json().catch(() => ({}));
+        setSubscriptionPaused(true);
+        onSubscriptionExpired?.(payload);
+        return;
+      }
       if (ordRes.ok) {
         const data = await ordRes.json();
         if (data.settings) {
           const wifi = data.settings.notificationSettings?.wifi || {};
+          const tableSession =
+            data.tableSession ?? extractTableSessionConfig(data.settings.notificationSettings);
           setOrderingSettings({
             orderingEnabled: data.settings.orderingEnabled ?? true,
             acceptsNewOrders: data.settings.acceptsNewOrders ?? true,
@@ -192,6 +282,10 @@ export function OrdersManagementView({
             wifiSsid: wifi.ssid || '',
             wifiPassword: wifi.password || '',
             wifiSecurity: wifi.security || 'WPA',
+          });
+          setTableSessionTimers({
+            scanTimeoutMinutes: String(tableSession.scanTimeoutMinutes),
+            orderExtensionMinutes: String(tableSession.orderExtensionMinutes),
           });
         }
       }
@@ -207,7 +301,7 @@ export function OrdersManagementView({
   };
 
   useEffect(() => {
-    if (restaurant?.id) {
+    if (restaurant?.id && !subscriptionPaused) {
       if (activeSubTab === 'live') {
         loadLiveOrders();
         const interval = setInterval(() => loadLiveOrders(true), 8000);
@@ -217,40 +311,129 @@ export function OrdersManagementView({
       if (activeSubTab === 'analytics') loadAnalytics();
       if (activeSubTab === 'settings') loadSettings();
     }
-  }, [restaurant?.id, activeSubTab]);
+  }, [restaurant?.id, activeSubTab, subscriptionPaused]);
 
   const handleResolveCall = async (callId: string) => {
     try {
+      setResolvingCallId(callId);
       const res = await fetch(`/api/restaurants/${restaurant.id}/service-calls`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ callId }),
       });
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        setSubscriptionPaused(true);
+        onSubscriptionExpired?.(payload);
+        return;
+      }
       if (res.ok) {
         setServiceCalls((prev) => prev.filter((c) => c.id !== callId));
         showNotification('Service call marked as attended.');
       }
     } catch (err) {
       console.error('Failed to resolve call:', err);
+    } finally {
+      setResolvingCallId(null);
     }
   };
 
   const handleStatusTransition = async (orderId: string, nextStatus: string) => {
+    if (inFlightMutationsRef.current.has(orderId)) return;
+
+    const existingOrder = liveOrders.find((o) => o.id === orderId);
+    if (!existingOrder) return;
+
+    const seq = ++mutationSeqRef.current;
+    inFlightMutationsRef.current.set(orderId, seq);
+    setError(null);
+    setUpdatingOrders((prev) => ({ ...prev, [orderId]: nextStatus }));
+
+    const nowIso = new Date().toISOString();
+    const isRejectedOrCancelled = nextStatus === 'REJECTED' || nextStatus === 'CANCELLED';
+
+    // Immediate optimistic transition for crisp zero-lag feel
+    setLiveOrders((prev) => {
+      if (isRejectedOrCancelled) {
+        return prev.filter((o) => o.id !== orderId);
+      }
+      return prev.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              status: nextStatus,
+              updatedAt: nowIso,
+              ...(nextStatus === 'ACCEPTED' ? { acceptedAt: nowIso } : {}),
+              ...(nextStatus === 'PREPARING' ? { preparingAt: nowIso } : {}),
+              ...(nextStatus === 'READY' ? { readyAt: nowIso } : {}),
+              ...(nextStatus === 'SERVED' ? { servedAt: nowIso } : {}),
+              ...(nextStatus === 'COMPLETED' ? { completedAt: nowIso } : {}),
+            }
+          : o
+      );
+    });
+
     try {
-      setStatusUpdating(orderId);
       const res = await fetch(`/api/restaurants/${restaurant.id}/orders/${orderId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextStatus }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        setSubscriptionPaused(true);
+        onSubscriptionExpired?.(data);
+        throw new Error(data.error || 'Subscription required');
+      }
       if (!res.ok) throw new Error(data.error || 'Status update failed');
+
+      recentlyUpdatedRef.current.set(orderId, {
+        status: nextStatus,
+        expiresAt: Date.now() + 5000,
+      });
+
+      const serverOrder = data.order;
+      if (serverOrder && !isRejectedOrCancelled) {
+        setLiveOrders((prev) =>
+          prev.map((o) =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  status: serverOrder.status,
+                  acceptedAt: serverOrder.acceptedAt ?? o.acceptedAt,
+                  preparingAt: serverOrder.preparingAt ?? o.preparingAt,
+                  readyAt: serverOrder.readyAt ?? o.readyAt,
+                  servedAt: serverOrder.servedAt ?? o.servedAt,
+                  completedAt: serverOrder.completedAt ?? o.completedAt,
+                  updatedAt: serverOrder.updatedAt ?? o.updatedAt,
+                }
+              : o
+          )
+        );
+      }
+
       showNotification(`Order status updated to ${nextStatus}.`);
-      loadLiveOrders(true);
     } catch (err: any) {
+      // Rollback optimistic transition on error
+      setLiveOrders((prev) => {
+        if (prev.some((o) => o.id === orderId)) {
+          return prev.map((o) => (o.id === orderId ? existingOrder : o));
+        }
+        return [existingOrder, ...prev].sort(
+          (a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime()
+        );
+      });
       setError(err.message || 'Failed to update order');
     } finally {
-      setStatusUpdating(null);
+      if (inFlightMutationsRef.current.get(orderId) === seq) {
+        inFlightMutationsRef.current.delete(orderId);
+      }
+      setUpdatingOrders((prev) => {
+        if (!(orderId in prev)) return prev;
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
     }
   };
 
@@ -261,16 +444,26 @@ export function OrdersManagementView({
       return;
     }
 
+    const parsedTimers = normalizeTableSessionConfigInput({
+      scanTimeoutMinutes: tableSessionTimers.scanTimeoutMinutes.trim(),
+      orderExtensionMinutes: tableSessionTimers.orderExtensionMinutes.trim(),
+    });
+    if (!parsedTimers.ok) {
+      setError(parsedTimers.error);
+      return;
+    }
+
     try {
       setIsSavingSettings(true);
       setError(null);
 
-      // Save Ordering Settings + Wi-Fi
+      // Save Ordering Settings + Table QR Timers + Wi-Fi
       const res = await fetch(`/api/restaurants/${restaurant.id}/ordering-settings`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...orderingSettings,
+          tableSession: parsedTimers.tableSession,
           wifi: {
             enabled: orderingSettings.wifiEnabled,
             ssid: orderingSettings.wifiSsid.trim(),
@@ -279,11 +472,23 @@ export function OrdersManagementView({
           },
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        setSubscriptionPaused(true);
+        onSubscriptionExpired?.(data);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || 'Failed to save settings');
 
+      if (data.tableSession) {
+        setTableSessionTimers({
+          scanTimeoutMinutes: String(data.tableSession.scanTimeoutMinutes),
+          orderExtensionMinutes: String(data.tableSession.orderExtensionMinutes),
+        });
+      }
+
       // Also save Google Review URL if updated
-      await fetch('/api/restaurant/settings', {
+      const restSettingsRes = await fetch('/api/restaurant/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -291,8 +496,14 @@ export function OrdersManagementView({
           googleReviewUrl: googleReviewUrl.trim(),
         }),
       });
+      if (restSettingsRes.status === 402) {
+        const restPayload = await restSettingsRes.json().catch(() => ({}));
+        setSubscriptionPaused(true);
+        onSubscriptionExpired?.(restPayload);
+        return;
+      }
 
-      showNotification('Ordering, Wi-Fi & Google Review configuration saved!');
+      showNotification('Ordering, table QR timer, Wi-Fi & Google Review configuration saved!');
     } catch (err: any) {
       setError(err.message || 'Error updating settings');
     } finally {
@@ -568,9 +779,13 @@ export function OrdersManagementView({
                     </div>
                     <button
                       onClick={() => handleResolveCall(call.id)}
-                      className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs shrink-0 transition-colors"
+                      disabled={resolvingCallId === call.id}
+                      className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs shrink-0 transition-colors disabled:opacity-60 inline-flex items-center gap-1"
                     >
-                      Attended ✓
+                      {resolvingCallId === call.id && (
+                        <RefreshCw className="w-3 h-3 animate-spin motion-reduce:animate-none" />
+                      )}
+                      {resolvingCallId === call.id ? 'Attending...' : 'Attended ✓'}
                     </button>
                   </div>
                 ))}
@@ -685,9 +900,12 @@ export function OrdersManagementView({
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredOrders.map((order) => (
+              {filteredOrders.map((order) => {
+                const isSyncing = Boolean(updatingOrders[order.id]);
+                return (
                 <div
                   key={order.id}
+                  aria-busy={isSyncing}
                   className="bg-white rounded-2xl border border-cream-300 shadow-sm hover:shadow-md transition-shadow p-5 flex flex-col justify-between"
                 >
                   <div>
@@ -705,7 +923,15 @@ export function OrdersManagementView({
                           })}
                         </div>
                       </div>
-                      <div>{getStatusBadge(order.status)}</div>
+                      <div className="flex items-center gap-1.5">
+                        {isSyncing && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 inline-flex items-center gap-1">
+                            <RefreshCw className="w-2.5 h-2.5 animate-spin motion-reduce:animate-none" />
+                            Syncing
+                          </span>
+                        )}
+                        {getStatusBadge(order.status)}
+                      </div>
                     </div>
 
                     {/* Table & Diner Info */}
@@ -778,15 +1004,16 @@ export function OrdersManagementView({
                         <>
                           <button
                             onClick={() => handleStatusTransition(order.id, 'ACCEPTED')}
-                            disabled={statusUpdating === order.id}
-                            className="flex-1 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-50"
+                            disabled={isSyncing}
+                            className="flex-1 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-60 inline-flex items-center justify-center gap-1.5"
                           >
+                            {isSyncing && <RefreshCw className="w-3 h-3 animate-spin motion-reduce:animate-none" />}
                             Accept Order
                           </button>
                           <button
                             onClick={() => handleStatusTransition(order.id, 'REJECTED')}
-                            disabled={statusUpdating === order.id}
-                            className="py-1.5 px-3 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 font-medium text-xs transition-colors disabled:opacity-50"
+                            disabled={isSyncing}
+                            className="py-1.5 px-3 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 font-medium text-xs transition-colors disabled:opacity-60"
                           >
                             Reject
                           </button>
@@ -796,40 +1023,44 @@ export function OrdersManagementView({
                       {(order.status === 'ACCEPTED' || order.status === 'CONFIRMED') && (
                         <button
                           onClick={() => handleStatusTransition(order.id, 'PREPARING')}
-                          disabled={statusUpdating === order.id}
-                          className="flex-1 py-1.5 px-3 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-50"
+                          disabled={isSyncing}
+                          className="flex-1 py-1.5 px-3 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-60 inline-flex items-center justify-center gap-1.5"
                         >
-                          Start Cooking
+                          {isSyncing && <RefreshCw className="w-3 h-3 animate-spin motion-reduce:animate-none" />}
+                          {isSyncing ? 'Updating...' : 'Start Cooking'}
                         </button>
                       )}
 
                       {order.status === 'PREPARING' && (
                         <button
                           onClick={() => handleStatusTransition(order.id, 'READY')}
-                          disabled={statusUpdating === order.id}
-                          className="flex-1 py-1.5 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-50"
+                          disabled={isSyncing}
+                          className="flex-1 py-1.5 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-60 inline-flex items-center justify-center gap-1.5"
                         >
-                          Mark Ready 🔔
+                          {isSyncing && <RefreshCw className="w-3 h-3 animate-spin motion-reduce:animate-none" />}
+                          {isSyncing ? 'Updating...' : 'Mark Ready 🔔'}
                         </button>
                       )}
 
                       {order.status === 'READY' && (
                         <button
                           onClick={() => handleStatusTransition(order.id, 'SERVED')}
-                          disabled={statusUpdating === order.id}
-                          className="flex-1 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-50"
+                          disabled={isSyncing}
+                          className="flex-1 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-60 inline-flex items-center justify-center gap-1.5"
                         >
-                          Mark Served ✓
+                          {isSyncing && <RefreshCw className="w-3 h-3 animate-spin motion-reduce:animate-none" />}
+                          {isSyncing ? 'Updating...' : 'Mark Served ✓'}
                         </button>
                       )}
 
                       {order.status === 'SERVED' && (
                         <button
                           onClick={() => handleStatusTransition(order.id, 'COMPLETED')}
-                          disabled={statusUpdating === order.id}
-                          className="flex-1 py-1.5 px-3 rounded-lg bg-espresso-900 hover:bg-espresso-800 text-cream-100 font-medium text-xs transition-colors shadow-sm disabled:opacity-50"
+                          disabled={isSyncing}
+                          className="flex-1 py-1.5 px-3 rounded-lg bg-espresso-900 hover:bg-espresso-800 text-cream-100 font-medium text-xs transition-colors shadow-sm disabled:opacity-60 inline-flex items-center justify-center gap-1.5"
                         >
-                          Close Out
+                          {isSyncing && <RefreshCw className="w-3 h-3 animate-spin motion-reduce:animate-none" />}
+                          {isSyncing ? 'Closing...' : 'Close Out'}
                         </button>
                       )}
 
@@ -841,7 +1072,8 @@ export function OrdersManagementView({
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -1377,6 +1609,85 @@ export function OrdersManagementView({
                 <span className="text-[11px] text-taupe-400 mt-1 block">
                   Safety threshold against accidental spam
                 </span>
+              </div>
+            </div>
+
+            {/* Table QR Session Timers Section */}
+            <div className="pt-6 border-t border-cream-200 space-y-4">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-serif text-base font-bold text-espresso-900">
+                    Table QR Session Timers &amp; Auto-Expiry
+                  </h4>
+                  <p className="text-xs text-taupe-500">
+                    Control how long a scanned table QR link remains active before dining guests must rescan.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl border border-cream-200 bg-cream-50/50">
+                <div>
+                  <label className="block text-xs font-semibold text-espresso-900 mb-1">
+                    Initial QR Scan Timeout (Minutes)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={MIN_TABLE_SESSION_MINUTES}
+                      max={MAX_TABLE_SESSION_MINUTES}
+                      step={1}
+                      required
+                      value={tableSessionTimers.scanTimeoutMinutes}
+                      onChange={(e) => {
+                        setError(null);
+                        setTableSessionTimers({
+                          ...tableSessionTimers,
+                          scanTimeoutMinutes: e.target.value,
+                        });
+                      }}
+                      className="w-full px-3 py-2 pr-14 rounded-xl border border-cream-300 bg-white text-xs sm:text-sm font-mono text-espresso-900"
+                    />
+                    <span className="text-[11px] font-mono text-taupe-500 absolute right-3 top-2.5">
+                      min
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-taupe-500 mt-1 block">
+                    Time after scanning the QR to place their first order (default 30 min) before needing to rescan.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-espresso-900 mb-1">
+                    Post-Order Extension Time (Minutes)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={MIN_TABLE_SESSION_MINUTES}
+                      max={MAX_TABLE_SESSION_MINUTES}
+                      step={1}
+                      required
+                      value={tableSessionTimers.orderExtensionMinutes}
+                      onChange={(e) => {
+                        setError(null);
+                        setTableSessionTimers({
+                          ...tableSessionTimers,
+                          orderExtensionMinutes: e.target.value,
+                        });
+                      }}
+                      className="w-full px-3 py-2 pr-14 rounded-xl border border-cream-300 bg-white text-xs sm:text-sm font-mono text-espresso-900"
+                    />
+                    <span className="text-[11px] font-mono text-taupe-500 absolute right-3 top-2.5">
+                      min
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-taupe-500 mt-1 block">
+                    Additional ordering window granted whenever an order is placed (default 30 min) so guests can add items before expiry.
+                  </span>
+                </div>
               </div>
             </div>
 

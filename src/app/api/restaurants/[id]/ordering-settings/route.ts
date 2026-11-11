@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
+import { createTenantAccessDeniedResponse, verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 import { getCache } from '@/lib/cache/redis';
 import { normalizeGuestWifiInput } from '@/lib/wifi/wifi-qr';
+import {
+  extractTableSessionConfig,
+  normalizeTableSessionConfigInput,
+} from '@/lib/diner/table-session-config';
 
 export async function GET(
   req: Request,
@@ -12,7 +16,7 @@ export async function GET(
     const { id } = await params;
     const auth = await verifyRestaurantOwnerAccess(id);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
     }
 
     const settings = await prisma.restaurantOrderingSettings.upsert({
@@ -30,7 +34,10 @@ export async function GET(
       update: {},
     });
 
-    return NextResponse.json({ settings });
+    return NextResponse.json({
+      settings,
+      tableSession: extractTableSessionConfig(settings.notificationSettings),
+    });
   } catch (error: any) {
     console.error('Ordering settings GET error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -45,7 +52,7 @@ export async function PATCH(
     const { id } = await params;
     const auth = await verifyRestaurantOwnerAccess(id);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
     }
 
     const body = await req.json();
@@ -58,6 +65,9 @@ export async function PATCH(
       serviceChargePercentage,
       maxActiveOrders,
       wifi,
+      tableSession,
+      scanTimeoutMinutes,
+      orderExtensionMinutes,
     } = body;
 
     const data: any = {};
@@ -77,24 +87,59 @@ export async function PATCH(
     if (maxActiveOrders !== undefined) {
       data.maxActiveOrders = Math.max(1, Math.min(500, Number(maxActiveOrders) || 50));
     }
-    if (wifi !== undefined) {
-      if (!wifi || typeof wifi !== 'object' || Array.isArray(wifi)) {
-        return NextResponse.json({ error: 'Invalid guest Wi-Fi configuration.' }, { status: 400 });
-      }
-      const parsedWifi = normalizeGuestWifiInput(wifi);
-      if (!parsedWifi.ok) {
-        return NextResponse.json({ error: parsedWifi.error }, { status: 400 });
-      }
 
+    const hasWifiUpdate = wifi !== undefined;
+    const hasTableSessionUpdate =
+      tableSession !== undefined ||
+      scanTimeoutMinutes !== undefined ||
+      orderExtensionMinutes !== undefined;
+
+    if (hasWifiUpdate || hasTableSessionUpdate) {
       const existing = await prisma.restaurantOrderingSettings.findUnique({
         where: { restaurantId: auth.restaurant.id },
         select: { notificationSettings: true },
       });
       const currentNotifs = (existing?.notificationSettings as Record<string, any>) || {};
-      data.notificationSettings = {
+      const nextNotificationSettings: Record<string, any> = {
         ...currentNotifs,
-        wifi: parsedWifi.wifi,
       };
+
+      if (hasWifiUpdate) {
+        if (!wifi || typeof wifi !== 'object' || Array.isArray(wifi)) {
+          return NextResponse.json({ error: 'Invalid guest Wi-Fi configuration.' }, { status: 400 });
+        }
+        const parsedWifi = normalizeGuestWifiInput(wifi);
+        if (!parsedWifi.ok) {
+          return NextResponse.json({ error: parsedWifi.error }, { status: 400 });
+        }
+        nextNotificationSettings.wifi = parsedWifi.wifi;
+      }
+
+      if (hasTableSessionUpdate) {
+        if (tableSession !== undefined && (!tableSession || typeof tableSession !== 'object' || Array.isArray(tableSession))) {
+          return NextResponse.json(
+            { error: 'Invalid table session timeout configuration.' },
+            { status: 400 }
+          );
+        }
+
+        const candidateTableSession = {
+          ...(tableSession && typeof tableSession === 'object' ? tableSession : {}),
+          ...(scanTimeoutMinutes !== undefined ? { scanTimeoutMinutes } : {}),
+          ...(orderExtensionMinutes !== undefined ? { orderExtensionMinutes } : {}),
+        };
+        const currentTableSession = extractTableSessionConfig(currentNotifs);
+        const parsedTableSession = normalizeTableSessionConfigInput(
+          candidateTableSession,
+          currentTableSession
+        );
+        if (!parsedTableSession.ok) {
+          return NextResponse.json({ error: parsedTableSession.error }, { status: 400 });
+        }
+        nextNotificationSettings.tableSession = parsedTableSession.tableSession;
+      }
+
+      data.notificationSettings = nextNotificationSettings;
     }
 
     const settings = await prisma.restaurantOrderingSettings.upsert({
@@ -116,7 +161,11 @@ export async function PATCH(
       await cache.del(`menu:slug:${rest.slug}`);
     }
 
-    return NextResponse.json({ success: true, settings });
+    return NextResponse.json({
+      success: true,
+      settings,
+      tableSession: extractTableSessionConfig(settings.notificationSettings),
+    });
   } catch (error: any) {
     console.error('Ordering settings PATCH error:', error);
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });

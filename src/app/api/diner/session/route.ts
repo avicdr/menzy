@@ -6,9 +6,12 @@ import {
   evaluateDeviceTableSession,
   getDinerSessionCookieName,
   readCookieFromRequest,
-  TABLE_SESSION_TIMEOUT_MINUTES,
-  TABLE_SESSION_TIMEOUT_MS,
 } from '@/lib/diner/table-session';
+import { extractTableSessionConfig } from '@/lib/diner/table-session-config';
+import {
+  createSubscriptionExpiredResponse,
+  evaluateOrganizationAccess,
+} from '@/lib/billing/subscription-access';
 
 function setSessionCookie(res: NextResponse, cookieName: string, sessionToken: string) {
   res.cookies.set(cookieName, sessionToken, {
@@ -40,13 +43,57 @@ export async function POST(req: Request) {
     const attemptedRawTableId =
       !qrTokenCandidate && typeof tableId === 'string' && tableId.trim().length > 0;
 
+    const nowCheck = new Date();
     const restaurant = await prisma.restaurant.findUnique({
       where: { slug: restaurantSlug },
+      include: {
+        orderingSettings: {
+          select: { notificationSettings: true },
+        },
+        organization: {
+          include: {
+            subscriptions: { take: 1 },
+            entitlements: {
+              where: {
+                isActive: true,
+                expirationDate: { gt: nowCheck },
+              },
+              select: {
+                grantType: true,
+                tierOrValue: true,
+                isActive: true,
+                expirationDate: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!restaurant) {
       return NextResponse.json({ error: 'Restaurant not found' }, { status: 404 });
     }
+
+    const subAccess = evaluateOrganizationAccess({
+      organizationId: restaurant.organizationId,
+      isClaimed: restaurant.isClaimed,
+      subscription: restaurant.organization?.subscriptions?.[0] ?? null,
+      activeGrants: restaurant.organization?.entitlements ?? [],
+      now: nowCheck,
+    });
+    if (!subAccess.allowed) {
+      return createSubscriptionExpiredResponse(subAccess, {
+        restaurantId: restaurant.id,
+        restaurantSlug: restaurant.slug,
+        restaurantName: restaurant.displayName,
+        audience: 'DINER',
+      });
+    }
+
+    const sessionConfig = extractTableSessionConfig(
+      restaurant.orderingSettings?.notificationSettings
+    );
+    const scanTimeoutMs = sessionConfig.scanTimeoutMinutes * 60 * 1000;
 
     const cookieName = getDinerSessionCookieName(restaurant.id);
     const cookieToken = readCookieFromRequest(req, cookieName);
@@ -112,7 +159,10 @@ export async function POST(req: Request) {
           tableCapacity: null,
           invalidTableToken: true,
           sessionExpired: false,
-          timeoutMinutes: TABLE_SESSION_TIMEOUT_MINUTES,
+          timeoutMinutes: sessionConfig.scanTimeoutMinutes,
+          timeoutKind: 'SCAN',
+          scanTimeoutMinutes: sessionConfig.scanTimeoutMinutes,
+          orderExtensionMinutes: sessionConfig.orderExtensionMinutes,
           error: attemptedRawTableId
             ? 'Direct table selection via URL is not permitted. Please scan the current QR code on your table.'
             : 'This table QR code is invalid or has been rotated. Please scan the current QR code on your table.',
@@ -154,7 +204,7 @@ export async function POST(req: Request) {
         },
       });
 
-      const expiresAt = new Date(now.getTime() + TABLE_SESSION_TIMEOUT_MS);
+      const expiresAt = new Date(now.getTime() + scanTimeoutMs);
       const res = NextResponse.json({
         sessionId: session.id,
         sessionToken: session.sessionToken,
@@ -166,7 +216,10 @@ export async function POST(req: Request) {
         tableVerifiedAt: now.toISOString(),
         lastOrderAt: null,
         expiresAt: expiresAt.toISOString(),
-        timeoutMinutes: TABLE_SESSION_TIMEOUT_MINUTES,
+        timeoutMinutes: sessionConfig.scanTimeoutMinutes,
+        timeoutKind: 'SCAN',
+        scanTimeoutMinutes: sessionConfig.scanTimeoutMinutes,
+        orderExtensionMinutes: sessionConfig.orderExtensionMinutes,
         sessionExpired: false,
       });
       setSessionCookie(res, cookieName, session.sessionToken);
@@ -205,7 +258,10 @@ export async function POST(req: Request) {
         tableSection: null,
         tableCapacity: null,
         sessionExpired: false,
-        timeoutMinutes: TABLE_SESSION_TIMEOUT_MINUTES,
+        timeoutMinutes: sessionConfig.scanTimeoutMinutes,
+        timeoutKind: 'SCAN',
+        scanTimeoutMinutes: sessionConfig.scanTimeoutMinutes,
+        orderExtensionMinutes: sessionConfig.orderExtensionMinutes,
       });
       setSessionCookie(res, cookieName, session.sessionToken);
       return res;
@@ -216,6 +272,8 @@ export async function POST(req: Request) {
         restaurantId: restaurant.id,
         tableId: existingSession.tableId,
         sessionToken: existingSession.sessionToken,
+        scanTimeoutMinutes: sessionConfig.scanTimeoutMinutes,
+        orderExtensionMinutes: sessionConfig.orderExtensionMinutes,
       });
 
       if (evaluation.valid && evaluation.table) {
@@ -230,7 +288,11 @@ export async function POST(req: Request) {
           tableVerifiedAt: evaluation.lastScanAt?.toISOString() ?? null,
           lastOrderAt: evaluation.lastOrderAt?.toISOString() ?? null,
           expiresAt: evaluation.expiresAt?.toISOString() ?? null,
-          timeoutMinutes: TABLE_SESSION_TIMEOUT_MINUTES,
+          timeoutMinutes: evaluation.timeoutMinutes ?? sessionConfig.scanTimeoutMinutes,
+          timeoutKind: evaluation.timeoutKind ?? 'SCAN',
+          scanTimeoutMinutes: evaluation.scanTimeoutMinutes ?? sessionConfig.scanTimeoutMinutes,
+          orderExtensionMinutes:
+            evaluation.orderExtensionMinutes ?? sessionConfig.orderExtensionMinutes,
           sessionExpired: false,
         });
         setSessionCookie(res, cookieName, existingSession.sessionToken);
@@ -250,7 +312,11 @@ export async function POST(req: Request) {
         expiredAt: evaluation.expiredAt?.toISOString() ?? null,
         reason: evaluation.code,
         error: evaluation.error,
-        timeoutMinutes: TABLE_SESSION_TIMEOUT_MINUTES,
+        timeoutMinutes: evaluation.timeoutMinutes ?? sessionConfig.scanTimeoutMinutes,
+        timeoutKind: evaluation.timeoutKind ?? 'SCAN',
+        scanTimeoutMinutes: evaluation.scanTimeoutMinutes ?? sessionConfig.scanTimeoutMinutes,
+        orderExtensionMinutes:
+          evaluation.orderExtensionMinutes ?? sessionConfig.orderExtensionMinutes,
       });
       setSessionCookie(res, cookieName, existingSession.sessionToken);
       return res;
@@ -265,7 +331,10 @@ export async function POST(req: Request) {
       tableSection: null,
       tableCapacity: null,
       sessionExpired: false,
-      timeoutMinutes: TABLE_SESSION_TIMEOUT_MINUTES,
+      timeoutMinutes: sessionConfig.scanTimeoutMinutes,
+      timeoutKind: 'SCAN',
+      scanTimeoutMinutes: sessionConfig.scanTimeoutMinutes,
+      orderExtensionMinutes: sessionConfig.orderExtensionMinutes,
     });
     setSessionCookie(res, cookieName, existingSession.sessionToken);
     return res;

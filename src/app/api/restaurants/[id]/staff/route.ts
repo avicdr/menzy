@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
+import { createTenantAccessDeniedResponse, verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 import { hashStaffPassword } from '@/lib/auth/staff-auth';
 import { StaffRole } from '@prisma/client';
 
@@ -12,7 +12,7 @@ export async function GET(
     const { id } = await params;
     const auth = await verifyRestaurantOwnerAccess(id);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
     }
 
     const staffMembers = await prisma.restaurantStaff.findMany({
@@ -44,7 +44,7 @@ export async function POST(
     const { id } = await params;
     const auth = await verifyRestaurantOwnerAccess(id);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
     }
 
     const body = await req.json();

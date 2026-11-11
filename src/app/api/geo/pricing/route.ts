@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getPlansForCountry } from '@/lib/payments/plans';
+import { getPlansForCountry, TRIAL_PLAN } from '@/lib/payments/plans';
+import { SUPPORT_PHONE } from '@/lib/support/contact';
 import { detectRegionFromTimezoneAndLocale } from '@/lib/geo/region-shared';
 import { resolveVisitorRegion } from '@/lib/geo/region-server';
 
@@ -22,7 +23,9 @@ export async function GET(req: Request) {
     {
       region,
       authoritative: geo.authoritative,
+      trialPlan: TRIAL_PLAN,
       plans: getPlansForCountry(region),
+      supportPhone: SUPPORT_PHONE,
     },
     {
       headers: {

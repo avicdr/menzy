@@ -22,9 +22,10 @@ import { Modal } from '@/components/ui/Modal';
 
 interface TablesManagementViewProps {
   restaurant: any;
+  onSubscriptionExpired?: (payload: any) => void;
 }
 
-export function TablesManagementView({ restaurant }: TablesManagementViewProps) {
+export function TablesManagementView({ restaurant, onSubscriptionExpired }: TablesManagementViewProps) {
   const [tables, setTables] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +62,11 @@ export function TablesManagementView({ restaurant }: TablesManagementViewProps) 
       setLoading(true);
       setError(null);
       const res = await fetch(`/api/restaurants/${restaurant.id}/tables`);
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        onSubscriptionExpired?.(payload);
+        return;
+      }
       if (!res.ok) throw new Error('Failed to load tables');
       const data = await res.json();
       setTables(data.tables || []);
@@ -120,7 +126,12 @@ export function TablesManagementView({ restaurant }: TablesManagementViewProps) 
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        setIsCreateModalOpen(false);
+        onSubscriptionExpired?.(data);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || 'Failed to create table');
 
       setIsCreateModalOpen(false);
@@ -150,7 +161,12 @@ export function TablesManagementView({ restaurant }: TablesManagementViewProps) 
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        setIsBulkModalOpen(false);
+        onSubscriptionExpired?.(data);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || 'Failed to bulk generate tables');
 
       setIsBulkModalOpen(false);
@@ -171,6 +187,11 @@ export function TablesManagementView({ restaurant }: TablesManagementViewProps) 
         body: JSON.stringify({ isActive: !table.isActive }),
       });
 
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        onSubscriptionExpired?.(payload);
+        return;
+      }
       if (res.ok) {
         showSuccess(`Table "${table.name}" ${!table.isActive ? 'activated' : 'disabled'}.`);
         await loadTables();
@@ -190,7 +211,11 @@ export function TablesManagementView({ restaurant }: TablesManagementViewProps) 
         method: 'POST',
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        onSubscriptionExpired?.(data);
+        return;
+      }
       if (res.ok) {
         showSuccess(`QR code rotated for "${table.name}". New version active.`);
         await loadTables();
@@ -212,6 +237,11 @@ export function TablesManagementView({ restaurant }: TablesManagementViewProps) 
         method: 'DELETE',
       });
 
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        onSubscriptionExpired?.(payload);
+        return;
+      }
       if (res.ok) {
         showSuccess(`Table "${table.name}" archived.`);
         await loadTables();
@@ -229,6 +259,12 @@ export function TablesManagementView({ restaurant }: TablesManagementViewProps) 
 
     try {
       const res = await fetch(`/api/qr/generate?slug=${restaurant.slug}&tableId=${table.id}&format=dataUrl`);
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        setPreviewTable(null);
+        onSubscriptionExpired?.(payload);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setPreviewQrDataUrl(data.qrDataUrl);
@@ -246,6 +282,12 @@ export function TablesManagementView({ restaurant }: TablesManagementViewProps) 
     setExportLoading(true);
     try {
       const res = await fetch(`/api/restaurants/${restaurant.id}/tables/qr-export`);
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        setIsExportOpen(false);
+        onSubscriptionExpired?.(payload);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setExportData(data);

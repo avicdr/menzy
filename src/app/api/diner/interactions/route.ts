@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import prisma from '@/lib/db/prisma';
 import { trackDishInteraction } from '@/lib/analytics/tracker';
+import {
+  checkRestaurantSubscriptionAccess,
+  createSubscriptionExpiredResponse,
+} from '@/lib/billing/subscription-access';
 
 const DishInteractionSchema = z.object({
   restaurantId: z.string().min(1),
@@ -24,6 +28,16 @@ export async function POST(req: Request) {
     // Exclude internal owner playground test sessions from diner telemetry
     if (sessionToken === 'owner-test-session') {
       return NextResponse.json({ success: true, ignored: true });
+    }
+
+    const subAccess = await checkRestaurantSubscriptionAccess(restaurantId, { byIdOnly: true });
+    if (subAccess.found && !subAccess.access.allowed) {
+      return createSubscriptionExpiredResponse(subAccess.access, {
+        restaurantId: subAccess.restaurant?.id || restaurantId,
+        restaurantSlug: subAccess.restaurant?.slug,
+        restaurantName: subAccess.restaurant?.displayName,
+        audience: 'DINER',
+      });
     }
 
     // Verify the menu item belongs to the target restaurant and is published

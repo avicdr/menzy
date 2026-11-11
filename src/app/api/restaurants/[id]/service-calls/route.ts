@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { verifyStaffOrOwnerAccess } from '@/lib/auth/tenant-verify';
+import { createTenantAccessDeniedResponse, verifyStaffOrOwnerAccess } from '@/lib/auth/tenant-verify';
 import { getActiveServiceCalls, resolveServiceCall } from '@/lib/tables/service-call-service';
 
 export async function GET(
@@ -8,9 +8,9 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const auth = await verifyStaffOrOwnerAccess(id);
+    const auth = await verifyStaffOrOwnerAccess(id, undefined, { includeDetails: false });
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
     }
 
     const calls = await getActiveServiceCalls(auth.restaurant.id);
@@ -32,9 +32,9 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const auth = await verifyStaffOrOwnerAccess(id);
+    const auth = await verifyStaffOrOwnerAccess(id, undefined, { includeDetails: false });
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
     }
 
     const body = await req.json();

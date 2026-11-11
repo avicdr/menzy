@@ -1,4 +1,4 @@
-import { verifyStaffOrOwnerAccess } from '@/lib/auth/tenant-verify';
+import { createTenantAccessDeniedResponse, verifyStaffOrOwnerAccess } from '@/lib/auth/tenant-verify';
 import prisma from '@/lib/db/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -10,10 +10,7 @@ export async function GET(
   const { id } = await params;
   const auth = await verifyStaffOrOwnerAccess(id, 'VIEW_ORDERS');
   if (!auth.authorized) {
-    return new Response(JSON.stringify({ error: auth.error }), {
-      status: auth.status,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return createTenantAccessDeniedResponse(auth);
   }
 
   const { searchParams } = new URL(req.url);

@@ -32,9 +32,19 @@ export const metadata: Metadata = generateSEOMetadata({
 
 const PRICING_FAQS = [
   {
+    question: 'How does the 14-day free Trial plan work?',
+    answer:
+      'Every new venue signup or claimed demo starts automatically on our 14-day free Trial plan with zero card or payment method required. Once the 14 days end, ordering and dashboard features pause until you buy a Starter, Growth, or Pro subscription inside the Billing panel.',
+  },
+  {
     question: 'Does Menzy charge per-order commission fees?',
     answer:
       'No. Menzy operates strictly on predictable flat monthly plans billed via Razorpay. You keep 100% of every table order placed through your digital menu.',
+  },
+  {
+    question: 'Who can I contact for setup or onboarding queries?',
+    answer:
+      'For setup assistance, demo menu migration, or billing help, call or WhatsApp our setup helpline at +918948006900.',
   },
   {
     question: 'Are canonical 3D dish illustrations counted against monthly image credits?',

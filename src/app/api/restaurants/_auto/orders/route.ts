@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getStaffSession } from '@/lib/auth/staff-auth';
 import { getOwnerSession } from '@/lib/auth/owner-auth';
+import {
+  checkRestaurantSubscriptionAccess,
+  createSubscriptionExpiredResponse,
+} from '@/lib/billing/subscription-access';
 
 export async function GET(req: Request) {
   try {
@@ -33,6 +37,19 @@ export async function GET(req: Request) {
 
     if (!restaurantId) {
       return NextResponse.json({ error: 'Unauthorized: Please log in to order portal.' }, { status: 401 });
+    }
+
+    const subAccess = await checkRestaurantSubscriptionAccess(restaurantId, { byIdOnly: true });
+    if (!subAccess.found || !subAccess.restaurant) {
+      return NextResponse.json({ error: 'Restaurant not found.' }, { status: 404 });
+    }
+    if (!subAccess.access.allowed) {
+      return createSubscriptionExpiredResponse(subAccess.access, {
+        restaurantId: subAccess.restaurant.id,
+        restaurantSlug: subAccess.restaurant.slug,
+        restaurantName: subAccess.restaurant.displayName,
+        audience: 'STAFF',
+      });
     }
 
     const restaurant = await prisma.restaurant.findUnique({

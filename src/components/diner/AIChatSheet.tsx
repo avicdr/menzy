@@ -16,6 +16,7 @@ interface AIChatSheetProps {
   onClearFocusedDish: () => void;
   onSelectDish: (dish: any) => void;
   publishedItems: any[];
+  onMenuPaused?: (payload: any) => void;
 }
 
 interface Message {
@@ -36,6 +37,7 @@ export function AIChatSheet({
   onClearFocusedDish,
   onSelectDish,
   publishedItems,
+  onMenuPaused,
 }: AIChatSheetProps) {
   const { addItem, setIsCartOpen } = useCart();
   const [messages, setMessages] = useState<Message[]>([
@@ -119,7 +121,13 @@ export function AIChatSheet({
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 402) {
+        onClose();
+        onMenuPaused?.(data);
+        return;
+      }
 
       if (res.status === 429) {
         // Rate limit reached

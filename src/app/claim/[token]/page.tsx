@@ -13,9 +13,11 @@ import {
   EyeOff,
   LogOut,
   Clock,
+  Phone,
 } from 'lucide-react';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
 
 interface ClaimPreviewResponse {
   valid: boolean;
@@ -59,6 +61,7 @@ export default function ClaimPage() {
   const [switchingAccount, setSwitchingAccount] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [claimBannerError, setClaimBannerError] = useState(false);
 
   // Verification notes for claiming
   const [verificationNotes, setVerificationNotes] = useState('');
@@ -108,6 +111,10 @@ export default function ClaimPage() {
   useEffect(() => {
     loadPreview();
   }, [loadPreview]);
+
+  useEffect(() => {
+    setClaimBannerError(false);
+  }, [preview?.restaurant?.coverUrl]);
 
   const redeemAsSignedInUser = async (notes?: string) => {
     const res = await fetch('/api/claims/redeem', {
@@ -266,6 +273,17 @@ export default function ClaimPage() {
             </p>
           </div>
 
+          <div className="p-3.5 rounded-2xl bg-cream-50 border border-cream-200 text-xs text-taupe-700 space-y-1">
+            <div className="font-semibold text-espresso-900">Need setup help or a fresh invite link?</div>
+            <a
+              href={SUPPORT_PHONE_HREF}
+              className="inline-flex items-center gap-1.5 text-terracotta font-semibold hover:underline"
+            >
+              <Phone className="w-3.5 h-3.5" />
+              <span>Call or WhatsApp {SUPPORT_PHONE_DISPLAY}</span>
+            </a>
+          </div>
+
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             {preview?.state === 'ALREADY_CLAIMED' && (
               <Link
@@ -345,6 +363,16 @@ export default function ClaimPage() {
         {/* Demo Venue Preview Card */}
         {restaurant && (
           <div className="p-4 sm:p-5 bg-cream-50 rounded-2xl border border-cream-200 space-y-3">
+            {restaurant.coverUrl && !claimBannerError && (
+              <div className="rounded-xl overflow-hidden border border-cream-200 bg-black/5">
+                <img
+                  src={restaurant.coverUrl}
+                  alt={`${restaurant.displayName} banner`}
+                  onError={() => setClaimBannerError(true)}
+                  className="w-full aspect-[2/1] object-cover block"
+                />
+              </div>
+            )}
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="font-serif text-lg sm:text-xl font-bold text-espresso-900">
@@ -389,11 +417,16 @@ export default function ClaimPage() {
           </div>
         )}
 
-        <div className="p-3.5 bg-cream-50/70 rounded-2xl border border-cream-200 text-xs flex items-start gap-2.5">
-          <ShieldCheck className="w-4 h-4 text-sage-600 shrink-0 mt-0.5" />
-          <p className="text-taupe-600 leading-relaxed">
-            Claiming includes <strong className="text-espresso-900">15 free 3D dish illustration credits</strong>, instant full editing permissions, table QR generation, and theme controls.
-          </p>
+        <div className="p-4 bg-emerald-50/80 rounded-2xl border border-emerald-200 text-xs flex items-start gap-2.5">
+          <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+          <div className="text-emerald-950 leading-relaxed space-y-1">
+            <p>
+              <strong className="font-semibold">Starts with a 14-Day Free &quot;Trial&quot; Plan — No payment method required.</strong> Claiming unlocks instant editing permissions, table QR generation, theme controls, and <strong className="font-semibold">15 free 3D dish credits</strong>.
+            </p>
+            <p className="text-[11px] text-emerald-900/80">
+              After the 14-day trial ends, ordering &amp; dashboard access pause until you activate a subscription inside Billing.
+            </p>
+          </div>
         </div>
 
         {error && (
@@ -653,6 +686,17 @@ export default function ClaimPage() {
             )}
           </div>
         )}
+
+        <div className="pt-4 border-t border-cream-200 flex flex-wrap items-center justify-center gap-2 text-xs text-taupe-600">
+          <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" />
+          <span>Setup &amp; onboarding queries? Call or WhatsApp</span>
+          <a
+            href={SUPPORT_PHONE_HREF}
+            className="font-semibold text-espresso-900 hover:text-terracotta underline underline-offset-2"
+          >
+            {SUPPORT_PHONE_DISPLAY}
+          </a>
+        </div>
       </div>
     </div>
   );

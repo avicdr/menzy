@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
+import { createTenantAccessDeniedResponse, verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 import {
   getGenAIClient,
   getTextModelCandidates,
@@ -15,7 +15,7 @@ export async function GET(
     const { id } = await params;
     const auth = await verifyRestaurantOwnerAccess(id);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
     }
 
     const { searchParams } = new URL(req.url);

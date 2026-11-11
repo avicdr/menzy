@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { calculateOrderQuote } from '@/lib/orders/order-service';
+import {
+  checkRestaurantSubscriptionAccess,
+  createSubscriptionExpiredResponse,
+} from '@/lib/billing/subscription-access';
 
 export async function POST(req: Request) {
   try {
@@ -11,6 +15,16 @@ export async function POST(req: Request) {
         { error: 'restaurantId and items array are required.' },
         { status: 400 }
       );
+    }
+
+    const subAccess = await checkRestaurantSubscriptionAccess(restaurantId, { byIdOnly: true });
+    if (subAccess.found && !subAccess.access.allowed) {
+      return createSubscriptionExpiredResponse(subAccess.access, {
+        restaurantId: subAccess.restaurant?.id || restaurantId,
+        restaurantSlug: subAccess.restaurant?.slug,
+        restaurantName: subAccess.restaurant?.displayName,
+        audience: 'DINER',
+      });
     }
 
     const quote = await calculateOrderQuote(restaurantId, items);

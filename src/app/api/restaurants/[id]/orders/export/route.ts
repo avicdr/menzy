@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { verifyStaffOrOwnerAccess } from '@/lib/auth/tenant-verify';
+import { createTenantAccessDeniedResponse, verifyStaffOrOwnerAccess } from '@/lib/auth/tenant-verify';
 import { OrderStatus } from '@prisma/client';
 
 export async function GET(
@@ -11,7 +11,7 @@ export async function GET(
     const { id } = await params;
     const auth = await verifyStaffOrOwnerAccess(id, 'VIEW_HISTORY');
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
+      return createTenantAccessDeniedResponse(auth);
     }
 
     const { searchParams } = new URL(req.url);

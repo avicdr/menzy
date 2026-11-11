@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { checkDinerAIRateLimit } from '@/lib/cache/rate-limiter';
 import { processDinerQuery } from '@/lib/gemini/diner-chat';
 import prisma from '@/lib/db/prisma';
+import {
+  checkRestaurantSubscriptionAccess,
+  createSubscriptionExpiredResponse,
+} from '@/lib/billing/subscription-access';
 
 export async function POST(req: Request) {
   try {
@@ -10,6 +14,16 @@ export async function POST(req: Request) {
 
     if (!restaurantId || !message) {
       return NextResponse.json({ error: 'restaurantId and message are required' }, { status: 400 });
+    }
+
+    const subAccess = await checkRestaurantSubscriptionAccess(restaurantId, { byIdOnly: true });
+    if (subAccess.found && !subAccess.access.allowed) {
+      return createSubscriptionExpiredResponse(subAccess.access, {
+        restaurantId: subAccess.restaurant?.id || restaurantId,
+        restaurantSlug: subAccess.restaurant?.slug,
+        restaurantName: subAccess.restaurant?.displayName,
+        audience: 'DINER',
+      });
     }
 
     // Extract trusted client IP

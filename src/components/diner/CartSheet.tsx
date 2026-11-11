@@ -14,6 +14,12 @@ import {
   Clock,
 } from 'lucide-react';
 import { useCart } from '@/lib/diner/cart-context';
+import {
+  DEFAULT_SCAN_TIMEOUT_MINUTES,
+  formatMinutesLabel,
+  formatSessionExpiredSummary,
+  type TableSessionTimeoutKind,
+} from '@/lib/diner/table-session-config';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
 import { Portal } from '@/components/ui/Portal';
 
@@ -23,11 +29,20 @@ interface CartSheetProps {
   currency: string;
   sessionId?: string;
   sessionToken?: string;
+  defaultTimeoutMinutes?: number;
   onOrderPlaced: (
     order: any,
-    tableSession?: { lastOrderAt: string; expiresAt: string }
+    tableSession?: {
+      lastOrderAt: string;
+      expiresAt: string;
+      timeoutMinutes?: number;
+      timeoutKind?: TableSessionTimeoutKind;
+      scanTimeoutMinutes?: number;
+      orderExtensionMinutes?: number;
+    }
   ) => void;
   onRequestRescan?: (reason: 'EXPIRED' | 'REQUIRED') => void;
+  onMenuPaused?: (payload: any) => void;
 }
 
 export function CartSheet({
@@ -36,8 +51,10 @@ export function CartSheet({
   currency,
   sessionId,
   sessionToken,
+  defaultTimeoutMinutes = DEFAULT_SCAN_TIMEOUT_MINUTES,
   onOrderPlaced,
   onRequestRescan,
+  onMenuPaused,
 }: CartSheetProps) {
   const {
     items,
@@ -45,6 +62,8 @@ export function CartSheet({
     setTableInfo,
     tableSessionExpired,
     expiredTableName,
+    expiredTimeoutMinutes,
+    expiredTimeoutKind,
     expireTableSession,
     updateQuantity,
     removeItem,
@@ -74,12 +93,20 @@ export function CartSheet({
       Date.now() > Date.parse(tableInfo.expiresAt)
   );
 
-  // If timer crossed 30 minutes before sheet opened, immediately clear stale table info
+  const activeOrExpiredTimeoutMinutes =
+    tableInfo?.timeoutMinutes ?? expiredTimeoutMinutes ?? defaultTimeoutMinutes;
+  const activeOrExpiredTimeoutKind =
+    tableInfo?.timeoutKind ?? expiredTimeoutKind ?? 'SCAN';
+
+  // If timer crossed expiry before sheet opened, immediately clear stale table info
   useEffect(() => {
     if (isCartOpen && isClientTableExpired && tableInfo) {
-      expireTableSession(tableInfo.tableName);
+      expireTableSession(tableInfo.tableName, {
+        timeoutMinutes: tableInfo.timeoutMinutes ?? defaultTimeoutMinutes,
+        timeoutKind: tableInfo.timeoutKind ?? 'SCAN',
+      });
     }
-  }, [isCartOpen, isClientTableExpired, tableInfo, expireTableSession]);
+  }, [isCartOpen, isClientTableExpired, tableInfo, defaultTimeoutMinutes, expireTableSession]);
 
   // Recalculate quote whenever cart items change
   useEffect(() => {
@@ -111,8 +138,13 @@ export function CartSheet({
           }),
         });
 
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (isMounted) {
+          if (res.status === 402) {
+            setIsCartOpen(false);
+            onMenuPaused?.(data);
+            return;
+          }
           if (!res.ok || !data.valid) {
             setError(data.error || 'Failed to calculate order quote.');
           } else {
@@ -139,12 +171,19 @@ export function CartSheet({
   const handlePlaceOrder = async () => {
     if (!hasValidTable) {
       if (isClientTableExpired && tableInfo) {
-        expireTableSession(tableInfo.tableName);
+        expireTableSession(tableInfo.tableName, {
+          timeoutMinutes: tableInfo.timeoutMinutes ?? defaultTimeoutMinutes,
+          timeoutKind: tableInfo.timeoutKind ?? 'SCAN',
+        });
       }
       const expiredFlag = tableSessionExpired || isClientTableExpired;
       setError(
         expiredFlag
-          ? 'No order has been placed from your device in the last 30 minutes. Please rescan your table QR code.'
+          ? formatSessionExpiredSummary({
+              timeoutMinutes: activeOrExpiredTimeoutMinutes,
+              timeoutKind: activeOrExpiredTimeoutKind,
+              tableName: tableInfo?.tableName ?? expiredTableName,
+            })
           : 'A valid table is required to send your order to the kitchen. Please scan your table QR code.'
       );
       onRequestRescan?.(expiredFlag ? 'EXPIRED' : 'REQUIRED');
@@ -181,8 +220,13 @@ export function CartSheet({
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (res.status === 402) {
+          setIsCartOpen(false);
+          onMenuPaused?.(data);
+          return;
+        }
         if (data.code === 'TABLE_MISMATCH') {
           if (data.currentTable?.tableId && data.currentTable?.tableName) {
             setTableInfo(data.currentTable);
@@ -208,7 +252,10 @@ export function CartSheet({
         ) {
           const isExpired = data.code === 'TABLE_SCAN_EXPIRED';
           if (isExpired) {
-            expireTableSession(data.tableName || tableInfo.tableName);
+            expireTableSession(data.tableName || tableInfo.tableName, {
+              timeoutMinutes: data.timeoutMinutes ?? tableInfo.timeoutMinutes ?? defaultTimeoutMinutes,
+              timeoutKind: data.timeoutKind ?? tableInfo.timeoutKind ?? 'SCAN',
+            });
           }
           setError(
             data.error ||
@@ -220,7 +267,7 @@ export function CartSheet({
         throw new Error(data.error || 'Failed to place order. Please try again.');
       }
 
-      // Clear local cart and notify parent with renewed 30-min session window
+      // Clear local cart and notify parent with renewed customized session window
       clearCart();
       setIsCartOpen(false);
       onOrderPlaced(data.order, data.tableSession);
@@ -460,7 +507,9 @@ export function CartSheet({
                     <div className="space-y-0.5">
                       <div className="font-bold">
                         {tableSessionExpired || isClientTableExpired
-                          ? 'Session timed out after 30 minutes without an order'
+                          ? activeOrExpiredTimeoutKind === 'ORDER_EXTENSION'
+                            ? `Ordering window ended after ${formatMinutesLabel(activeOrExpiredTimeoutMinutes)}`
+                            : `Session timed out after ${formatMinutesLabel(activeOrExpiredTimeoutMinutes)} without an order`
                           : 'Table QR scan required to order'}
                       </div>
                       <p className="text-amber-800 leading-relaxed">

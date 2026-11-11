@@ -35,10 +35,29 @@ import {
   Search,
   Image as ImageIcon,
   Wifi,
+  Clock,
+  Lock,
+  Phone,
+  CreditCard,
+  ShieldCheck,
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Portal } from '@/components/ui/Portal';
-import { formatCurrencyMinor, type PlanDefinition } from '@/lib/payments/plans';
+import {
+  formatCurrencyMinor,
+  FREE_TRIAL_DAYS,
+  TRIAL_PLAN,
+  type PlanDefinition,
+  type TrialPlanDefinition,
+} from '@/lib/payments/plans';
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
+import {
+  DEFAULT_ORDER_EXTENSION_MINUTES,
+  DEFAULT_SCAN_TIMEOUT_MINUTES,
+  MAX_TABLE_SESSION_MINUTES,
+  MIN_TABLE_SESSION_MINUTES,
+  normalizeTableSessionConfigInput,
+} from '@/lib/diner/table-session-config';
 import {
   THEME_PRESETS,
   ThemeConfig,
@@ -77,6 +96,8 @@ function RestaurantDashboardContent() {
 
   const restaurantId = params?.restaurantId as string;
   const currentTab = searchParams.get('tab') || 'overview';
+  const currentTabRef = React.useRef(currentTab);
+  currentTabRef.current = currentTab;
   const rawSubTab = searchParams.get('subtab');
   const initialOrdersSubTab: 'live' | 'history' | 'analytics' | 'settings' =
     rawSubTab === 'analytics' || rawSubTab === 'history' || rawSubTab === 'settings'
@@ -88,6 +109,20 @@ function RestaurantDashboardContent() {
   const [restaurant, setRestaurant] = useState<any>(null);
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [billingUsage, setBillingUsage] = useState<any>(null);
+  const [targetOrgAccess, setTargetOrgAccess] = useState<any>(null);
+  const [expiredGate, setExpiredGate] = useState<any | null>(null);
+  const [checkoutNotice, setCheckoutNotice] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  const handleSubscriptionExpired = useCallback((payload?: any) => {
+    setExpiredGate((prev: any) =>
+      payload && typeof payload === 'object'
+        ? payload
+        : prev || { paused: true, code: 'TRIAL_EXPIRED' }
+    );
+  }, []);
 
   // Menu Studio State - Add Dish
   const [isAddDishOpen, setIsAddDishOpen] = useState(false);
@@ -203,6 +238,12 @@ function RestaurantDashboardContent() {
       setAnalyticsError(null);
       const res = await fetch(`/api/restaurant/analytics?restaurantId=${targetRestaurantId}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        if (analyticsRequestRef.current === reqId) {
+          handleSubscriptionExpired(data);
+        }
+        return;
+      }
       if (!res.ok || !data?.success) {
         throw new Error(data.error || 'Failed to load restaurant analytics');
       }
@@ -246,6 +287,13 @@ function RestaurantDashboardContent() {
     password: '',
     security: 'WPA',
   });
+  const [tableSessionForm, setTableSessionForm] = useState<{
+    scanTimeoutMinutes: string;
+    orderExtensionMinutes: string;
+  }>({
+    scanTimeoutMinutes: String(DEFAULT_SCAN_TIMEOUT_MINUTES),
+    orderExtensionMinutes: String(DEFAULT_ORDER_EXTENSION_MINUTES),
+  });
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSavedToast, setSettingsSavedToast] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -256,102 +304,193 @@ function RestaurantDashboardContent() {
 
   // QR Studio State
   const [qrData, setQrData] = useState<{ qrDataUrl: string; targetUrl: string } | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
+
+  // Progressive non-blocking background fetch state
+  const [secondaryLoading, setSecondaryLoading] = useState({
+    items: true,
+    billing: true,
+    settings: true,
+  });
+  const skipInitialSettingsEffectRef = React.useRef<string | null>(null);
 
   // Load session & restaurant details
   useEffect(() => {
+    let cancelled = false;
+
     async function init() {
       try {
         setLoading(true);
         setAnalyticsData(null);
         setAnalyticsError(null);
+        setQrData(null);
+        setBillingUsage(null);
+        setMenuItems([]);
+        setSecondaryLoading({ items: true, billing: true, settings: true });
+
         const meRes = await fetch('/api/auth/me', { cache: 'no-store' });
+        if (cancelled) return;
         if (!meRes.ok) {
           router.push('/login');
           return;
         }
         const meData = await meRes.json();
+        if (cancelled) return;
         setCurrentUser(meData.user);
 
-        // Find requested restaurant
-        let targetRest = null;
+        // Find requested restaurant & owning organization
+        let targetRest: any = null;
+        let targetOrg: any = null;
         for (const org of meData.user.organizations || []) {
           for (const r of org.restaurants || []) {
             if (r.id === restaurantId || r.slug === restaurantId) {
               targetRest = r;
+              targetOrg = org;
               break;
             }
           }
+          if (targetRest) break;
         }
 
         if (!targetRest) {
-          targetRest = meData.user.organizations[0]?.restaurants[0];
+          targetOrg = meData.user.organizations?.[0] || null;
+          targetRest = targetOrg?.restaurants?.[0] || null;
         }
 
-        if (targetRest) {
-          setRestaurant(targetRest);
-          setSettingsForm({
-            displayName: targetRest.displayName || '',
-            description: targetRest.description || '',
-            address: targetRest.address || '',
-            city: targetRest.city || '',
-            country: targetRest.country || 'IN',
-            currency: targetRest.currency || 'INR',
-            timezone: targetRest.timezone || 'Asia/Kolkata',
-            phone: targetRest.phone || '',
-            email: targetRest.email || '',
-            googleReviewUrl: targetRest.googleReviewUrl || '',
-            coverUrl: targetRest.coverUrl || '',
+        if (!targetRest) {
+          setSecondaryLoading({ items: false, billing: false, settings: false });
+          return;
+        }
+
+        const initialAccess = targetOrg?.access || null;
+        setTargetOrgAccess(initialAccess);
+        setExpiredGate(
+          initialAccess?.expired
+            ? { paused: true, code: initialAccess.reason, ...initialAccess }
+            : null
+        );
+        setCheckoutNotice(null);
+
+        setRestaurant(targetRest);
+        setSettingsForm({
+          displayName: targetRest.displayName || '',
+          description: targetRest.description || '',
+          address: targetRest.address || '',
+          city: targetRest.city || '',
+          country: targetRest.country || 'IN',
+          currency: targetRest.currency || 'INR',
+          timezone: targetRest.timezone || 'Asia/Kolkata',
+          phone: targetRest.phone || '',
+          email: targetRest.email || '',
+          googleReviewUrl: targetRest.googleReviewUrl || '',
+          coverUrl: targetRest.coverUrl || '',
+        });
+
+        if (currentTabRef.current === 'settings') {
+          skipInitialSettingsEffectRef.current = targetRest.id;
+        }
+
+        // Unblock dashboard shell immediately after core auth resolves
+        setLoading(false);
+
+        const loadItemsPromise = initialAccess?.expired
+          ? (() => {
+              setSecondaryLoading((prev) => ({ ...prev, items: false }));
+              return Promise.resolve();
+            })()
+          : fetch(`/api/menus/items?restaurantId=${targetRest.id}`, { cache: 'no-store' })
+              .then(async (res) => {
+                if (res.status === 402) {
+                  const payload = await res.json().catch(() => ({}));
+                  if (!cancelled) handleSubscriptionExpired(payload);
+                  return null;
+                }
+                return res.ok ? res.json() : null;
+              })
+              .then((itemsData) => {
+                if (!cancelled && itemsData) {
+                  setMenuItems(itemsData.items || []);
+                }
+              })
+              .catch(() => {})
+              .finally(() => {
+                if (!cancelled) {
+                  setSecondaryLoading((prev) => ({ ...prev, items: false }));
+                }
+              });
+
+        const loadBillingPromise = fetch(`/api/billing/usage?restaurantId=${targetRest.id}`, { cache: 'no-store' })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((billData) => {
+            if (!cancelled && billData) {
+              setBillingUsage(billData);
+              if (billData.access) {
+                setTargetOrgAccess(billData.access);
+                if (billData.access.expired) {
+                  handleSubscriptionExpired({
+                    paused: true,
+                    code: billData.access.reason,
+                    ...billData.access,
+                  });
+                } else {
+                  setExpiredGate(null);
+                }
+              }
+            }
+          })
+          .catch(() => {})
+          .finally(() => {
+            if (!cancelled) {
+              setSecondaryLoading((prev) => ({ ...prev, billing: false }));
+            }
           });
 
-          // Load items
-          const itemsRes = await fetch(`/api/menus/items?restaurantId=${targetRest.id}`, { cache: 'no-store' });
-          if (itemsRes.ok) {
-            const itemsData = await itemsRes.json();
-            setMenuItems(itemsData.items || []);
-          }
+        const loadSettingsPromise = initialAccess?.expired
+          ? (() => {
+              setSecondaryLoading((prev) => ({ ...prev, settings: false }));
+              return Promise.resolve();
+            })()
+          : fetch(`/api/restaurant/settings?restaurantId=${targetRest.id}`, { cache: 'no-store' })
+              .then(async (res) => {
+                if (res.status === 402) {
+                  const payload = await res.json().catch(() => ({}));
+                  if (!cancelled) handleSubscriptionExpired(payload);
+                  return null;
+                }
+                return res.ok ? res.json() : null;
+              })
+              .then((rsData) => {
+            if (cancelled || !rsData) return;
 
-          // Load billing & usage
-          const billRes = await fetch(`/api/billing/usage?restaurantId=${targetRest.id}`, { cache: 'no-store' });
-          if (billRes.ok) {
-            const billData = await billRes.json();
-            setBillingUsage(billData);
-          }
-
-          // Load theme & settings
-          const dinerRes = await fetch(`/api/diner/menu?slug=${targetRest.slug}`, { cache: 'no-store' });
-          if (dinerRes.ok) {
-            const dinerData = await dinerRes.json();
-            if (dinerData.theme) {
+            if (rsData.theme) {
               setThemeState({
-                presetKey: dinerData.theme.presetKey || 'WARM_EDITORIAL',
-                backgroundColor: dinerData.theme.backgroundColor || '#F7F3EC',
-                surfaceColor: dinerData.theme.surfaceColor || '#FFFFFF',
-                primaryTextColor: dinerData.theme.primaryTextColor || '#35271F',
-                secondaryTextColor: dinerData.theme.secondaryTextColor || '#7C695C',
-                accentColor: dinerData.theme.accentColor || '#B86D52',
-                secondaryAccentColor: dinerData.theme.secondaryAccentColor || '#70816B',
-                headingFont: normalizeThemeFont(dinerData.theme.headingFont, 'Plus Jakarta Sans'),
-                bodyFont: normalizeThemeFont(dinerData.theme.bodyFont, 'Inter'),
-                layoutMode: dinerData.theme.layoutMode || 'GRID',
-                cardRadius: dinerData.theme.cardRadius || '16px',
-                buttonStyle: dinerData.theme.buttonStyle || 'rounded',
-                imageProportions: dinerData.theme.imageProportions || 'square',
-                texture: dinerData.theme.texture || 'none',
+                presetKey: rsData.theme.presetKey || 'WARM_EDITORIAL',
+                backgroundColor: rsData.theme.backgroundColor || '#F7F3EC',
+                surfaceColor: rsData.theme.surfaceColor || '#FFFFFF',
+                primaryTextColor: rsData.theme.primaryTextColor || '#35271F',
+                secondaryTextColor: rsData.theme.secondaryTextColor || '#7C695C',
+                accentColor: rsData.theme.accentColor || '#B86D52',
+                secondaryAccentColor: rsData.theme.secondaryAccentColor || '#70816B',
+                headingFont: normalizeThemeFont(rsData.theme.headingFont, 'Plus Jakarta Sans'),
+                bodyFont: normalizeThemeFont(rsData.theme.bodyFont, 'Inter'),
+                layoutMode: rsData.theme.layoutMode || 'GRID',
+                cardRadius: rsData.theme.cardRadius || '16px',
+                buttonStyle: rsData.theme.buttonStyle || 'rounded',
+                imageProportions: rsData.theme.imageProportions || 'square',
+                texture: rsData.theme.texture || 'none',
               });
             }
-            if (dinerData.settings) {
-              setWelcomeMsg(dinerData.settings.welcomeMessage || 'Welcome! Explore our dishes or ask our AI waiter anything.');
-              setAiTone(dinerData.settings.aiTone || 'Warm Editorial & Helpful');
-              setAllowDinerChat(dinerData.settings.allowDinerChat ?? true);
-              setAllowPairings(dinerData.settings.allowPairings ?? true);
-              setMaxDinerChat(dinerData.settings.maxDinerChatPerSession ?? 25);
-            }
-          }
 
-          // Load restaurant profile & Wi-Fi settings
-          const restSettingsRes = await fetch(`/api/restaurant/settings?restaurantId=${targetRest.id}`, { cache: 'no-store' });
-          if (restSettingsRes.ok) {
-            const rsData = await restSettingsRes.json();
+            if (rsData.settings) {
+              setWelcomeMsg(
+                rsData.settings.welcomeMessage || 'Welcome! Explore our dishes or ask our AI waiter anything.'
+              );
+              setAiTone(rsData.settings.aiTone || 'Warm Editorial & Helpful');
+              setAllowDinerChat(rsData.settings.allowDinerChat ?? true);
+              setAllowPairings(rsData.settings.allowPairings ?? true);
+              setMaxDinerChat(rsData.settings.maxDinerChatPerSession ?? 25);
+            }
+
             if (rsData.wifi) {
               setWifiForm({
                 enabled: Boolean(rsData.wifi.enabled),
@@ -360,6 +499,18 @@ function RestaurantDashboardContent() {
                 security: ['WPA', 'WEP', 'nopass'].includes(rsData.wifi.security) ? rsData.wifi.security : 'WPA',
               });
             }
+
+            if (rsData.tableSession) {
+              setTableSessionForm({
+                scanTimeoutMinutes: String(
+                  rsData.tableSession.scanTimeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES
+                ),
+                orderExtensionMinutes: String(
+                  rsData.tableSession.orderExtensionMinutes ?? DEFAULT_ORDER_EXTENSION_MINUTES
+                ),
+              });
+            }
+
             if (rsData.restaurant) {
               setRestaurant(rsData.restaurant);
               setSettingsForm({
@@ -376,66 +527,125 @@ function RestaurantDashboardContent() {
                 coverUrl: rsData.restaurant.coverUrl || '',
               });
             }
-          }
+          })
+          .catch(() => {})
+          .finally(() => {
+            if (!cancelled) {
+              setSecondaryLoading((prev) => ({ ...prev, settings: false }));
+            }
+          });
 
-          // Load QR code
-          const qrRes = await fetch(`/api/qr/generate?slug=${targetRest.slug}`, { cache: 'no-store' });
-          if (qrRes.ok) {
-            const qData = await qrRes.json();
-            setQrData(qData);
-          }
-        }
+        await Promise.allSettled([loadItemsPromise, loadBillingPromise, loadSettingsPromise]);
       } catch (err) {
         console.error('Dashboard init error:', err);
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
 
     init();
+    return () => {
+      cancelled = true;
+    };
   }, [restaurantId, router]);
+
+  // Lazy-load QR asset only when QR Studio tab is opened
+  useEffect(() => {
+    if (currentTab !== 'qr' || !restaurant?.slug || qrData || expiredGate || targetOrgAccess?.expired) return;
+    let cancelled = false;
+    setQrLoading(true);
+    fetch(`/api/qr/generate?slug=${restaurant.slug}`, { cache: 'no-store' })
+      .then(async (res) => {
+        if (res.status === 402) {
+          const payload = await res.json().catch(() => ({}));
+          if (!cancelled) handleSubscriptionExpired(payload);
+          return null;
+        }
+        return res.ok ? res.json() : null;
+      })
+      .then((qData) => {
+        if (!cancelled && qData) {
+          setQrData(qData);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setQrLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentTab, restaurant?.slug, qrData, expiredGate, targetOrgAccess?.expired, handleSubscriptionExpired]);
 
   // Keep analytics metrics fresh whenever Overview or Analytics tab is active
   useEffect(() => {
-    if ((currentTab === 'analytics' || currentTab === 'overview') && restaurant?.id) {
+    if (
+      (currentTab === 'analytics' || currentTab === 'overview') &&
+      restaurant?.id &&
+      !expiredGate &&
+      !targetOrgAccess?.expired
+    ) {
       loadAnalytics(restaurant.id);
     }
-  }, [currentTab, restaurant?.id, loadAnalytics]);
+  }, [currentTab, restaurant?.id, loadAnalytics, expiredGate, targetOrgAccess?.expired]);
 
-  // Keep Wi-Fi & profile settings fresh whenever owner navigates to Settings tab
+  // Keep table session timers, Wi-Fi & profile settings fresh whenever owner navigates to Settings tab
   useEffect(() => {
-    if (currentTab === 'settings' && restaurant?.id) {
-      fetch(`/api/restaurant/settings?restaurantId=${restaurant.id}`, { cache: 'no-store' })
-        .then((res) => (res.ok ? res.json() : null))
-        .then((rsData) => {
-          if (!rsData) return;
-          if (rsData.wifi) {
-            setWifiForm({
-              enabled: Boolean(rsData.wifi.enabled),
-              ssid: rsData.wifi.ssid || '',
-              password: rsData.wifi.password || '',
-              security: ['WPA', 'WEP', 'nopass'].includes(rsData.wifi.security) ? rsData.wifi.security : 'WPA',
-            });
-          }
-          if (rsData.restaurant) {
-            setRestaurant(rsData.restaurant);
-            setSettingsForm({
-              displayName: rsData.restaurant.displayName || '',
-              description: rsData.restaurant.description || '',
-              address: rsData.restaurant.address || '',
-              city: rsData.restaurant.city || '',
-              country: rsData.restaurant.country || 'IN',
-              currency: rsData.restaurant.currency || 'INR',
-              timezone: rsData.restaurant.timezone || 'Asia/Kolkata',
-              phone: rsData.restaurant.phone || '',
-              email: rsData.restaurant.email || '',
-              googleReviewUrl: rsData.restaurant.googleReviewUrl || '',
-              coverUrl: rsData.restaurant.coverUrl || '',
-            });
-          }
-        })
-        .catch(() => {});
+    if (currentTab !== 'settings' || !restaurant?.id || expiredGate || targetOrgAccess?.expired) return;
+    if (skipInitialSettingsEffectRef.current === restaurant.id) {
+      skipInitialSettingsEffectRef.current = null;
+      return;
     }
+
+    fetch(`/api/restaurant/settings?restaurantId=${restaurant.id}`, { cache: 'no-store' })
+      .then(async (res) => {
+        if (res.status === 402) {
+          const payload = await res.json().catch(() => ({}));
+          handleSubscriptionExpired(payload);
+          return null;
+        }
+        return res.ok ? res.json() : null;
+      })
+      .then((rsData) => {
+        if (!rsData) return;
+        if (rsData.wifi) {
+          setWifiForm({
+            enabled: Boolean(rsData.wifi.enabled),
+            ssid: rsData.wifi.ssid || '',
+            password: rsData.wifi.password || '',
+            security: ['WPA', 'WEP', 'nopass'].includes(rsData.wifi.security) ? rsData.wifi.security : 'WPA',
+          });
+        }
+        if (rsData.tableSession) {
+          setTableSessionForm({
+            scanTimeoutMinutes: String(
+              rsData.tableSession.scanTimeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES
+            ),
+            orderExtensionMinutes: String(
+              rsData.tableSession.orderExtensionMinutes ?? DEFAULT_ORDER_EXTENSION_MINUTES
+            ),
+          });
+        }
+        if (rsData.restaurant) {
+          setRestaurant(rsData.restaurant);
+          setSettingsForm({
+            displayName: rsData.restaurant.displayName || '',
+            description: rsData.restaurant.description || '',
+            address: rsData.restaurant.address || '',
+            city: rsData.restaurant.city || '',
+            country: rsData.restaurant.country || 'IN',
+            currency: rsData.restaurant.currency || 'INR',
+            timezone: rsData.restaurant.timezone || 'Asia/Kolkata',
+            phone: rsData.restaurant.phone || '',
+            email: rsData.restaurant.email || '',
+            googleReviewUrl: rsData.restaurant.googleReviewUrl || '',
+            coverUrl: rsData.restaurant.coverUrl || '',
+          });
+        }
+      })
+      .catch(() => {});
   }, [currentTab, restaurant?.id]);
 
   // Toggle dish availability
@@ -473,6 +683,12 @@ function RestaurantDashboardContent() {
           method: 'DELETE',
         }
       );
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        setIsDeleteDialogOpen(false);
+        handleSubscriptionExpired(payload);
+        return;
+      }
       if (res.ok) {
         setMenuItems((prev) => prev.filter((i) => i.id !== dishToDelete.id));
         setDeleteToast(`"${dishToDelete.customName}" was removed from your menu.`);
@@ -591,6 +807,13 @@ function RestaurantDashboardContent() {
         }),
       });
 
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        setIsEditDishOpen(false);
+        handleSubscriptionExpired(payload);
+        return;
+      }
+
       if (res.ok) {
         const data = await res.json();
         setMenuItems((prev) =>
@@ -639,6 +862,13 @@ function RestaurantDashboardContent() {
       }),
     });
 
+    if (res.status === 402) {
+      const payload = await res.json().catch(() => ({}));
+      setIsAddDishOpen(false);
+      handleSubscriptionExpired(payload);
+      return;
+    }
+
     if (res.ok) {
       const data = await res.json();
       setMenuItems((prev) => [...prev, data.item]);
@@ -676,6 +906,12 @@ function RestaurantDashboardContent() {
         body: formData,
       });
 
+      if (uploadRes.status === 402) {
+        const payload = await uploadRes.json().catch(() => ({}));
+        handleSubscriptionExpired(payload);
+        return;
+      }
+
       if (!uploadRes.ok) {
         const uploadErrData = await uploadRes.json().catch(() => ({}));
         throw new Error(uploadErrData.error || 'Upload failed. Please try again later.');
@@ -695,6 +931,10 @@ function RestaurantDashboardContent() {
       });
 
       const extractData = await extractRes.json().catch(() => ({}));
+      if (extractRes.status === 402) {
+        handleSubscriptionExpired(extractData);
+        return;
+      }
 
       if (!extractRes.ok || !extractData.success) {
         throw new Error(extractData.error || 'Menu extraction failed. Please try again later.');
@@ -787,9 +1027,13 @@ function RestaurantDashboardContent() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        handleSubscriptionExpired(data);
+        return;
+      }
       if (!res.ok) {
-        alert(data.message || 'Failed to generate illustration');
+        alert(data.message || data.error || 'Failed to generate illustration');
         return;
       }
 
@@ -891,6 +1135,10 @@ function RestaurantDashboardContent() {
         }),
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        handleSubscriptionExpired(data);
+        return;
+      }
       if (res.ok && data.publicationState) {
         setRestaurant((prev: any) =>
           prev ? { ...prev, publicationState: data.publicationState } : prev
@@ -919,6 +1167,10 @@ function RestaurantDashboardContent() {
         }),
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        handleSubscriptionExpired(data);
+        return;
+      }
       if (!res.ok) {
         alert(data.error || 'Batch visual matching failed');
         return;
@@ -1006,6 +1258,12 @@ function RestaurantDashboardContent() {
       }),
     });
 
+    if (res.status === 402) {
+      const payload = await res.json().catch(() => ({}));
+      handleSubscriptionExpired(payload);
+      return;
+    }
+
     if (res.ok) {
       setThemeSavedToast(true);
       setTimeout(() => setThemeSavedToast(false), 3000);
@@ -1026,6 +1284,12 @@ function RestaurantDashboardContent() {
         maxDinerChatPerSession: maxDinerChat,
       }),
     });
+
+    if (res.status === 402) {
+      const payload = await res.json().catch(() => ({}));
+      handleSubscriptionExpired(payload);
+      return;
+    }
 
     if (res.ok) {
       setAiSavedToast(true);
@@ -1058,7 +1322,11 @@ function RestaurantDashboardContent() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        handleSubscriptionExpired(data);
+        return;
+      }
       if (res.ok) {
         setAiTestResponse(data);
       } else {
@@ -1124,7 +1392,11 @@ function RestaurantDashboardContent() {
         method: 'POST',
         body: formData,
       });
-      const uploadData = await uploadRes.json();
+      const uploadData = await uploadRes.json().catch(() => ({}));
+      if (uploadRes.status === 402) {
+        handleSubscriptionExpired(uploadData);
+        return;
+      }
       if (!uploadRes.ok || !uploadData?.asset?.publicUrl) {
         throw new Error(uploadData?.error || 'Failed to upload banner image');
       }
@@ -1138,7 +1410,11 @@ function RestaurantDashboardContent() {
           coverUrl: uploadedUrl,
         }),
       });
-      const saveData = await saveRes.json();
+      const saveData = await saveRes.json().catch(() => ({}));
+      if (saveRes.status === 402) {
+        handleSubscriptionExpired(saveData);
+        return;
+      }
       if (!saveRes.ok) {
         throw new Error(saveData?.error || 'Banner uploaded but failed to save to restaurant profile');
       }
@@ -1191,13 +1467,22 @@ function RestaurantDashboardContent() {
     }
   };
 
-  // Save Restaurant Profile & Guest Wi-Fi Settings
+  // Save Restaurant Profile, Table QR Timers & Guest Wi-Fi Settings
   const handleSaveRestaurantSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setSettingsError(null);
 
     if (wifiForm.enabled && !wifiForm.ssid.trim()) {
       setSettingsError('Please enter your Wi-Fi Network Name (SSID) or disable Guest Free Wi-Fi.');
+      return;
+    }
+
+    const parsedTableSession = normalizeTableSessionConfigInput({
+      scanTimeoutMinutes: tableSessionForm.scanTimeoutMinutes.trim(),
+      orderExtensionMinutes: tableSessionForm.orderExtensionMinutes.trim(),
+    });
+    if (!parsedTableSession.ok) {
+      setSettingsError(parsedTableSession.error);
       return;
     }
 
@@ -1209,6 +1494,7 @@ function RestaurantDashboardContent() {
         body: JSON.stringify({
           restaurantId: restaurant.id,
           ...settingsForm,
+          tableSession: parsedTableSession.tableSession,
           wifi: {
             enabled: wifiForm.enabled,
             ssid: wifiForm.ssid.trim(),
@@ -1218,6 +1504,11 @@ function RestaurantDashboardContent() {
         }),
       });
 
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        handleSubscriptionExpired(payload);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setRestaurant(data.restaurant);
@@ -1227,6 +1518,12 @@ function RestaurantDashboardContent() {
             ssid: data.wifi.ssid || '',
             password: data.wifi.password || '',
             security: ['WPA', 'WEP', 'nopass'].includes(data.wifi.security) ? data.wifi.security : 'WPA',
+          });
+        }
+        if (data.tableSession) {
+          setTableSessionForm({
+            scanTimeoutMinutes: String(data.tableSession.scanTimeoutMinutes),
+            orderExtensionMinutes: String(data.tableSession.orderExtensionMinutes),
           });
         }
         setSettingsSavedToast(true);
@@ -1254,7 +1551,24 @@ function RestaurantDashboardContent() {
   }
 
   const allRestaurants = currentUser?.organizations?.flatMap((o: any) => o.restaurants) || [restaurant];
-  const planName = billingUsage?.plan?.name || 'Starter';
+  const effectiveAccess = billingUsage?.access ?? targetOrgAccess ?? null;
+  const isSubscriptionExpired = Boolean(
+    expiredGate || (effectiveAccess && effectiveAccess.allowed === false)
+  );
+  const isTrialActive = Boolean(!isSubscriptionExpired && effectiveAccess?.isTrial);
+  const isTrialEnded = Boolean(
+    isSubscriptionExpired &&
+      (effectiveAccess?.isTrialExpired ||
+        expiredGate?.trialExpired ||
+        expiredGate?.code === 'TRIAL_EXPIRED')
+  );
+  const planName = billingUsage?.plan?.name || effectiveAccess?.planName || 'Trial';
+  const supportPhone =
+    billingUsage?.supportPhone ||
+    effectiveAccess?.supportPhone ||
+    expiredGate?.supportPhone ||
+    SUPPORT_PHONE_DISPLAY;
+  const supportTelHref = `tel:${supportPhone.replace(/[^+\d]/g, '')}` || SUPPORT_PHONE_HREF;
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-cream-100/40 w-full">
@@ -1265,12 +1579,16 @@ function RestaurantDashboardContent() {
         userEmail={currentUser?.email || ''}
         planName={planName}
         currentTab={currentTab}
+        subscriptionExpired={isSubscriptionExpired}
+        isTrial={isTrialActive}
+        daysRemaining={effectiveAccess?.daysRemaining ?? null}
+        supportPhone={supportPhone}
       />
 
       {/* Main Content Area */}
       <main className="flex-1 w-full min-w-0 p-4 sm:p-6 lg:p-10 max-w-7xl mx-auto">
         {/* Top Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 pb-6 border-b border-cream-300">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 pb-6 border-b border-cream-300">
           <div>
             <h1 className="text-2xl sm:text-3xl font-serif font-bold text-espresso-900">
               {restaurant.displayName}
@@ -1284,24 +1602,34 @@ function RestaurantDashboardContent() {
             <button
               type="button"
               onClick={handleTogglePublication}
-              disabled={isTogglingPublish}
+              disabled={isTogglingPublish || isSubscriptionExpired}
               title={
-                restaurant.publicationState === 'PUBLISHED'
+                isSubscriptionExpired
+                  ? 'Buy a subscription in Billing to reactivate publishing.'
+                  : restaurant.publicationState === 'PUBLISHED'
                   ? 'Menu is published and indexable by search engines. Click to switch to Draft.'
                   : 'Menu is currently in Draft status. Click to publish live.'
               }
               className={`w-full sm:w-auto justify-center inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs sm:text-sm font-semibold shadow-sm transition-all disabled:opacity-60 ${
-                restaurant.publicationState === 'PUBLISHED'
+                isSubscriptionExpired
+                  ? 'bg-red-50 border-red-200 text-red-800'
+                  : restaurant.publicationState === 'PUBLISHED'
                   ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
                   : 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
               }`}
             >
               <span
                 className={`w-2 h-2 rounded-full ${
-                  restaurant.publicationState === 'PUBLISHED' ? 'bg-emerald-500' : 'bg-amber-500'
+                  isSubscriptionExpired
+                    ? 'bg-red-500'
+                    : restaurant.publicationState === 'PUBLISHED'
+                    ? 'bg-emerald-500'
+                    : 'bg-amber-500'
                 }`}
               />
-              {isTogglingPublish
+              {isSubscriptionExpired
+                ? 'Paused • Subscription Required'
+                : isTogglingPublish
                 ? 'Updating...'
                 : restaurant.publicationState === 'PUBLISHED'
                 ? 'Live & Published'
@@ -1320,6 +1648,114 @@ function RestaurantDashboardContent() {
           </div>
         </div>
 
+        {/* Active 14-Day Free Trial Banner */}
+        {isTrialActive && (
+          <div
+            role="status"
+            className="mb-8 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xs"
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+                <Clock className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-semibold text-xs sm:text-sm text-espresso-900">
+                  14-Day Free Trial (Trial Plan) — {effectiveAccess?.daysRemaining ?? FREE_TRIAL_DAYS}{' '}
+                  {(effectiveAccess?.daysRemaining ?? FREE_TRIAL_DAYS) === 1 ? 'day' : 'days'} remaining
+                </div>
+                <p className="text-xs text-taupe-600 mt-0.5 leading-relaxed">
+                  No payment method or credit card required during trial. After day {FREE_TRIAL_DAYS}, workspace &amp; diner menu pause until a subscription is purchased. Setup-related queries? Call{' '}
+                  <a
+                    href={supportTelHref}
+                    className="font-mono font-bold text-espresso-900 underline hover:text-terracotta"
+                  >
+                    {supportPhone}
+                  </a>
+                  .
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push(`/dashboard/${restaurant.id}?tab=billing`)}
+              className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold shadow-sm transition-colors"
+            >
+              <CreditCard className="w-3.5 h-3.5 text-terracotta" />
+              Buy Subscription
+            </button>
+          </div>
+        )}
+
+        {/* Hard Expiry Gate for Non-Billing Tabs */}
+        {isSubscriptionExpired && currentTab !== 'billing' && (
+          <div
+            role="region"
+            aria-label="Subscription required"
+            className="p-6 sm:p-10 bg-white rounded-3xl border border-red-200 shadow-lifted space-y-6 animate-fade-in"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-700 border border-red-200 flex items-center justify-center shrink-0">
+                <Lock className="w-6 h-6" />
+              </div>
+              <div className="space-y-2 flex-1">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-50 text-red-800 border border-red-200 text-[11px] font-bold uppercase tracking-wider">
+                  Workspace &amp; Diner Menu Paused
+                </span>
+                <h2 className="font-serif text-2xl sm:text-3xl font-bold text-espresso-900">
+                  {isTrialEnded
+                    ? 'Your 14-Day Free Trial Has Ended'
+                    : 'Active Subscription Required to Continue'}
+                </h2>
+                <p className="text-xs sm:text-sm text-taupe-600 leading-relaxed max-w-2xl">
+                  All features for <strong>{restaurant.displayName}</strong> — including your live diner QR menu, AI menu assistant, table ordering, Kitchen Display terminal, and dashboard editing — have stopped because your {isTrialEnded ? '14-day free Trial' : 'subscription'} has ended. Buy a subscription plan in the Billing panel to resume immediately.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-2xl bg-cream-50 border border-cream-200 flex flex-col justify-between gap-3">
+                <div>
+                  <h3 className="font-serif text-base font-bold text-espresso-900">
+                    Reactivate in Billing Panel
+                  </h3>
+                  <p className="text-xs text-taupe-600 mt-1">
+                    Choose Starter, Growth, or Pro to unlock your menu and all tables instantaneously. All your existing dishes, 3D visuals, and table QR codes are safely preserved.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/dashboard/${restaurant.id}?tab=billing`)}
+                  className="w-full sm:w-fit inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white text-xs sm:text-sm font-semibold shadow-sm transition-colors"
+                >
+                  <CreditCard className="w-4 h-4" />
+                  <span>Buy Subscription in Billing</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-cream-50 border border-cream-200 flex flex-col justify-between gap-3">
+                <div>
+                  <h3 className="font-serif text-base font-bold text-espresso-900">
+                    Setup &amp; Activation Assistance
+                  </h3>
+                  <p className="text-xs text-taupe-600 mt-1">
+                    Have setup-related queries, GST invoicing questions, or need help activating your restaurant? Reach us directly on phone or WhatsApp.
+                  </p>
+                </div>
+                <a
+                  href={supportTelHref}
+                  className="w-full sm:w-fit inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-cream-300 hover:border-espresso-900 text-espresso-900 text-xs sm:text-sm font-mono font-bold transition-colors"
+                >
+                  <Phone className="w-4 h-4 text-terracotta" />
+                  <span>{supportPhone}</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!isSubscriptionExpired && (
+          <>
         {/* =========================================================================
             TAB 1: OVERVIEW
         ========================================================================= */}
@@ -1329,18 +1765,28 @@ function RestaurantDashboardContent() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
                 <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">Total Menu Items</span>
-                <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2">{menuItems.length}</div>
+                <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
+                  {secondaryLoading.items && menuItems.length === 0 ? '—' : menuItems.length}
+                </div>
                 <div className="text-[11px] sm:text-xs text-sage-700 mt-1 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Live & searchable
+                  {secondaryLoading.items && menuItems.length === 0 ? (
+                    <span className="text-taupe-500">Loading menu...</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Live &amp; searchable
+                    </>
+                  )}
                 </div>
               </div>
 
               <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
                 <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">QR Scans Today</span>
-                <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2">
-                  {analyticsData?.scans?.today ?? 0}
+                <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
+                  {analyticsLoading && !analyticsData ? '—' : (analyticsData?.scans?.today ?? 0)}
                 </div>
-                {(analyticsData?.scans?.today ?? 0) > 0 ? (
+                {analyticsLoading && !analyticsData ? (
+                  <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">Loading scans...</div>
+                ) : (analyticsData?.scans?.today ?? 0) > 0 ? (
                   <div className="text-[11px] sm:text-xs text-sage-700 mt-1 flex items-center gap-1">
                     <TrendingUp className="w-3.5 h-3.5 shrink-0" /> Active engagement
                   </div>
@@ -1409,26 +1855,66 @@ function RestaurantDashboardContent() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {menuItems.slice(0, 3).map((item) => {
-                  const img = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
-                  return (
-                    <div key={item.id} className="flex items-center gap-3 p-3 rounded-2xl bg-cream-50 border border-cream-200">
-                      <img src={img} alt={item.customName} className="w-16 h-16 aspect-square rounded-xl object-cover bg-white shrink-0 border border-cream-200" />
-                      <div className="min-w-0 flex-1">
-                        <h4 className="font-semibold text-sm text-espresso-900 truncate">{item.customName}</h4>
-                        <span className="text-xs font-bold text-espresso-700">
-                          {formatCurrencyMinor(item.priceMinor || 0, item.currency)}
-                        </span>
-                        <div className="mt-1">
-                          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${item.isAvailable ? 'bg-sage-100 text-sage-800' : 'bg-red-100 text-red-800'}`}>
-                            {item.isAvailable ? 'In Stock' : 'Sold Out'}
-                          </span>
-                        </div>
+                {secondaryLoading.items && menuItems.length === 0 ? (
+                  [0, 1, 2].map((idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-3 p-3 rounded-2xl bg-cream-50 border border-cream-200 animate-pulse motion-reduce:animate-none"
+                    >
+                      <div className="w-16 h-16 rounded-xl bg-cream-200 shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-3.5 bg-cream-200 rounded w-3/4" />
+                        <div className="h-3 bg-cream-200 rounded w-1/3" />
+                        <div className="h-4 bg-cream-200 rounded w-16" />
                       </div>
                     </div>
-                  );
-                })}
+                  ))
+                ) : (
+                  menuItems.slice(0, 3).map((item) => {
+                    const img = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
+                    return (
+                      <div key={item.id} className="flex items-center gap-3 p-3 rounded-2xl bg-cream-50 border border-cream-200">
+                        <img src={img} alt={item.customName} className="w-16 h-16 aspect-square rounded-xl object-cover bg-white shrink-0 border border-cream-200" />
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-semibold text-sm text-espresso-900 truncate">{item.customName}</h4>
+                          <span className="text-xs font-bold text-espresso-700">
+                            {formatCurrencyMinor(item.priceMinor || 0, item.currency)}
+                          </span>
+                          <div className="mt-1">
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${item.isAvailable ? 'bg-sage-100 text-sage-800' : 'bg-red-100 text-red-800'}`}>
+                              {item.isAvailable ? 'In Stock' : 'Sold Out'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
+            </div>
+
+            {/* Setup Assistance Strip */}
+            <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-cream-100 text-terracotta flex items-center justify-center shrink-0">
+                  <Phone className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="font-semibold text-xs sm:text-sm text-espresso-900">
+                    Setup &amp; Onboarding Helpline
+                  </div>
+                  <p className="text-xs text-taupe-500">
+                    For menu import, QR printing, or setup-related queries, contact us anytime.
+                  </p>
+                </div>
+              </div>
+              <a
+                href={supportTelHref}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cream-100 hover:bg-cream-200 border border-cream-300 text-xs font-mono font-bold text-espresso-900 shrink-0 transition-colors"
+              >
+                <Phone className="w-3.5 h-3.5 text-terracotta" />
+                <span>{supportPhone}</span>
+              </a>
             </div>
           </div>
         )}
@@ -1624,6 +2110,16 @@ function RestaurantDashboardContent() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-cream-100">
+                    {secondaryLoading.items && menuItems.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-10 px-4 text-center text-xs text-taupe-500">
+                          <span className="inline-flex items-center gap-2">
+                            <RefreshCw className="w-4 h-4 animate-spin motion-reduce:animate-none text-terracotta" />
+                            Loading menu dishes...
+                          </span>
+                        </td>
+                      </tr>
+                    )}
                     {menuItems
                       .filter((item) => {
                         if (menuFilter === 'POPULAR') return Boolean(item.isPopular || item.chefRecommended);
@@ -3431,8 +3927,15 @@ function RestaurantDashboardContent() {
                     <img src={qrData.qrDataUrl} alt="Table QR" className="w-56 h-56 object-contain" />
                   </div>
                 ) : (
-                  <div className="w-56 h-56 bg-cream-100 rounded-2xl flex items-center justify-center text-xs text-taupe-500">
-                    Generating QR...
+                  <div className="w-56 h-56 bg-cream-100 rounded-2xl flex flex-col items-center justify-center gap-2 text-xs text-taupe-500">
+                    {qrLoading ? (
+                      <>
+                        <RefreshCw className="w-5 h-5 animate-spin motion-reduce:animate-none text-terracotta" />
+                        <span>Generating QR...</span>
+                      </>
+                    ) : (
+                      <span>Preparing QR...</span>
+                    )}
                   </div>
                 )}
 
@@ -3477,7 +3980,10 @@ function RestaurantDashboardContent() {
         ========================================================================= */}
         {currentTab === 'tables' && restaurant && (
           <div className="animate-fade-in">
-            <TablesManagementView restaurant={restaurant} />
+            <TablesManagementView
+              restaurant={restaurant}
+              onSubscriptionExpired={handleSubscriptionExpired}
+            />
           </div>
         )}
 
@@ -3486,7 +3992,11 @@ function RestaurantDashboardContent() {
         ========================================================================= */}
         {currentTab === 'orders' && restaurant && (
           <div className="animate-fade-in">
-            <OrdersManagementView restaurant={restaurant} initialSubTab={initialOrdersSubTab} />
+            <OrdersManagementView
+              restaurant={restaurant}
+              initialSubTab={initialOrdersSubTab}
+              onSubscriptionExpired={handleSubscriptionExpired}
+            />
           </div>
         )}
 
@@ -3495,7 +4005,10 @@ function RestaurantDashboardContent() {
         ========================================================================= */}
         {currentTab === 'staff' && restaurant && (
           <div className="animate-fade-in">
-            <StaffManagementView restaurant={restaurant} />
+            <StaffManagementView
+              restaurant={restaurant}
+              onSubscriptionExpired={handleSubscriptionExpired}
+            />
           </div>
         )}
 
@@ -4104,6 +4617,91 @@ function RestaurantDashboardContent() {
                 </div>
               </div>
 
+              {/* Table QR Session Timers & Auto-Expiry */}
+              <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                      <Clock className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="font-serif text-lg font-bold text-espresso-900">
+                        Table QR Session Timers &amp; Auto-Expiry
+                      </h3>
+                      <p className="text-xs text-taupe-500">
+                        Set how long a scanned table QR link remains active before guests must rescan.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 rounded-full text-[11px] font-mono font-semibold bg-amber-50 text-amber-900 border border-amber-200 shrink-0 self-start sm:self-center">
+                    {tableSessionForm.scanTimeoutMinutes || DEFAULT_SCAN_TIMEOUT_MINUTES}m scan •{' '}
+                    +{tableSessionForm.orderExtensionMinutes || DEFAULT_ORDER_EXTENSION_MINUTES}m order
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                      Initial QR Scan Timeout (Minutes)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min={MIN_TABLE_SESSION_MINUTES}
+                        max={MAX_TABLE_SESSION_MINUTES}
+                        step={1}
+                        required
+                        value={tableSessionForm.scanTimeoutMinutes}
+                        onChange={(e) => {
+                          setSettingsError(null);
+                          setTableSessionForm({
+                            ...tableSessionForm,
+                            scanTimeoutMinutes: e.target.value,
+                          });
+                        }}
+                        className="w-full px-3.5 py-2 pr-14 border border-cream-300 rounded-xl text-xs sm:text-sm font-mono focus:outline-none focus:ring-1 focus:ring-terracotta"
+                      />
+                      <span className="text-[11px] font-mono text-taupe-500 absolute right-3.5 top-2.5">
+                        min
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-taupe-500 mt-1">
+                      After scanning a table QR, guests have this many minutes to place an order before they must rescan.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
+                      Post-Order Extension Time (Minutes)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min={MIN_TABLE_SESSION_MINUTES}
+                        max={MAX_TABLE_SESSION_MINUTES}
+                        step={1}
+                        required
+                        value={tableSessionForm.orderExtensionMinutes}
+                        onChange={(e) => {
+                          setSettingsError(null);
+                          setTableSessionForm({
+                            ...tableSessionForm,
+                            orderExtensionMinutes: e.target.value,
+                          });
+                        }}
+                        className="w-full px-3.5 py-2 pr-14 border border-cream-300 rounded-xl text-xs sm:text-sm font-mono focus:outline-none focus:ring-1 focus:ring-terracotta"
+                      />
+                      <span className="text-[11px] font-mono text-taupe-500 absolute right-3.5 top-2.5">
+                        min
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-taupe-500 mt-1">
+                      Whenever an order is placed, the timer extends by this many minutes so guests can order additional items before expiring.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* Guest Free Wi-Fi Access */}
               <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -4266,6 +4864,17 @@ function RestaurantDashboardContent() {
                 </div>
               </div>
 
+              <div className="p-4 rounded-2xl bg-cream-50 border border-cream-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-taupe-600">
+                <span>Need help configuring your menu, tables, or QR timers? Call for setup queries:</span>
+                <a
+                  href={supportTelHref}
+                  className="inline-flex items-center gap-1.5 font-mono font-bold text-espresso-900 hover:text-terracotta shrink-0"
+                >
+                  <Phone className="w-3.5 h-3.5 text-terracotta" />
+                  <span>{supportPhone}</span>
+                </a>
+              </div>
+
               <div className="flex justify-end">
                 <button
                   type="submit"
@@ -4288,6 +4897,8 @@ function RestaurantDashboardContent() {
             />
           </div>
         )}
+          </>
+        )}
 
         {/* =========================================================================
             TAB 9: BILLING & CREDITS
@@ -4297,27 +4908,105 @@ function RestaurantDashboardContent() {
             <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft">
               <h2 className="font-serif text-xl font-bold text-espresso-900">Billing & Image Credits</h2>
               <p className="text-xs sm:text-sm text-taupe-500 mt-1">
-                Server-enforced subscription tier entitlements and image generation credits.
+                14-day free Trial plan, subscription tiers, and server-enforced image generation credits.
               </p>
             </div>
+
+            {isSubscriptionExpired && (
+              <div
+                role="alert"
+                className="p-5 rounded-3xl bg-red-50 border border-red-200 text-red-950 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xs"
+              >
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-serif text-base font-bold text-red-950">
+                      {isTrialEnded
+                        ? 'Your 14-Day Free Trial Has Ended'
+                        : 'Your Subscription Is Inactive'}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-red-800 mt-0.5">
+                      Everything for <strong>{restaurant.displayName}</strong> is currently paused. Select a monthly plan below to reactivate your menu, QR ordering, and Kitchen Display terminal immediately.
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href={supportTelHref}
+                  className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-red-200 text-xs font-mono font-bold text-red-900 hover:bg-red-100 transition-colors"
+                >
+                  <Phone className="w-3.5 h-3.5 text-red-600" />
+                  <span>{supportPhone}</span>
+                </a>
+              </div>
+            )}
+
+            {checkoutNotice && (
+              <div
+                role="status"
+                className={`p-4 rounded-2xl border text-xs sm:text-sm flex items-center justify-between gap-3 ${
+                  checkoutNotice.type === 'success'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    : 'bg-red-50 border-red-200 text-red-900'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {checkoutNotice.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                  )}
+                  <span>{checkoutNotice.message}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCheckoutNotice(null)}
+                  aria-label="Dismiss notice"
+                  className="p-1 rounded-lg hover:bg-black/5"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
 
             {/* Current Plan Overview */}
             <div className="p-5 sm:p-6 bg-gradient-to-br from-espresso-900 to-espresso-800 text-white rounded-3xl shadow-soft flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
               <div>
-                <span className="px-3 py-1 rounded-full bg-white/10 text-cream-200 text-xs font-semibold uppercase tracking-wider">
-                  Active Tier
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider ${
+                    isSubscriptionExpired
+                      ? 'bg-red-500/25 text-red-200'
+                      : isTrialActive
+                      ? 'bg-amber-400/20 text-amber-200'
+                      : 'bg-white/10 text-cream-200'
+                  }`}
+                >
+                  {isSubscriptionExpired
+                    ? 'Subscription Paused'
+                    : isTrialActive
+                    ? `${FREE_TRIAL_DAYS}-Day Free Trial`
+                    : 'Active Tier'}
                 </span>
                 <h3 className="text-2xl sm:text-3xl font-serif font-bold text-cream-100 mt-2">
-                  {billingUsage?.plan?.name || 'Growth Plan'}
+                  {billingUsage?.plan?.name || effectiveAccess?.planName || 'Trial'}
                 </h3>
                 <p className="text-xs text-cream-300 mt-1">
-                  Status: {billingUsage?.subscription?.status || 'ACTIVE'} • Region: {billingUsage?.billingCountry || restaurant.country}
+                  Status: {isSubscriptionExpired ? 'EXPIRED' : billingUsage?.subscription?.status || effectiveAccess?.subscriptionStatus || 'TRIAL'} • Region: {billingUsage?.billingCountry || restaurant.country}
                 </p>
+                {isTrialActive && effectiveAccess?.trialEndsAt && (
+                  <p className="text-xs text-amber-200 mt-1">
+                    Ends {new Date(effectiveAccess.trialEndsAt).toLocaleDateString()} ({effectiveAccess.daysRemaining ?? FREE_TRIAL_DAYS}d left) • No payment method required
+                  </p>
+                )}
+                {isSubscriptionExpired && (
+                  <p className="text-xs text-red-200 mt-1">
+                    Purchase a monthly plan below to reactivate your restaurant workspace.
+                  </p>
+                )}
               </div>
 
               <div className="flex flex-wrap gap-4 sm:gap-6 text-center w-full md:w-auto">
                 <div className="flex-1 md:flex-none p-3 bg-white/10 rounded-2xl min-w-[90px] sm:min-w-[100px]">
-                  <div className="text-2xl font-bold text-cream-100">{billingUsage?.remainingImageCredits ?? 15}</div>
+                  <div className="text-2xl font-bold text-cream-100">{billingUsage?.remainingImageCredits ?? 0}</div>
                   <div className="text-[10px] text-cream-300 uppercase">3D Credits</div>
                 </div>
                 <div className="flex-1 md:flex-none p-3 bg-white/10 rounded-2xl min-w-[90px] sm:min-w-[100px]">
@@ -4327,6 +5016,49 @@ function RestaurantDashboardContent() {
               </div>
             </div>
 
+            {/* Trial Plan Showcase */}
+            {(() => {
+              const trialDef: TrialPlanDefinition = billingUsage?.trialPlan || TRIAL_PLAN;
+              const onTrial =
+                billingUsage?.plan?.key === trialDef.key || effectiveAccess?.planKey === trialDef.key;
+
+              return (
+                <div className="p-5 bg-cream-50 rounded-3xl border border-cream-300 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-sage-100 text-sage-800 border border-sage-200">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        {trialDef.name} Plan • 14 Days Free
+                      </span>
+                      <span className="text-xs font-mono font-bold text-espresso-900">
+                        {billingUsage?.billingCountry === 'US' || restaurant.country === 'US' ? '$0' : '₹0'} • No Payment Method Required
+                      </span>
+                    </div>
+                    <p className="text-xs text-taupe-600">
+                      Up to {trialDef.itemLimit} dishes, {trialDef.imageCreditsMonthly} custom 3D credits, and {trialDef.aiQuestionsMonthly.toLocaleString()} AI diner queries during your 14-day onboarding trial.
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold ${
+                      isTrialEnded
+                        ? 'bg-red-100 text-red-800 border border-red-200'
+                        : isTrialActive
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        : onTrial
+                        ? 'bg-cream-200 text-espresso-700'
+                        : 'bg-cream-200 text-taupe-600'
+                    }`}
+                  >
+                    {isTrialEnded
+                      ? 'Free Trial Completed'
+                      : isTrialActive
+                      ? `Active Trial (${effectiveAccess?.daysRemaining ?? FREE_TRIAL_DAYS}d left)`
+                      : 'Included at Sign-Up'}
+                  </span>
+                </div>
+              );
+            })()}
+
             {/* Available Plans Catalog */}
             {(() => {
               const activeBillingCountry: 'IN' | 'US' =
@@ -4334,23 +5066,28 @@ function RestaurantDashboardContent() {
               const availablePlans: PlanDefinition[] = Array.isArray(billingUsage?.availablePlans)
                 ? billingUsage.availablePlans
                 : [];
+              const upgradeButtonLabel =
+                isSubscriptionExpired || isTrialActive || billingUsage?.plan?.key === 'FREE_TRIAL'
+                  ? 'Buy Subscription'
+                  : 'Select Plan';
 
               return (
-                <div className="space-y-4 pt-4">
+                <div className="space-y-4 pt-2">
                   <div className="p-4 bg-white rounded-2xl border border-cream-200">
                     <h3 className="font-serif text-lg font-bold text-espresso-900">
-                      Available Subscription Tiers
+                      Paid Subscription Tiers
                     </h3>
                     <p className="text-xs text-taupe-500">
                       {activeBillingCountry === 'US'
-                        ? 'United States Dollar (USD $) billing plans'
-                        : 'India Rupee (INR ₹) billing plans'}
+                        ? 'United States Dollar (USD $) monthly billing plans'
+                        : 'India Rupee (INR ₹) monthly billing plans'}
                     </p>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {availablePlans.map((plan) => {
-                        const isCurrent = billingUsage?.plan?.key === plan.key;
+                        const isCurrent =
+                          !isSubscriptionExpired && billingUsage?.plan?.key === plan.key;
                         return (
                           <div
                             key={plan.key}
@@ -4380,6 +5117,7 @@ function RestaurantDashboardContent() {
                             <button
                               disabled={isCurrent}
                               onClick={async () => {
+                                setCheckoutNotice(null);
                                 const res = await fetch('/api/billing/create-subscription', {
                                   method: 'POST',
                                   headers: { 'Content-Type': 'application/json' },
@@ -4388,16 +5126,22 @@ function RestaurantDashboardContent() {
                                     planKey: plan.key,
                                   }),
                                 });
-                                const data = await res.json();
+                                const data = await res.json().catch(() => ({}));
                                 if (!res.ok) {
-                                  alert(data.error || 'Could not start subscription checkout');
+                                  setCheckoutNotice({
+                                    type: 'error',
+                                    message: data.error || 'Could not start subscription checkout.',
+                                  });
                                   return;
                                 }
                                 trackConversionEvent('subscription_started', {
                                   planKey: plan.key,
                                   currency: plan.currency,
                                 });
-                                alert(`Razorpay checkout initialized for ${plan.name} (Sub ID: ${data.subscriptionId})`);
+                                setCheckoutNotice({
+                                  type: 'success',
+                                  message: `Razorpay subscription initialized for ${plan.name} (Sub ID: ${data.subscriptionId}). Need billing help? Call ${supportPhone}.`,
+                                });
                               }}
                               className={`w-full py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
                                 isCurrent
@@ -4405,11 +5149,30 @@ function RestaurantDashboardContent() {
                                   : 'bg-espresso-900 text-white hover:bg-espresso-800'
                               }`}
                             >
-                              {isCurrent ? 'Current Plan' : 'Select Plan'}
+                              {isCurrent ? 'Current Plan' : upgradeButtonLabel}
                             </button>
                           </div>
                         );
                       })}
+                  </div>
+
+                  {/* Setup & Onboarding Support Card */}
+                  <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div>
+                      <h4 className="font-serif text-base font-bold text-espresso-900">
+                        Setup-Related Queries &amp; Assisted Activation
+                      </h4>
+                      <p className="text-xs text-taupe-600 mt-0.5">
+                        Call or message us for help importing your menu, setting up table QRs, or choosing a plan.
+                      </p>
+                    </div>
+                    <a
+                      href={supportTelHref}
+                      className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cream-100 hover:bg-cream-200 border border-cream-300 text-xs sm:text-sm font-mono font-bold text-espresso-900 transition-colors"
+                    >
+                      <Phone className="w-4 h-4 text-terracotta" />
+                      <span>{supportPhone}</span>
+                    </a>
                   </div>
                 </div>
               );

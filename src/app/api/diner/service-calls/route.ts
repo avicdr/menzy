@@ -6,6 +6,10 @@ import {
   getDinerSessionCookieName,
   readCookieFromRequest,
 } from '@/lib/diner/table-session';
+import {
+  checkRestaurantSubscriptionAccess,
+  createSubscriptionExpiredResponse,
+} from '@/lib/billing/subscription-access';
 
 export async function POST(req: Request) {
   try {
@@ -32,6 +36,18 @@ export async function POST(req: Request) {
 
     if (!targetRestaurantId) {
       return NextResponse.json({ error: 'restaurantId or restaurantSlug is required' }, { status: 400 });
+    }
+
+    const subAccess = await checkRestaurantSubscriptionAccess(targetRestaurantId, {
+      byIdOnly: true,
+    });
+    if (subAccess.found && !subAccess.access.allowed) {
+      return createSubscriptionExpiredResponse(subAccess.access, {
+        restaurantId: subAccess.restaurant?.id || targetRestaurantId,
+        restaurantSlug: subAccess.restaurant?.slug,
+        restaurantName: subAccess.restaurant?.displayName,
+        audience: 'DINER',
+      });
     }
 
     // Resolve table
@@ -80,6 +96,10 @@ export async function POST(req: Request) {
           tableName: resolvedTable.name,
           currentTableName: sessionCheck.currentTableName || null,
           currentTable: sessionCheck.currentTable || null,
+          timeoutMinutes: sessionCheck.timeoutMinutes ?? null,
+          timeoutKind: sessionCheck.timeoutKind ?? null,
+          scanTimeoutMinutes: sessionCheck.scanTimeoutMinutes ?? null,
+          orderExtensionMinutes: sessionCheck.orderExtensionMinutes ?? null,
           requiresRescan: !isTableMismatch || !sessionCheck.currentTable,
         },
         { status: 403 }

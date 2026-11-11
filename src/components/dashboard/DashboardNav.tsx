@@ -20,7 +20,10 @@ import {
   X,
   ChefHat,
   Users,
+  Lock,
+  Phone,
 } from 'lucide-react';
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
 
 interface DashboardNavProps {
   currentRestaurant: any;
@@ -28,6 +31,10 @@ interface DashboardNavProps {
   userEmail: string;
   planName?: string;
   currentTab?: string;
+  subscriptionExpired?: boolean;
+  isTrial?: boolean;
+  daysRemaining?: number | null;
+  supportPhone?: string;
 }
 
 const NAV_ITEMS = [
@@ -50,6 +57,10 @@ interface SidebarContentProps {
   userEmail: string;
   planName: string;
   currentTab: string;
+  subscriptionExpired: boolean;
+  isTrial: boolean;
+  daysRemaining: number | null;
+  supportPhone: string;
   onSelectTab: (tab: string) => void;
   onSelectRestaurant: (restaurantId: string) => void;
   onCloseMobileMenu: () => void;
@@ -62,6 +73,10 @@ function SidebarContent({
   userEmail,
   planName,
   currentTab,
+  subscriptionExpired,
+  isTrial,
+  daysRemaining,
+  supportPhone,
   onSelectTab,
   onSelectRestaurant,
   onCloseMobileMenu,
@@ -116,15 +131,25 @@ function SidebarContent({
           </div>
 
           {/* Plan badge & live link */}
-          <div className="mt-2 flex items-center justify-between text-xs">
-            <span className="px-2 py-0.5 rounded-full bg-cream-200 text-espresso-800 font-medium text-[11px]">
-              {planName} Plan
-            </span>
+          <div className="mt-2 flex items-center justify-between text-xs gap-1.5">
+            {subscriptionExpired ? (
+              <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-800 border border-red-200 font-semibold text-[11px] truncate">
+                {planName.toLowerCase() === 'trial' ? 'Trial Ended' : 'Plan Inactive'}
+              </span>
+            ) : isTrial ? (
+              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-200 font-semibold text-[11px] truncate">
+                Trial Plan{daysRemaining ? ` • ${daysRemaining}d` : ''}
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-full bg-cream-200 text-espresso-800 font-medium text-[11px] truncate">
+                {planName} Plan
+              </span>
+            )}
             <a
               href={`/m/${currentRestaurant.slug}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-terracotta hover:underline"
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-terracotta hover:underline shrink-0"
             >
               Live Menu <ExternalLink className="w-3 h-3" />
             </a>
@@ -139,24 +164,52 @@ function SidebarContent({
       >
         {NAV_ITEMS.map((item) => {
           const isActive = currentTab === item.tab;
+          const isLocked = subscriptionExpired && item.tab !== 'billing';
 
           return (
             <button
               key={item.tab}
               type="button"
               onClick={() => onSelectTab(item.tab)}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left ${
+              className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left ${
                 isActive
                   ? 'bg-espresso-900 text-cream-50 shadow-sm'
+                  : isLocked
+                  ? 'text-taupe-400 hover:bg-cream-200/50 hover:text-taupe-600'
+                  : item.tab === 'billing' && subscriptionExpired
+                  ? 'bg-terracotta/10 text-terracotta border border-terracotta/30 hover:bg-terracotta/15'
                   : 'text-espresso-700 hover:bg-cream-200/70 hover:text-espresso-900'
               }`}
             >
-              <item.icon className="w-4 h-4 shrink-0" />
-              <span>{item.label}</span>
+              <span className="flex items-center gap-3 min-w-0">
+                <item.icon className="w-4 h-4 shrink-0" />
+                <span className="truncate">{item.label}</span>
+              </span>
+              {isLocked ? (
+                <Lock className="w-3.5 h-3.5 shrink-0 opacity-70" />
+              ) : item.tab === 'billing' && subscriptionExpired ? (
+                <span className="px-1.5 py-0.5 rounded-full bg-terracotta text-white text-[9px] font-bold uppercase shrink-0">
+                  Renew
+                </span>
+              ) : null}
             </button>
           );
         })}
       </nav>
+
+      {/* Setup Queries Helpline */}
+      <div className="shrink-0 px-4 py-2.5 border-t border-cream-200 bg-cream-50">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-taupe-500">
+          Setup Queries Helpline
+        </p>
+        <a
+          href={SUPPORT_PHONE_HREF}
+          className="mt-0.5 inline-flex items-center gap-1.5 text-xs font-mono font-bold text-espresso-900 hover:text-terracotta transition-colors"
+        >
+          <Phone className="w-3.5 h-3.5 text-terracotta shrink-0" />
+          <span>{supportPhone}</span>
+        </a>
+      </div>
 
       {/* Footer user & logout */}
       <div className="shrink-0 px-4 py-3 border-t border-cream-200 bg-cream-100/50">
@@ -184,8 +237,12 @@ export function DashboardNav({
   currentRestaurant,
   allRestaurants,
   userEmail,
-  planName = 'Starter',
+  planName = 'Trial',
   currentTab = 'overview',
+  subscriptionExpired = false,
+  isTrial = false,
+  daysRemaining = null,
+  supportPhone = SUPPORT_PHONE_DISPLAY,
 }: DashboardNavProps) {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -222,6 +279,10 @@ export function DashboardNav({
     userEmail,
     planName,
     currentTab,
+    subscriptionExpired,
+    isTrial,
+    daysRemaining,
+    supportPhone,
     onSelectTab: handleTabClick,
     onSelectRestaurant: handleRestaurantChange,
     onCloseMobileMenu: () => setMobileMenuOpen(false),

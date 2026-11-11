@@ -3,9 +3,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ChefHat, Lock, AlertCircle, ArrowLeft, KeyRound, Sparkles, UserCheck } from 'lucide-react';
+import { ChefHat, Lock, AlertCircle, ArrowLeft, KeyRound, Sparkles, UserCheck, CreditCard, Phone } from 'lucide-react';
 import { generateStaffTypographyVars } from '@/lib/theme/theme-presets';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '@/lib/support/contact';
 
 export default function StaffLoginPage() {
   return (
@@ -31,12 +32,33 @@ function StaffLoginContent() {
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [pausedInfo, setPausedInfo] = useState<{
+    message: string;
+    supportPhone: string;
+    restaurantName?: string;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!restaurantSlug) return;
     fetch(`/api/diner/menu?slug=${encodeURIComponent(restaurantSlug)}`)
-      .then((res) => (res.ok ? res.json() : null))
+      .then(async (res) => {
+        if (res.status === 402) {
+          const pausedJson = await res.json().catch(() => null);
+          if (pausedJson) {
+            if (pausedJson.restaurantName) setVenueName(pausedJson.restaurantName);
+            setPausedInfo({
+              message:
+                pausedJson.error ||
+                'Your 14-day free trial or subscription has ended. Ask the owner to activate a subscription in the Billing panel.',
+              supportPhone: pausedJson.supportPhone || SUPPORT_PHONE_DISPLAY,
+              restaurantName: pausedJson.restaurantName,
+            });
+          }
+          return null;
+        }
+        return res.ok ? res.json() : null;
+      })
       .then((data) => {
         if (data?.restaurant?.displayName) setVenueName(data.restaurant.displayName);
         if (data?.theme) setVenueTheme(data.theme);
@@ -52,6 +74,7 @@ function StaffLoginContent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setPausedInfo(null);
     setLoading(true);
 
     try {
@@ -64,7 +87,18 @@ function StaffLoginContent() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        if (data.restaurantName) setVenueName(data.restaurantName);
+        setPausedInfo({
+          message:
+            data.error ||
+            'Your 14-day free trial or subscription has ended. Ask the owner to activate a subscription in the Billing panel.',
+          supportPhone: data.supportPhone || SUPPORT_PHONE_DISPLAY,
+          restaurantName: data.restaurantName,
+        });
+        return;
+      }
       if (!res.ok) {
         throw new Error(data.error || 'Invalid credentials');
       }
@@ -123,6 +157,39 @@ function StaffLoginContent() {
             </p>
           </div>
         </div>
+
+        {/* Paused Subscription Notice */}
+        {pausedInfo && (
+          <div className="p-4 bg-amber-950/80 border border-amber-600/60 text-amber-100 rounded-2xl text-xs space-y-2.5 animate-fade-in shadow-inner">
+            <div className="flex items-start gap-2.5">
+              <Lock className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold text-amber-200">
+                  {pausedInfo.restaurantName
+                    ? `${pausedInfo.restaurantName} Terminal Paused`
+                    : 'Kitchen & Service Terminal Paused'}
+                </p>
+                <p className="text-amber-100/90 leading-relaxed">{pausedInfo.message}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-amber-700/40">
+              <Link
+                href="/login"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-espresso-950 font-bold text-[11px] transition-colors"
+              >
+                <CreditCard className="w-3.5 h-3.5" />
+                Owner Billing Console
+              </Link>
+              <a
+                href={SUPPORT_PHONE_HREF}
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-200 hover:text-white underline underline-offset-2"
+              >
+                <Phone className="w-3 h-3" />
+                Setup & Billing Queries: {pausedInfo.supportPhone || SUPPORT_PHONE_DISPLAY}
+              </a>
+            </div>
+          </div>
+        )}
 
         {/* Error Alert */}
         {error && (

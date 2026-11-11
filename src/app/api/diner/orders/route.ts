@@ -4,9 +4,16 @@ import {
   evaluateDeviceTableSession,
   getDinerSessionCookieName,
   readCookieFromRequest,
-  TABLE_SESSION_TIMEOUT_MINUTES,
-  TABLE_SESSION_TIMEOUT_MS,
 } from '@/lib/diner/table-session';
+import {
+  computeTableSessionWindow,
+  DEFAULT_ORDER_EXTENSION_MINUTES,
+  DEFAULT_SCAN_TIMEOUT_MINUTES,
+} from '@/lib/diner/table-session-config';
+import {
+  checkRestaurantSubscriptionAccess,
+  createSubscriptionExpiredResponse,
+} from '@/lib/billing/subscription-access';
 
 export async function POST(req: Request) {
   try {
@@ -26,6 +33,16 @@ export async function POST(req: Request) {
         { error: 'restaurantId, tableId, and items array are required.' },
         { status: 400 }
       );
+    }
+
+    const subAccess = await checkRestaurantSubscriptionAccess(restaurantId, { byIdOnly: true });
+    if (subAccess.found && !subAccess.access.allowed) {
+      return createSubscriptionExpiredResponse(subAccess.access, {
+        restaurantId: subAccess.restaurant?.id || restaurantId,
+        restaurantSlug: subAccess.restaurant?.slug,
+        restaurantName: subAccess.restaurant?.displayName,
+        audience: 'DINER',
+      });
     }
 
     const cookieName = getDinerSessionCookieName(restaurantId);
@@ -50,6 +67,10 @@ export async function POST(req: Request) {
           tableName: sessionCheck.tableName || null,
           currentTableName: sessionCheck.currentTableName || null,
           currentTable: sessionCheck.currentTable || null,
+          timeoutMinutes: sessionCheck.timeoutMinutes ?? null,
+          timeoutKind: sessionCheck.timeoutKind ?? null,
+          scanTimeoutMinutes: sessionCheck.scanTimeoutMinutes ?? null,
+          orderExtensionMinutes: sessionCheck.orderExtensionMinutes ?? null,
           requiresRescan: !isTableMismatch || !sessionCheck.currentTable,
         },
         { status: 403 }
@@ -66,16 +87,28 @@ export async function POST(req: Request) {
       idempotencyKey,
     });
 
+    const scanTimeoutMinutes =
+      sessionCheck.scanTimeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES;
+    const orderExtensionMinutes =
+      sessionCheck.orderExtensionMinutes ?? DEFAULT_ORDER_EXTENSION_MINUTES;
     const lastOrderAt = order.placedAt;
-    const expiresAt = new Date(lastOrderAt.getTime() + TABLE_SESSION_TIMEOUT_MS);
+    const renewedWindow = computeTableSessionWindow({
+      lastScanAt: sessionCheck.lastScanAt ?? lastOrderAt,
+      lastOrderAt,
+      scanTimeoutMinutes,
+      orderExtensionMinutes,
+    });
 
     return NextResponse.json({
       success: true,
       message: 'Your order has been sent to the kitchen!',
       tableSession: {
         lastOrderAt: lastOrderAt.toISOString(),
-        expiresAt: expiresAt.toISOString(),
-        timeoutMinutes: TABLE_SESSION_TIMEOUT_MINUTES,
+        expiresAt: renewedWindow.expiresAt.toISOString(),
+        timeoutMinutes: renewedWindow.timeoutMinutes,
+        timeoutKind: renewedWindow.timeoutKind,
+        scanTimeoutMinutes: renewedWindow.scanTimeoutMinutes,
+        orderExtensionMinutes: renewedWindow.orderExtensionMinutes,
       },
       order: {
         id: order.id,

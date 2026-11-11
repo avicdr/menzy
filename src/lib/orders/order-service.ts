@@ -526,7 +526,14 @@ export async function updateOrderStatus(data: {
       id: data.orderId,
       restaurantId: data.restaurantId,
     },
-    include: { table: true },
+    select: {
+      id: true,
+      orderNumber: true,
+      status: true,
+      table: {
+        select: { name: true },
+      },
+    },
   });
 
   if (!order) {
@@ -539,6 +546,25 @@ export async function updateOrderStatus(data: {
     throw new Error(check.error || 'Invalid order status transition.');
   }
 
+  // Idempotent no-op if the ticket is already at the requested status
+  if (order.status === target) {
+    const existing = await prisma.order.findUnique({
+      where: { id: data.orderId },
+      include: {
+        items: true,
+        table: true,
+        statusHistory: {
+          orderBy: { createdAt: 'desc' },
+          include: { staff: { select: { displayName: true, role: true } } },
+        },
+      },
+    });
+    if (!existing) {
+      throw new Error('Order not found or not authorized.');
+    }
+    return existing;
+  }
+
   // Determine timestamp to update
   const timestampUpdates: any = {};
   const now = new Date();
@@ -549,46 +575,42 @@ export async function updateOrderStatus(data: {
   else if (target === 'COMPLETED') timestampUpdates.completedAt = now;
   else if (target === 'CANCELLED' || target === 'REJECTED') timestampUpdates.cancelledAt = now;
 
-  // Execute in transaction
-  const updated = await prisma.$transaction(async (tx) => {
-    const res = await tx.order.update({
-      where: { id: data.orderId },
-      data: {
-        status: target,
-        ...timestampUpdates,
-        statusHistory: {
-          create: {
+  // Nested Prisma update already executes in an atomic DB transaction without interactive tx overhead
+  const updated = await prisma.order.update({
+    where: { id: data.orderId },
+    data: {
+      status: target,
+      ...timestampUpdates,
+      statusHistory: {
+        create: {
+          previousStatus: order.status,
+          newStatus: target,
+          changedByStaffId: data.staffId || null,
+          actorType: data.actorType || (data.staffId ? 'STAFF' : 'SYSTEM'),
+          reason: reasonText || `Status updated to ${target}`,
+        },
+      },
+      events: {
+        create: {
+          restaurantId: data.restaurantId,
+          eventType: 'ORDER_STATUS_CHANGED',
+          payload: {
             previousStatus: order.status,
             newStatus: target,
-            changedByStaffId: data.staffId || null,
-            actorType: data.actorType || (data.staffId ? 'STAFF' : 'SYSTEM'),
-            reason: reasonText || `Status updated to ${target}`,
-          },
-        },
-        events: {
-          create: {
-            restaurantId: data.restaurantId,
-            eventType: 'ORDER_STATUS_CHANGED',
-            payload: {
-              previousStatus: order.status,
-              newStatus: target,
-              orderNumber: order.orderNumber,
-              tableName: order.table.name,
-            },
+            orderNumber: order.orderNumber,
+            tableName: order.table.name,
           },
         },
       },
-      include: {
-        items: true,
-        table: true,
-        statusHistory: {
-          orderBy: { createdAt: 'desc' },
-          include: { staff: { select: { displayName: true, role: true } } },
-        },
+    },
+    include: {
+      items: true,
+      table: true,
+      statusHistory: {
+        orderBy: { createdAt: 'desc' },
+        include: { staff: { select: { displayName: true, role: true } } },
       },
-    });
-
-    return res;
+    },
   });
 
   return updated;

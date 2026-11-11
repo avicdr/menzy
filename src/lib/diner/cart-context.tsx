@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import type { TableSessionTimeoutKind } from './table-session-config';
 
 export interface CartModifier {
   groupId: string;
@@ -33,11 +34,29 @@ export interface TableContextInfo {
   verifiedAt?: string;
   lastOrderAt?: string | null;
   expiresAt?: string;
+  timeoutMinutes?: number;
+  timeoutKind?: TableSessionTimeoutKind;
+  scanTimeoutMinutes?: number;
+  orderExtensionMinutes?: number;
 }
 
 interface ExpiredTableState {
   tableName: string | null;
   expiredAt: string;
+  timeoutMinutes?: number | null;
+  timeoutKind?: TableSessionTimeoutKind | null;
+}
+
+interface TableSessionExtensionMeta {
+  timeoutMinutes?: number;
+  timeoutKind?: TableSessionTimeoutKind;
+  scanTimeoutMinutes?: number;
+  orderExtensionMinutes?: number;
+}
+
+interface TableSessionExpiryMeta {
+  timeoutMinutes?: number | null;
+  timeoutKind?: TableSessionTimeoutKind | null;
 }
 
 interface CartContextType {
@@ -46,8 +65,14 @@ interface CartContextType {
   setTableInfo: (info: TableContextInfo | null) => void;
   tableSessionExpired: boolean;
   expiredTableName: string | null;
-  extendTableSession: (lastOrderAt: string, expiresAt: string) => void;
-  expireTableSession: (tableName?: string | null) => void;
+  expiredTimeoutMinutes: number | null;
+  expiredTimeoutKind: TableSessionTimeoutKind | null;
+  extendTableSession: (
+    lastOrderAt: string,
+    expiresAt: string,
+    meta?: TableSessionExtensionMeta
+  ) => void;
+  expireTableSession: (tableName?: string | null, meta?: TableSessionExpiryMeta) => void;
   clearExpiredNotice: () => void;
   isCartHydrated: boolean;
   addItem: (item: Omit<CartLineItem, 'cartLineId'>) => void;
@@ -80,6 +105,8 @@ export function CartProvider({
   const [tableInfo, setTableInfoState] = useState<TableContextInfo | null>(null);
   const [tableSessionExpired, setTableSessionExpired] = useState(false);
   const [expiredTableName, setExpiredTableName] = useState<string | null>(null);
+  const [expiredTimeoutMinutes, setExpiredTimeoutMinutes] = useState<number | null>(null);
+  const [expiredTimeoutKind, setExpiredTimeoutKind] = useState<TableSessionTimeoutKind | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -100,17 +127,23 @@ export function CartProvider({
           setTableInfoState(parsedTable);
           setTableSessionExpired(false);
           setExpiredTableName(null);
+          setExpiredTimeoutMinutes(null);
+          setExpiredTimeoutKind(null);
         } else {
-          // Persisted table scan lacked a valid future expiry or has already expired (>30 min)
+          // Persisted table scan lacked a valid future expiry or has already expired
           localStorage.removeItem(tableStorageKey);
           const expState: ExpiredTableState = {
             tableName: parsedTable?.tableName || null,
             expiredAt: new Date().toISOString(),
+            timeoutMinutes: parsedTable?.timeoutMinutes ?? null,
+            timeoutKind: parsedTable?.timeoutKind ?? null,
           };
           localStorage.setItem(expiredStorageKey, JSON.stringify(expState));
           setTableInfoState(null);
           setTableSessionExpired(true);
           setExpiredTableName(expState.tableName);
+          setExpiredTimeoutMinutes(expState.timeoutMinutes ?? null);
+          setExpiredTimeoutKind(expState.timeoutKind ?? null);
         }
       } else {
         const savedExpiredRaw = localStorage.getItem(expiredStorageKey);
@@ -118,6 +151,8 @@ export function CartProvider({
           const parsedExpired: ExpiredTableState = JSON.parse(savedExpiredRaw);
           setTableSessionExpired(true);
           setExpiredTableName(parsedExpired?.tableName || null);
+          setExpiredTimeoutMinutes(parsedExpired?.timeoutMinutes ?? null);
+          setExpiredTimeoutKind(parsedExpired?.timeoutKind ?? null);
         }
       }
     } catch {}
@@ -137,6 +172,8 @@ export function CartProvider({
               setTableInfoState(parsed);
               setTableSessionExpired(false);
               setExpiredTableName(null);
+              setExpiredTimeoutMinutes(null);
+              setExpiredTimeoutKind(null);
             }
           } else {
             setTableInfoState(null);
@@ -147,9 +184,13 @@ export function CartProvider({
             setTableInfoState(null);
             setTableSessionExpired(true);
             setExpiredTableName(parsed?.tableName || null);
+            setExpiredTimeoutMinutes(parsed?.timeoutMinutes ?? null);
+            setExpiredTimeoutKind(parsed?.timeoutKind ?? null);
           } else {
             setTableSessionExpired(false);
             setExpiredTableName(null);
+            setExpiredTimeoutMinutes(null);
+            setExpiredTimeoutKind(null);
           }
         }
       } catch {}
@@ -182,6 +223,8 @@ export function CartProvider({
       if (info) {
         setTableSessionExpired(false);
         setExpiredTableName(null);
+        setExpiredTimeoutMinutes(null);
+        setExpiredTimeoutKind(null);
         try {
           localStorage.setItem(tableStorageKey, JSON.stringify(info));
           localStorage.removeItem(expiredStorageKey);
@@ -196,13 +239,21 @@ export function CartProvider({
   );
 
   const extendTableSession = useCallback(
-    (lastOrderAt: string, expiresAt: string) => {
+    (lastOrderAt: string, expiresAt: string, meta?: TableSessionExtensionMeta) => {
       setTableInfoState((prev) => {
         if (!prev) return prev;
         const next: TableContextInfo = {
           ...prev,
           lastOrderAt,
           expiresAt,
+          ...(meta?.timeoutMinutes !== undefined ? { timeoutMinutes: meta.timeoutMinutes } : {}),
+          ...(meta?.timeoutKind !== undefined ? { timeoutKind: meta.timeoutKind } : {}),
+          ...(meta?.scanTimeoutMinutes !== undefined
+            ? { scanTimeoutMinutes: meta.scanTimeoutMinutes }
+            : {}),
+          ...(meta?.orderExtensionMinutes !== undefined
+            ? { orderExtensionMinutes: meta.orderExtensionMinutes }
+            : {}),
         };
         try {
           localStorage.setItem(tableStorageKey, JSON.stringify(next));
@@ -212,15 +263,21 @@ export function CartProvider({
       });
       setTableSessionExpired(false);
       setExpiredTableName(null);
+      setExpiredTimeoutMinutes(null);
+      setExpiredTimeoutKind(null);
     },
     [tableStorageKey, expiredStorageKey]
   );
 
   const expireTableSession = useCallback(
-    (tableName?: string | null) => {
+    (tableName?: string | null, meta?: TableSessionExpiryMeta) => {
       setTableInfoState((prev) => {
         const resolvedName = tableName ?? prev?.tableName ?? null;
+        const resolvedMinutes = meta?.timeoutMinutes ?? prev?.timeoutMinutes ?? null;
+        const resolvedKind = meta?.timeoutKind ?? prev?.timeoutKind ?? null;
         setExpiredTableName(resolvedName);
+        setExpiredTimeoutMinutes(resolvedMinutes);
+        setExpiredTimeoutKind(resolvedKind);
         try {
           localStorage.removeItem(tableStorageKey);
           localStorage.setItem(
@@ -228,6 +285,8 @@ export function CartProvider({
             JSON.stringify({
               tableName: resolvedName,
               expiredAt: new Date().toISOString(),
+              timeoutMinutes: resolvedMinutes,
+              timeoutKind: resolvedKind,
             } satisfies ExpiredTableState)
           );
         } catch {}
@@ -241,6 +300,8 @@ export function CartProvider({
   const clearExpiredNotice = useCallback(() => {
     setTableSessionExpired(false);
     setExpiredTableName(null);
+    setExpiredTimeoutMinutes(null);
+    setExpiredTimeoutKind(null);
     try {
       localStorage.removeItem(expiredStorageKey);
     } catch {}
@@ -303,6 +364,8 @@ export function CartProvider({
         setTableInfo,
         tableSessionExpired,
         expiredTableName,
+        expiredTimeoutMinutes,
+        expiredTimeoutKind,
         extendTableSession,
         expireTableSession,
         clearExpiredNotice,

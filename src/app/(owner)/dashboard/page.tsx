@@ -1,38 +1,46 @@
-'use client';
+import { redirect } from 'next/navigation';
+import { getVerifiedOwnerCookie } from '@/lib/auth/owner-auth';
+import prisma from '@/lib/db/prisma';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+export const dynamic = 'force-dynamic';
 
-export default function DashboardRootPage() {
-  const router = useRouter();
+export default async function DashboardRootPage() {
+  const verified = await getVerifiedOwnerCookie();
+  if (!verified) {
+    redirect('/login');
+  }
 
-  useEffect(() => {
-    async function redirect() {
-      try {
-        const res = await fetch('/api/auth/me');
-        if (!res.ok) {
-          router.push('/login');
-          return;
-        }
-        const data = await res.json();
-        const firstRest = data.user?.organizations?.[0]?.restaurants?.[0];
-        if (firstRest) {
-          router.push(`/dashboard/${firstRest.id}`);
-        } else {
-          router.push('/signup');
-        }
-      } catch {
-        router.push('/login');
-      }
-    }
+  const user = await prisma.user.findUnique({
+    where: { id: verified.userId },
+    select: {
+      id: true,
+      memberships: {
+        select: {
+          organization: {
+            select: {
+              restaurants: {
+                select: { id: true },
+                take: 1,
+              },
+            },
+          },
+        },
+      },
+    },
+  });
 
-    redirect();
-  }, [router]);
+  if (!user) {
+    redirect('/login');
+  }
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-[#F7F3EC]">
-      <div className="w-8 h-8 border-3 border-terracotta border-t-transparent rounded-full animate-spin" />
-    </div>
-  );
+  const firstRest = user.memberships.find(
+    (m) => m.organization.restaurants.length > 0
+  )?.organization.restaurants[0];
+
+  if (firstRest) {
+    redirect(`/dashboard/${firstRest.id}`);
+  }
+
+  redirect('/signup');
 }
 
