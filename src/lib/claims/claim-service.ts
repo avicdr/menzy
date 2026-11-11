@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import prisma from '@/lib/db/prisma';
 import { ClaimStatus } from '@prisma/client';
+import { normalizeSiteUrl } from '@/lib/seo';
 
 export function hashClaimToken(rawClaimToken: string): string {
   return crypto.createHash('sha256').update(rawClaimToken).digest('hex');
@@ -10,22 +11,49 @@ export function generateRawClaimToken(): string {
   return `claim_${crypto.randomBytes(16).toString('hex')}`;
 }
 
+function isLoopbackHost(host: string): boolean {
+  const lower = host.toLowerCase();
+  return (
+    lower.startsWith('localhost') ||
+    lower.startsWith('127.0.0.1') ||
+    lower.startsWith('0.0.0.0') ||
+    lower.startsWith('[::1]')
+  );
+}
+
 export function getRequestOrigin(req: Request): string {
   const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  const forwardedHost = req.headers.get('x-forwarded-host');
-  const forwardedProto = req.headers.get('x-forwarded-proto') || 'https';
-  if (forwardedHost) {
+  const normalizedConfigured = configured ? normalizeSiteUrl(configured) : null;
+
+  const forwardedHostRaw = req.headers.get('x-forwarded-host');
+  const forwardedHost = forwardedHostRaw ? forwardedHostRaw.split(',')[0].trim() : '';
+  const forwardedProtoRaw = req.headers.get('x-forwarded-proto');
+  const forwardedProto = forwardedProtoRaw ? forwardedProtoRaw.split(',')[0].trim() : 'https';
+
+  if (forwardedHost && !forwardedHost.startsWith('0.0.0.0')) {
     return `${forwardedProto}://${forwardedHost}`.replace(/\/$/, '');
   }
+
+  const hostHeader = req.headers.get('host')?.trim() || '';
+  if (hostHeader && !hostHeader.startsWith('0.0.0.0')) {
+    const proto = isLoopbackHost(hostHeader) ? 'http' : forwardedProto || 'https';
+    return `${proto}://${hostHeader}`.replace(/\/$/, '');
+  }
+
+  if (normalizedConfigured) {
+    return normalizedConfigured;
+  }
+
   try {
     const reqUrl = new URL(req.url);
-    if (reqUrl.origin && reqUrl.origin !== 'null') {
+    if (reqUrl.origin && reqUrl.origin !== 'null' && !reqUrl.hostname.startsWith('0.0.0.0')) {
       return reqUrl.origin.replace(/\/$/, '');
     }
   } catch {
-    // Fallback to configured URL
+    // Fallback below
   }
-  return (configured || 'http://localhost:3000').replace(/\/$/, '');
+
+  return 'http://localhost:3000';
 }
 
 export type ClaimPreviewState =

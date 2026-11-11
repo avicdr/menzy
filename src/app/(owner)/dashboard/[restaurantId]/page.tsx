@@ -37,6 +37,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { Portal } from '@/components/ui/Portal';
 import { formatCurrencyMinor, type PlanDefinition } from '@/lib/payments/plans';
 import {
   THEME_PRESETS,
@@ -103,6 +104,31 @@ function RestaurantDashboardContent() {
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [extractionError, setExtractionError] = useState<string | null>(null);
   const [extractionSuccess, setExtractionSuccess] = useState<string | null>(null);
+  const [extractionToast, setExtractionToast] = useState<{
+    id: number;
+    title: string;
+    subtitle?: string;
+  } | null>(null);
+  const extractionToastTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showExtractionToast = useCallback((title: string, subtitle?: string) => {
+    if (extractionToastTimerRef.current) {
+      clearTimeout(extractionToastTimerRef.current);
+    }
+    const id = Date.now();
+    setExtractionToast({ id, title, subtitle });
+    extractionToastTimerRef.current = setTimeout(() => {
+      setExtractionToast((current) => (current?.id === id ? null : current));
+    }, 5500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (extractionToastTimerRef.current) {
+        clearTimeout(extractionToastTimerRef.current);
+      }
+    };
+  }, []);
 
   // Menu Studio State - Edit Dish
   const [editingDish, setEditingDish] = useState<any | null>(null);
@@ -675,12 +701,50 @@ function RestaurantDashboardContent() {
       }
 
       setExtractionError(null);
+      const addedCount =
+        typeof extractData.extractedItemsCount === 'number'
+          ? extractData.extractedItemsCount
+          : Array.isArray(extractData.items)
+          ? extractData.items.length
+          : 0;
+      const scannedCount =
+        typeof extractData.totalExtractedCount === 'number'
+          ? extractData.totalExtractedCount
+          : addedCount;
+      const duplicatesSkipped =
+        typeof extractData.duplicatesSkippedCount === 'number'
+          ? extractData.duplicatesSkippedCount
+          : 0;
+      const canonicalMatched =
+        typeof extractData.canonicalMatchedCount === 'number'
+          ? extractData.canonicalMatchedCount
+          : 0;
+
+      const toastTitle = `${scannedCount} ${scannedCount === 1 ? 'item' : 'items'} extracted`;
+      const subtitleParts: string[] = [];
+      if (duplicatesSkipped > 0) {
+        subtitleParts.push(
+          `${addedCount} new added, ${duplicatesSkipped} duplicate${duplicatesSkipped === 1 ? '' : 's'} skipped`
+        );
+      }
+      if (canonicalMatched > 0) {
+        subtitleParts.push(`${canonicalMatched} matched with canonical 3D visuals`);
+      }
+
+      // Immediately show toast notification as soon as menu scanning finishes
+      showExtractionToast(
+        toastTitle,
+        subtitleParts.length > 0 ? subtitleParts.join(' • ') : 'Added to your menu studio'
+      );
+
       const linkedMsg =
-        typeof extractData.canonicalMatchedCount === 'number' && extractData.canonicalMatchedCount > 0
-          ? ` (${extractData.canonicalMatchedCount} matched with canonical 3D visuals)`
+        canonicalMatched > 0 ? ` (${canonicalMatched} matched with canonical 3D visuals)` : '';
+      const skippedMsg =
+        duplicatesSkipped > 0
+          ? ` — ${duplicatesSkipped} duplicate${duplicatesSkipped === 1 ? '' : 's'} skipped`
           : '';
       setExtractionSuccess(
-        `Extracted ${extractData.extractedItemsCount} dishes successfully${linkedMsg}!`
+        `Extracted ${addedCount} ${addedCount === 1 ? 'dish' : 'dishes'} successfully${linkedMsg}${skippedMsg}!`
       );
       // Reload items
       const itemsRes = await fetch(`/api/menus/items?restaurantId=${restaurant.id}`, {
@@ -4353,6 +4417,41 @@ function RestaurantDashboardContent() {
           </div>
         )}
       </main>
+
+      {/* =========================================================================
+          FLOATING TOAST: MENU SCANNING COMPLETION
+      ========================================================================= */}
+      {extractionToast && (
+        <Portal>
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed top-5 right-5 z-[140] max-w-sm w-[calc(100vw-2.5rem)] sm:w-auto p-3.5 bg-espresso-900/95 backdrop-blur-md border border-sage-600/60 text-cream-50 rounded-2xl shadow-2xl flex items-start gap-3 animate-fade-in"
+          >
+            <div className="w-8 h-8 rounded-xl bg-sage-500/20 text-sage-300 border border-sage-400/30 flex items-center justify-center shrink-0 mt-0.5">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1 pr-1">
+              <div className="text-xs sm:text-sm font-semibold text-white leading-snug">
+                {extractionToast.title}
+              </div>
+              {extractionToast.subtitle && (
+                <div className="text-[11px] text-cream-300 mt-0.5 leading-snug">
+                  {extractionToast.subtitle}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setExtractionToast(null)}
+              aria-label="Dismiss notification"
+              className="p-1 rounded-lg text-cream-300 hover:text-white hover:bg-white/10 shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </Portal>
+      )}
     </div>
   );
 }

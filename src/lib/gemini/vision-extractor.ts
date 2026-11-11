@@ -12,6 +12,12 @@ import {
   hasOpenAIFallback,
 } from '../ai/openai-fallback';
 import prisma from '../db/prisma';
+import {
+  deduplicateDishCollection,
+  isGenericCategory,
+  mergeDietaryLabelsSafely,
+  resolvePrimaryDietaryBucket,
+} from '../menu/deduplicate';
 
 export const ExtractedVariantSchema = z.object({
   name: z.string(),
@@ -180,23 +186,79 @@ export function normalizeExtractedMenuResponse(parsedRaw: any, defaultCurrency: 
     }
   }
 
-  // If no categories were gathered, derive from items
-  if (categoriesSet.size === 0) {
-    for (const item of itemsList) {
-      if (item.category) categoriesSet.add(item.category);
+  // Deduplicate overlapping dishes across pages or when a model emits both hierarchical and flat arrays
+  const { uniqueItems: deduplicatedItems } = deduplicateDishCollection(
+    itemsList,
+    (item) => ({
+      name: item.sourceName || item.normalizedName,
+      category: item.category,
+      priceMinor: item.priceMinor,
+      dietaryBucket: resolvePrimaryDietaryBucket(item.dietaryLabels),
+    }),
+    (existing, dup) => {
+      const mergedCategory =
+        isGenericCategory(existing.category) && !isGenericCategory(dup.category)
+          ? dup.category
+          : existing.category;
+
+      const mergedPrice =
+        existing.priceMinor != null && existing.priceMinor > 0
+          ? existing.priceMinor
+          : dup.priceMinor;
+
+      const existingDesc = existing.description?.trim() || '';
+      const dupDesc = dup.description?.trim() || '';
+      const mergedDesc = dupDesc.length > existingDesc.length ? dupDesc : existingDesc || null;
+
+      const variantMap = new Map<string, { name: string; priceMinor: number | null }>();
+      for (const v of [...existing.variants, ...dup.variants]) {
+        const key = v.name.trim().toLowerCase();
+        if (!key) continue;
+        const prev = variantMap.get(key);
+        if (!prev || (prev.priceMinor == null && v.priceMinor != null)) {
+          variantMap.set(key, v);
+        }
+      }
+
+      return {
+        ...existing,
+        category: mergedCategory,
+        description: mergedDesc,
+        priceMinor: mergedPrice,
+        variants: Array.from(variantMap.values()),
+        explicitIngredients: Array.from(
+          new Set([...existing.explicitIngredients, ...dup.explicitIngredients].filter(Boolean))
+        ),
+        dietaryLabels: mergeDietaryLabelsSafely(existing.dietaryLabels, dup.dietaryLabels),
+        allergenStatements: Array.from(
+          new Set([...existing.allergenStatements, ...dup.allergenStatements].filter(Boolean))
+        ),
+        isPopular: existing.isPopular || dup.isPopular,
+        chefRecommended: existing.chefRecommended || dup.chefRecommended,
+        confidence: Math.max(existing.confidence, dup.confidence),
+      };
+    }
+  );
+
+  // Preserve declared category order while dropping empty categories or adding item categories
+  const orderedCategories = new Set<string>();
+  for (const declared of categoriesSet) {
+    if (deduplicatedItems.some((it) => it.category === declared)) {
+      orderedCategories.add(declared);
     }
   }
-
-  // Fallback category if still empty
-  if (categoriesSet.size === 0) {
-    categoriesSet.add('Main Menu');
+  for (const item of deduplicatedItems) {
+    if (item.category) orderedCategories.add(item.category);
+  }
+  if (orderedCategories.size === 0) {
+    orderedCategories.add('Main Menu');
   }
 
   return {
     restaurantName,
     detectedCurrency: currency,
-    categories: Array.from(categoriesSet),
-    items: itemsList,
+    categories: Array.from(orderedCategories),
+    items: deduplicatedItems,
   };
 }
 

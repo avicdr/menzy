@@ -32,10 +32,17 @@ import {
   Trash2,
   Upload,
   KeyRound,
+  X,
 } from 'lucide-react';
 import { Portal } from '@/components/ui/Portal';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
 import { sortCanonicalCategories } from '@/lib/canonical/catalog';
+import {
+  areDishesLikelyDuplicate,
+  deduplicateDishCollection,
+  isGenericCategory,
+  resolvePrimaryDietaryBucket,
+} from '@/lib/menu/deduplicate';
 
 interface DemoDishDraft {
   localId: string;
@@ -103,6 +110,49 @@ function buildDefaultDemoDishes(country: string): DemoDishDraft[] {
   ];
 }
 
+function parseDemoDraftPriceMinor(priceStr: string): number {
+  const num = parseFloat(priceStr);
+  if (!Number.isFinite(num) || num < 0) return 0;
+  return Math.round(num * 100);
+}
+
+function deduplicateDemoDishDrafts(dishes: DemoDishDraft[]) {
+  return deduplicateDishCollection(
+    dishes,
+    (d) => ({
+      name: d.name,
+      category: d.category,
+      priceMinor: parseDemoDraftPriceMinor(d.price),
+      dietaryBucket: resolvePrimaryDietaryBucket([], d.foodType),
+    }),
+    (existing, dup) => {
+      const mergedCategory =
+        isGenericCategory(existing.category) && !isGenericCategory(dup.category)
+          ? dup.category
+          : existing.category;
+      const existingPriceMinor = parseDemoDraftPriceMinor(existing.price);
+      const mergedPrice =
+        existingPriceMinor > 0 ? existing.price : dup.price || existing.price;
+      const mergedDesc =
+        (dup.description || '').trim().length > (existing.description || '').trim().length
+          ? dup.description
+          : existing.description;
+      const mergedFoodType =
+        existing.foodType === 'VEG' && (dup.foodType === 'NON_VEG' || dup.foodType === 'EGG')
+          ? dup.foodType
+          : existing.foodType;
+
+      return {
+        ...existing,
+        category: mergedCategory,
+        price: mergedPrice,
+        description: mergedDesc,
+        foodType: mergedFoodType,
+      };
+    }
+  );
+}
+
 export default function SuperAdminPortalPage() {
   const router = useRouter();
   const [activeSection, setActiveSection] = useState<'overview' | 'restaurants' | 'subscriptions' | 'costs' | 'canonical' | 'claims' | 'orders'>('overview');
@@ -146,6 +196,32 @@ export default function SuperAdminPortalPage() {
     'WARM_EDITORIAL' | 'MIDNIGHT_ESPRESSO' | 'BOTANICAL_CAFE' | 'PASTEL_PATISSERIE'
   >('WARM_EDITORIAL');
   const [demoDishes, setDemoDishes] = useState<DemoDishDraft[]>(() => buildDefaultDemoDishes('IN'));
+  const demoDishesRef = React.useRef<DemoDishDraft[]>(demoDishes);
+  demoDishesRef.current = demoDishes;
+  const duplicateDraftLocalIds = React.useMemo(() => {
+    const dups = new Set<string>();
+    const kept: Array<{
+      name: string;
+      category: string;
+      priceMinor: number;
+      dietaryBucket: 'VEG' | 'NON_VEG' | 'EGG' | 'UNSPECIFIED';
+    }> = [];
+    for (const d of demoDishes) {
+      if (!d.name.trim()) continue;
+      const comp = {
+        name: d.name,
+        category: d.category,
+        priceMinor: parseDemoDraftPriceMinor(d.price),
+        dietaryBucket: resolvePrimaryDietaryBucket([], d.foodType),
+      };
+      if (kept.some((k) => areDishesLikelyDuplicate(k, comp))) {
+        dups.add(d.localId);
+      } else {
+        kept.push(comp);
+      }
+    }
+    return dups;
+  }, [demoDishes]);
   const [demoLoading, setDemoLoading] = useState(false);
   const [demoExtracting, setDemoExtracting] = useState(false);
   const [demoError, setDemoError] = useState<string | null>(null);
@@ -153,10 +229,38 @@ export default function SuperAdminPortalPage() {
     claimUrl: string;
     publicMenuUrl: string;
     dishCount: number;
+    duplicatesSkippedCount?: number;
     canonicalMatchedCount: number;
     restaurantName: string;
   } | null>(null);
   const [copiedClaimUrl, setCopiedClaimUrl] = useState(false);
+
+  // Floating Toast Notifications (e.g. menu extraction completion)
+  const [extractionToast, setExtractionToast] = useState<{
+    id: number;
+    title: string;
+    subtitle?: string;
+  } | null>(null);
+  const extractionToastTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showExtractionToast = (title: string, subtitle?: string) => {
+    if (extractionToastTimerRef.current) {
+      clearTimeout(extractionToastTimerRef.current);
+    }
+    const id = Date.now();
+    setExtractionToast({ id, title, subtitle });
+    extractionToastTimerRef.current = setTimeout(() => {
+      setExtractionToast((current) => (current?.id === id ? null : current));
+    }, 5500);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (extractionToastTimerRef.current) {
+        clearTimeout(extractionToastTimerRef.current);
+      }
+    };
+  }, []);
 
   // Claim Link Generator Modal for existing unclaimed demos
   const [generatingInviteId, setGeneratingInviteId] = useState<string | null>(null);
@@ -281,6 +385,7 @@ export default function SuperAdminPortalPage() {
 
   const handleDemoCountryChange = (nextCountry: 'IN' | 'US') => {
     setDemoCountry(nextCountry);
+    setGeneratedDemoResult(null);
     if (!demoCity.trim() || demoCity === 'Mumbai' || demoCity === 'Austin') {
       setDemoCity(nextCountry === 'US' ? 'Austin' : 'Mumbai');
     }
@@ -288,6 +393,30 @@ export default function SuperAdminPortalPage() {
     if (isUsingBuiltInDefaults) {
       setDemoDishes(buildDefaultDemoDishes(nextCountry));
     }
+  };
+
+  const handleClearDemoDishes = () => {
+    setGeneratedDemoResult(null);
+    setDemoError(null);
+    setDemoDishes([
+      {
+        localId: `custom_${Date.now()}_0`,
+        name: '',
+        category: 'Chef Specials',
+        price: demoCountry === 'US' ? '14.00' : '260',
+        foodType: 'VEG',
+        description: '',
+      },
+    ]);
+  };
+
+  const handleResetDemoForm = () => {
+    setDemoName('');
+    setDemoDescription('');
+    setDemoDishes(buildDefaultDemoDishes(demoCountry));
+    setGeneratedDemoResult(null);
+    setDemoError(null);
+    setCopiedClaimUrl(false);
   };
 
   const handleExtractDemoDishes = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -318,14 +447,21 @@ export default function SuperAdminPortalPage() {
         setDemoName(data.restaurantName);
       }
 
-      if (Array.isArray(data.items) && data.items.length > 0) {
-        const mapped: DemoDishDraft[] = data.items.map((item: any, idx: number) => {
+      const rawItems = Array.isArray(data.items) ? data.items : [];
+      const existingNonDefault = demoDishesRef.current.filter(
+        (d) => !d.localId.startsWith('default_') && d.name.trim().length > 0
+      );
+
+      if (rawItems.length > 0) {
+        const mapped: DemoDishDraft[] = rawItems.map((item: any, idx: number) => {
           const labels = Array.isArray(item.dietaryLabels) ? item.dietaryLabels : [];
-          const foodType: 'VEG' | 'NON_VEG' | 'EGG' = labels.includes('NON_VEG')
-            ? 'NON_VEG'
-            : labels.includes('EGG')
-            ? 'EGG'
-            : 'VEG';
+          const primaryBucket = resolvePrimaryDietaryBucket(labels);
+          const foodType: 'VEG' | 'NON_VEG' | 'EGG' =
+            primaryBucket === 'NON_VEG'
+              ? 'NON_VEG'
+              : primaryBucket === 'EGG'
+              ? 'EGG'
+              : 'VEG';
 
           const priceNumber =
             typeof item.priceMinor === 'number' && item.priceMinor > 0
@@ -343,7 +479,26 @@ export default function SuperAdminPortalPage() {
             description: String(item.description || ''),
           };
         });
-        setDemoDishes(mapped);
+
+        const { uniqueItems: mergedDishes, duplicatesRemoved } = deduplicateDemoDishDrafts([
+          ...existingNonDefault,
+          ...mapped,
+        ]);
+
+        setDemoDishes(mergedDishes);
+        setGeneratedDemoResult(null);
+
+        showExtractionToast(
+          `${rawItems.length} ${rawItems.length === 1 ? 'item' : 'items'} extracted`,
+          duplicatesRemoved > 0
+            ? `${mergedDishes.length} unique dishes in list (${duplicatesRemoved} duplicate${duplicatesRemoved === 1 ? '' : 's'} skipped)`
+            : `${mergedDishes.length} dishes ready in demo menu`
+        );
+      } else {
+        showExtractionToast(
+          '0 items extracted',
+          'No legible dishes detected. Try a clearer crop or add dishes manually.'
+        );
       }
     } catch (err: any) {
       setDemoError(err.message || 'Menu extraction failed. You can still add dishes manually below.');
@@ -354,6 +509,7 @@ export default function SuperAdminPortalPage() {
   };
 
   const handleAddDemoDishRow = () => {
+    setGeneratedDemoResult(null);
     setDemoDishes((prev) => [
       ...prev,
       {
@@ -368,12 +524,14 @@ export default function SuperAdminPortalPage() {
   };
 
   const handleUpdateDemoDish = (localId: string, field: keyof DemoDishDraft, value: string) => {
+    setGeneratedDemoResult(null);
     setDemoDishes((prev) =>
       prev.map((d) => (d.localId === localId ? { ...d, [field]: value } : d))
     );
   };
 
   const handleRemoveDemoDish = (localId: string) => {
+    setGeneratedDemoResult(null);
     setDemoDishes((prev) => prev.filter((d) => d.localId !== localId));
   };
 
@@ -384,10 +542,14 @@ export default function SuperAdminPortalPage() {
       return;
     }
 
-    const validDishes = demoDishes.filter((d) => d.name.trim().length > 0);
+    const nonEmptyDishes = demoDishes.filter((d) => d.name.trim().length > 0);
+    const { uniqueItems: validDishes } = deduplicateDemoDishDrafts(nonEmptyDishes);
     if (validDishes.length === 0) {
       setDemoError('Please add at least one dish to the demo menu.');
       return;
+    }
+    if (validDishes.length !== demoDishes.length) {
+      setDemoDishes(validDishes);
     }
 
     setDemoLoading(true);
@@ -400,7 +562,7 @@ export default function SuperAdminPortalPage() {
         category: d.category.trim() || 'Chef Specials',
         description: d.description.trim() || undefined,
         foodType: d.foodType,
-        priceMinor: Math.max(0, Math.round((parseFloat(d.price) || 0) * 100)),
+        priceMinor: parseDemoDraftPriceMinor(d.price),
       }));
 
       const res = await fetch('/api/admin/restaurants', {
@@ -424,6 +586,7 @@ export default function SuperAdminPortalPage() {
           claimUrl: data.claimUrl,
           publicMenuUrl: data.publicMenuUrl,
           dishCount: data.dishCount ?? payloadDishes.length,
+          duplicatesSkippedCount: data.duplicatesSkippedCount ?? 0,
           canonicalMatchedCount: data.canonicalMatchedCount ?? 0,
           restaurantName: data.restaurant?.displayName || demoName.trim(),
         });
@@ -1814,7 +1977,10 @@ export default function SuperAdminPortalPage() {
                       type="text"
                       required
                       value={demoName}
-                      onChange={(e) => setDemoName(e.target.value)}
+                      onChange={(e) => {
+                        setDemoName(e.target.value);
+                        if (generatedDemoResult) setGeneratedDemoResult(null);
+                      }}
                       placeholder="e.g. Blue Bottle Specialty Bar"
                       style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
                       className="w-full px-3 py-2.5 rounded-xl bg-[#140E0A] border border-espresso-700 text-xs text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:border-terracotta dark-input"
@@ -1828,7 +1994,10 @@ export default function SuperAdminPortalPage() {
                     <select
                       id="demo-theme"
                       value={demoThemePreset}
-                      onChange={(e) => setDemoThemePreset(e.target.value as any)}
+                      onChange={(e) => {
+                        setDemoThemePreset(e.target.value as any);
+                        if (generatedDemoResult) setGeneratedDemoResult(null);
+                      }}
                       style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
                       className="w-full px-3 py-2.5 rounded-xl bg-[#140E0A] border border-espresso-700 text-xs text-cream-50 focus:outline-none focus:border-terracotta dark-input"
                     >
@@ -1865,7 +2034,10 @@ export default function SuperAdminPortalPage() {
                       id="demo-city"
                       type="text"
                       value={demoCity}
-                      onChange={(e) => setDemoCity(e.target.value)}
+                      onChange={(e) => {
+                        setDemoCity(e.target.value);
+                        if (generatedDemoResult) setGeneratedDemoResult(null);
+                      }}
                       placeholder="e.g. Mumbai / Austin"
                       style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
                       className="w-full px-3 py-2 rounded-xl bg-[#140E0A] border border-espresso-700 text-xs text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:border-terracotta dark-input"
@@ -1881,7 +2053,10 @@ export default function SuperAdminPortalPage() {
                     id="demo-description"
                     type="text"
                     value={demoDescription}
-                    onChange={(e) => setDemoDescription(e.target.value)}
+                    onChange={(e) => {
+                      setDemoDescription(e.target.value);
+                      if (generatedDemoResult) setGeneratedDemoResult(null);
+                    }}
                     placeholder="e.g. Small-batch sourdough bakes & single-origin coffee in Bandra."
                     style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
                     className="w-full px-3 py-2 rounded-xl bg-[#140E0A] border border-espresso-700 text-xs text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:border-terracotta dark-input"
@@ -1892,14 +2067,31 @@ export default function SuperAdminPortalPage() {
                 <div className="p-3.5 bg-[#110C09] rounded-2xl border border-espresso-800 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <div className="text-xs font-semibold text-cream-100">
-                        Starter Dishes ({demoDishes.length})
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-cream-100">
+                          Starter Dishes ({demoDishes.length})
+                        </span>
+                        {duplicateDraftLocalIds.size > 0 && (
+                          <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-[10px] font-semibold text-amber-300">
+                            {duplicateDraftLocalIds.size} duplicate{duplicateDraftLocalIds.size === 1 ? '' : 's'} will be merged on save
+                          </span>
+                        )}
                       </div>
                       <div className="text-[11px] text-taupe-400">
-                        Customize items below or upload a menu photo/PDF to auto-fill via Gemini Vision
+                        Customize items below or upload menu photos/PDFs in batches — duplicates are merged automatically
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {!demoDishes.every((d) => d.localId.startsWith('default_')) && (
+                        <button
+                          type="button"
+                          onClick={handleClearDemoDishes}
+                          disabled={demoExtracting || demoLoading}
+                          className="px-2.5 py-1.5 rounded-lg bg-espresso-900 hover:bg-espresso-800 border border-espresso-700 text-taupe-300 hover:text-cream-100 text-[11px] font-semibold disabled:opacity-50"
+                        >
+                          Clear List
+                        </button>
+                      )}
                       <label className="px-2.5 py-1.5 rounded-lg bg-espresso-800 hover:bg-espresso-700 border border-espresso-700 text-cream-100 text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1.5">
                         <Upload className="w-3 h-3 text-terracotta" />
                         <span>{demoExtracting ? 'Extracting...' : 'Scan Menu Photo/PDF'}</span>
@@ -1924,90 +2116,112 @@ export default function SuperAdminPortalPage() {
                   </div>
 
                   <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                    {demoDishes.map((dish, idx) => (
-                      <div
-                        key={dish.localId}
-                        className="p-2.5 rounded-xl bg-[#160F0B] border border-espresso-800/90 space-y-2"
-                      >
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <input
-                            type="text"
-                            aria-label={`Dish ${idx + 1} name`}
-                            placeholder="Dish name"
-                            value={dish.name}
-                            onChange={(e) => handleUpdateDemoDish(dish.localId, 'name', e.target.value)}
-                            style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
-                            className="col-span-4 px-2.5 py-1.5 rounded-lg bg-[#140E0A] border border-espresso-700 text-xs text-cream-50 dark-input"
-                          />
-                          <input
-                            type="text"
-                            aria-label={`Dish ${idx + 1} category`}
-                            placeholder="Category"
-                            value={dish.category}
-                            onChange={(e) => handleUpdateDemoDish(dish.localId, 'category', e.target.value)}
-                            style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
-                            className="col-span-3 px-2.5 py-1.5 rounded-lg bg-[#140E0A] border border-espresso-700 text-xs text-cream-50 dark-input"
-                          />
-                          <input
-                            type="number"
-                            step={demoCountry === 'US' ? '0.01' : '1'}
-                            min="0"
-                            aria-label={`Dish ${idx + 1} price`}
-                            placeholder={demoCountry === 'US' ? '14.00' : '250'}
-                            value={dish.price}
-                            onChange={(e) => handleUpdateDemoDish(dish.localId, 'price', e.target.value)}
-                            style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
-                            className="col-span-2 px-2 py-1.5 rounded-lg bg-[#140E0A] border border-espresso-700 text-xs text-cream-50 font-mono dark-input"
-                          />
-                          <select
-                            aria-label={`Dish ${idx + 1} dietary type`}
-                            value={dish.foodType}
-                            onChange={(e) => handleUpdateDemoDish(dish.localId, 'foodType', e.target.value)}
-                            style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
-                            className="col-span-2 px-1.5 py-1.5 rounded-lg bg-[#140E0A] border border-espresso-700 text-[11px] text-cream-50 dark-input"
-                          >
-                            <option value="VEG">Veg</option>
-                            <option value="NON_VEG">Non-Veg</option>
-                            <option value="EGG">Egg</option>
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveDemoDish(dish.localId)}
-                            title="Remove dish"
-                            className="col-span-1 flex items-center justify-center p-1.5 rounded-lg text-taupe-400 hover:text-red-400 hover:bg-espresso-800"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                    {demoDishes.map((dish, idx) => {
+                      const isDup = duplicateDraftLocalIds.has(dish.localId);
+                      return (
+                        <div
+                          key={dish.localId}
+                          className={`p-2.5 rounded-xl bg-[#160F0B] border space-y-2 ${
+                            isDup ? 'border-amber-600/60' : 'border-espresso-800/90'
+                          }`}
+                        >
+                          <div className="grid grid-cols-12 gap-2 items-center">
+                            <input
+                              type="text"
+                              aria-label={`Dish ${idx + 1} name`}
+                              placeholder="Dish name"
+                              value={dish.name}
+                              onChange={(e) => handleUpdateDemoDish(dish.localId, 'name', e.target.value)}
+                              style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
+                              className="col-span-4 px-2.5 py-1.5 rounded-lg bg-[#140E0A] border border-espresso-700 text-xs text-cream-50 dark-input"
+                            />
+                            <input
+                              type="text"
+                              aria-label={`Dish ${idx + 1} category`}
+                              placeholder="Category"
+                              value={dish.category}
+                              onChange={(e) => handleUpdateDemoDish(dish.localId, 'category', e.target.value)}
+                              style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
+                              className="col-span-3 px-2.5 py-1.5 rounded-lg bg-[#140E0A] border border-espresso-700 text-xs text-cream-50 dark-input"
+                            />
+                            <input
+                              type="number"
+                              step={demoCountry === 'US' ? '0.01' : '1'}
+                              min="0"
+                              aria-label={`Dish ${idx + 1} price`}
+                              placeholder={demoCountry === 'US' ? '14.00' : '250'}
+                              value={dish.price}
+                              onChange={(e) => handleUpdateDemoDish(dish.localId, 'price', e.target.value)}
+                              style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
+                              className="col-span-2 px-2 py-1.5 rounded-lg bg-[#140E0A] border border-espresso-700 text-xs text-cream-50 font-mono dark-input"
+                            />
+                            <select
+                              aria-label={`Dish ${idx + 1} dietary type`}
+                              value={dish.foodType}
+                              onChange={(e) => handleUpdateDemoDish(dish.localId, 'foodType', e.target.value)}
+                              style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
+                              className="col-span-2 px-1.5 py-1.5 rounded-lg bg-[#140E0A] border border-espresso-700 text-[11px] text-cream-50 dark-input"
+                            >
+                              <option value="VEG">Veg</option>
+                              <option value="NON_VEG">Non-Veg</option>
+                              <option value="EGG">Egg</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveDemoDish(dish.localId)}
+                              title="Remove dish"
+                              className="col-span-1 flex items-center justify-center p-1.5 rounded-lg text-taupe-400 hover:text-red-400 hover:bg-espresso-800"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              aria-label={`Dish ${idx + 1} description`}
+                              placeholder="Optional brief dish description..."
+                              value={dish.description}
+                              onChange={(e) => handleUpdateDemoDish(dish.localId, 'description', e.target.value)}
+                              style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
+                              className="flex-1 px-2.5 py-1 rounded-lg bg-[#140E0A] border border-espresso-800 text-[11px] text-taupe-200 dark-input"
+                            />
+                            {isDup && (
+                              <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-semibold shrink-0">
+                                Duplicate
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <input
-                          type="text"
-                          aria-label={`Dish ${idx + 1} description`}
-                          placeholder="Optional brief dish description..."
-                          value={dish.description}
-                          onChange={(e) => handleUpdateDemoDish(dish.localId, 'description', e.target.value)}
-                          style={{ colorScheme: 'dark', backgroundColor: '#140E0A', color: '#FAF7F2' }}
-                          className="w-full px-2.5 py-1 rounded-lg bg-[#140E0A] border border-espresso-800 text-[11px] text-taupe-200 dark-input"
-                        />
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
                 {generatedDemoResult && (
                   <div className="p-3.5 bg-emerald-950/90 border border-emerald-800 text-emerald-200 rounded-xl text-xs space-y-2.5">
-                    <div className="font-semibold text-emerald-300 flex items-center justify-between gap-2">
+                    <div className="font-semibold text-emerald-300 flex flex-wrap items-center justify-between gap-2">
                       <span className="flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        Demo Menu Live ({generatedDemoResult.dishCount} dishes • {generatedDemoResult.canonicalMatchedCount} canonical 3D matches)
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        Demo Menu Live ({generatedDemoResult.dishCount} unique dishes • {generatedDemoResult.canonicalMatchedCount} canonical 3D matches)
                       </span>
-                      <a
-                        href={generatedDemoResult.publicMenuUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[11px] text-emerald-300 hover:underline inline-flex items-center gap-1 shrink-0"
-                      >
-                        Inspect Menu <ExternalLink className="w-3 h-3" />
-                      </a>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <a
+                          href={generatedDemoResult.publicMenuUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] text-emerald-300 hover:underline inline-flex items-center gap-1"
+                        >
+                          Inspect Menu <ExternalLink className="w-3 h-3" />
+                        </a>
+                        <a
+                          href={generatedDemoResult.claimUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] text-amber-300 hover:underline inline-flex items-center gap-1"
+                        >
+                          Open Claim Page <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
                     </div>
                     <div className="p-2 rounded bg-black/50 border border-emerald-800/80 font-mono text-[11px] text-white break-all select-all flex items-center justify-between gap-2">
                       <span className="truncate">{generatedDemoResult.claimUrl}</span>
@@ -2017,6 +2231,18 @@ export default function SuperAdminPortalPage() {
                         className="px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white text-[10px] font-semibold shrink-0"
                       >
                         {copiedClaimUrl ? 'Copied!' : 'Copy Claim URL'}
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-emerald-300/90">
+                      <span>
+                        Unclaimed demo is ready to claim via this private link (or later from Restaurants &rarr; Get Claim Link).
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleResetDemoForm}
+                        className="text-cream-100 underline hover:text-white shrink-0 font-semibold"
+                      >
+                        New Demo
                       </button>
                     </div>
                   </div>
@@ -2036,10 +2262,14 @@ export default function SuperAdminPortalPage() {
                   </button>
                   <button
                     type="submit"
-                    disabled={demoLoading || demoExtracting}
+                    disabled={demoLoading || demoExtracting || Boolean(generatedDemoResult)}
                     className="px-4 py-2 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white font-semibold text-xs transition-all shadow-md disabled:opacity-50"
                   >
-                    {demoLoading ? 'Creating Demo...' : 'Create Demo Restaurant'}
+                    {demoLoading
+                      ? 'Creating Demo...'
+                      : generatedDemoResult
+                      ? 'Demo Created'
+                      : 'Create Demo Restaurant'}
                   </button>
                 </div>
               </form>
@@ -2205,6 +2435,41 @@ export default function SuperAdminPortalPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </Portal>
+      )}
+
+      {/* =========================================================================
+          FLOATING TOAST: MENU SCANNING COMPLETION
+      ========================================================================= */}
+      {extractionToast && (
+        <Portal>
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed top-5 right-5 z-[140] max-w-sm w-[calc(100vw-2.5rem)] sm:w-auto p-3.5 bg-[#1B120D]/95 backdrop-blur-md border border-emerald-700/80 text-cream-50 rounded-2xl shadow-2xl flex items-start gap-3 animate-fade-in"
+          >
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 mt-0.5">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1 pr-1">
+              <div className="text-xs sm:text-sm font-semibold text-emerald-300 leading-snug">
+                {extractionToast.title}
+              </div>
+              {extractionToast.subtitle && (
+                <div className="text-[11px] text-taupe-300 mt-0.5 leading-snug">
+                  {extractionToast.subtitle}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setExtractionToast(null)}
+              aria-label="Dismiss notification"
+              className="p-1 rounded-lg text-taupe-400 hover:text-white hover:bg-espresso-800 shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         </Portal>
       )}

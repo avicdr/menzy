@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { requireRestaurantAccess } from '@/lib/auth/owner-auth';
 import { extractMenuFromImages } from '@/lib/gemini/vision-extractor';
 import { matchCanonicalDishesBatch } from '@/lib/canonical/matcher';
 import { readAssetFromUrl } from '@/lib/storage/adapter';
 import { getCache } from '@/lib/cache/redis';
 import prisma from '@/lib/db/prisma';
+import {
+  areDishesLikelyDuplicate,
+  normalizeCategoryKey,
+  resolvePrimaryDietaryBucket,
+} from '@/lib/menu/deduplicate';
 
 export async function POST(req: Request) {
   try {
@@ -117,93 +123,177 @@ export async function POST(req: Request) {
       });
     }
 
-    // Process categories & items
-    const categoryMap = new Map<string, string>();
-    for (const catName of extracted.categories) {
-      let cat = await prisma.menuCategory.findFirst({
-        where: { menuId: menu.id, name: catName },
-      });
+    // Load existing dishes in the active menu to avoid creating duplicates on incremental scans
+    const existingMenuItems = await prisma.restaurantMenuItem.findMany({
+      where: { restaurantId, menuId: menu.id },
+      include: { category: { select: { name: true } } },
+    });
 
-      if (!cat) {
-        cat = await prisma.menuCategory.create({
-          data: {
-            menuId: menu.id,
-            name: catName,
-            sortOrder: categoryMap.size + 1,
-          },
-        });
+    const existingComparables = existingMenuItems.map((existing) => ({
+      name: existing.customName,
+      category: existing.category?.name || null,
+      priceMinor: existing.priceMinor,
+      dietaryBucket: resolvePrimaryDietaryBucket(
+        Array.isArray(existing.dietaryStatus) ? (existing.dietaryStatus as string[]) : []
+      ),
+    }));
+
+    const itemsToInsert = extracted.items.filter((item) => {
+      const candidateComparable = {
+        name: item.sourceName || item.normalizedName,
+        category: item.category,
+        priceMinor: item.priceMinor,
+        dietaryBucket: resolvePrimaryDietaryBucket(item.dietaryLabels),
+      };
+      return !existingComparables.some((ex) =>
+        areDishesLikelyDuplicate(ex, candidateComparable)
+      );
+    });
+
+    const duplicatesSkippedCount = extracted.items.length - itemsToInsert.length;
+
+    // Process categories case-insensitively
+    const existingCategories = await prisma.menuCategory.findMany({
+      where: { menuId: menu.id },
+      orderBy: { sortOrder: 'asc' },
+    });
+    const categoryMap = new Map<string, string>();
+    const categoryIdByNormKey = new Map<string, string>();
+    for (const c of existingCategories) {
+      categoryMap.set(c.name, c.id);
+      const norm = normalizeCategoryKey(c.name);
+      if (norm && !categoryIdByNormKey.has(norm)) {
+        categoryIdByNormKey.set(norm, c.id);
       }
-      categoryMap.set(catName, cat.id);
     }
 
-    // Single batched canonical matching across all extracted items (Steps 1-4 + batched Gemini closest-match)
-    const canonicalMatches = await matchCanonicalDishesBatch(
-      extracted.items.map((item) => ({
-        dishName: item.sourceName || item.normalizedName,
-        category: item.category,
-        description: item.description || undefined,
-        dietaryLabels: item.dietaryLabels,
-      })),
-      {
-        useGemini: true,
-        restaurantId,
-        organizationId: restaurant.organizationId,
+    const categoriesToCreate: Array<{ id: string; menuId: string; name: string; sortOrder: number }> = [];
+    const neededCategoryNames = new Set<string>([
+      ...extracted.categories,
+      ...itemsToInsert.map((it) => it.category),
+    ]);
+    let nextCatSortOrder = existingCategories.length + 1;
+    for (const rawCatName of neededCategoryNames) {
+      const catName = String(rawCatName || '').trim() || 'Chef Specials';
+      const norm = normalizeCategoryKey(catName) || 'chef specials';
+      if (!categoryIdByNormKey.has(norm)) {
+        const newCatId = crypto.randomUUID();
+        categoriesToCreate.push({
+          id: newCatId,
+          menuId: menu.id,
+          name: catName,
+          sortOrder: nextCatSortOrder++,
+        });
+        categoryMap.set(catName, newCatId);
+        categoryIdByNormKey.set(norm, newCatId);
       }
-    );
+    }
 
-    // Save dishes
-    const createdItems = [];
+    if (categoriesToCreate.length > 0) {
+      await prisma.menuCategory.createMany({ data: categoriesToCreate });
+    }
+
+    // Single batched canonical matching across new unique extracted items
+    const canonicalMatches =
+      itemsToInsert.length > 0
+        ? await matchCanonicalDishesBatch(
+            itemsToInsert.map((item) => ({
+              dishName: item.sourceName || item.normalizedName,
+              category: item.category,
+              description: item.description || undefined,
+              dietaryLabels: item.dietaryLabels,
+            })),
+            {
+              useGemini: true,
+              restaurantId,
+              organizationId: restaurant.organizationId,
+            }
+          )
+        : [];
+
+    // Save unique new dishes in fast batched inserts
+    const fallbackCategoryId =
+      Array.from(categoryIdByNormKey.values())[0] ||
+      Array.from(categoryMap.values())[0];
+
+    const itemsToCreateData: Array<any> = [];
+    const variantsToCreateData: Array<any> = [];
+    const createdItemIds: string[] = [];
     let canonicalMatchedCount = 0;
-    for (let itemIdx = 0; itemIdx < extracted.items.length; itemIdx++) {
-      const item = extracted.items[itemIdx];
+
+    for (let itemIdx = 0; itemIdx < itemsToInsert.length; itemIdx++) {
+      const item = itemsToInsert[itemIdx];
       const canonicalMatch = canonicalMatches[itemIdx];
-      const categoryId = categoryMap.get(item.category) || Array.from(categoryMap.values())[0];
+      const normCat = normalizeCategoryKey(item.category);
+      const categoryId =
+        (normCat && categoryIdByNormKey.get(normCat)) ||
+        categoryMap.get(item.category) ||
+        fallbackCategoryId;
 
       if (canonicalMatch?.canonicalId) {
         canonicalMatchedCount++;
       }
 
-      const menuItem = await prisma.restaurantMenuItem.create({
-        data: {
-          restaurantId,
-          menuId: menu.id,
-          categoryId,
-          canonicalId: canonicalMatch?.canonicalId ?? null,
-          customName: item.sourceName,
-          restaurantDescription: item.description,
-          priceMinor: item.priceMinor,
-          currency: item.currency,
-          ingredients: item.explicitIngredients,
-          dietaryStatus: item.dietaryLabels,
-          allergenVerification: {
-            statements: item.allergenStatements,
-            verified: false,
-          },
-          preparationDetails: item.visualDescription,
-          isAvailable: true,
-          isPublished: true,
-          isPopular: Boolean(item.isPopular),
-          chefRecommended: Boolean(item.chefRecommended),
+      const menuItemId = crypto.randomUUID();
+      createdItemIds.push(menuItemId);
+
+      itemsToCreateData.push({
+        id: menuItemId,
+        restaurantId,
+        menuId: menu.id,
+        categoryId,
+        canonicalId: canonicalMatch?.canonicalId ?? null,
+        customName: item.sourceName,
+        restaurantDescription: item.description,
+        priceMinor: item.priceMinor,
+        currency: item.currency,
+        ingredients: item.explicitIngredients,
+        dietaryStatus: item.dietaryLabels,
+        allergenVerification: {
+          statements: item.allergenStatements,
+          verified: false,
         },
+        preparationDetails: item.visualDescription,
+        isAvailable: true,
+        isPublished: true,
+        isPopular: Boolean(item.isPopular),
+        chefRecommended: Boolean(item.chefRecommended),
+        sortOrder: existingMenuItems.length + itemIdx + 1,
       });
 
-      // If variants exist, create them
       if (item.variants && item.variants.length > 0) {
-        for (let idx = 0; idx < item.variants.length; idx++) {
-          const v = item.variants[idx];
-          await prisma.dishVariant.create({
-            data: {
-              menuItemId: menuItem.id,
-              name: v.name,
-              supplementalPriceMinor: v.priceMinor || 0,
-              sortOrder: idx + 1,
-            },
+        for (let vIdx = 0; vIdx < item.variants.length; vIdx++) {
+          const v = item.variants[vIdx];
+          variantsToCreateData.push({
+            menuItemId,
+            name: v.name,
+            supplementalPriceMinor: v.priceMinor || 0,
+            sortOrder: vIdx + 1,
           });
         }
       }
-
-      createdItems.push(menuItem);
     }
+
+    if (itemsToCreateData.length > 0) {
+      const BATCH_SIZE = 250;
+      for (let start = 0; start < itemsToCreateData.length; start += BATCH_SIZE) {
+        await prisma.restaurantMenuItem.createMany({
+          data: itemsToCreateData.slice(start, start + BATCH_SIZE),
+        });
+      }
+    }
+
+    if (variantsToCreateData.length > 0) {
+      await prisma.dishVariant.createMany({ data: variantsToCreateData });
+    }
+
+    const createdItems =
+      createdItemIds.length > 0
+        ? await prisma.restaurantMenuItem.findMany({
+            where: { id: { in: createdItemIds } },
+            orderBy: { sortOrder: 'asc' },
+          })
+        : [];
 
     // Invalidate live diner menu cache immediately
     const cache = getCache();
@@ -228,8 +318,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      extractedCategories: extracted.categories.length,
+      extractedCategories: neededCategoryNames.size,
+      totalExtractedCount: extracted.items.length,
       extractedItemsCount: createdItems.length,
+      duplicatesSkippedCount,
       canonicalMatchedCount,
       unmatchedCount: createdItems.length - canonicalMatchedCount,
       items: createdItems,

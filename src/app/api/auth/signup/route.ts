@@ -221,7 +221,7 @@ export async function POST(req: Request) {
       });
 
       return { user, restaurant, claimed: false };
-    });
+    }, { maxWait: 10_000, timeout: 20_000 });
 
     if (result.claimed) {
       const cache = getCache();

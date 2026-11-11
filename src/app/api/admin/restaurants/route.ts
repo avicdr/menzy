@@ -6,6 +6,13 @@ import { ThemePreset, LayoutMode, PublicationState, ClaimStatus } from '@prisma/
 import { matchCanonicalDishesBatch } from '@/lib/canonical/matcher';
 import { THEME_PRESETS, normalizeThemeFont } from '@/lib/theme/theme-presets';
 import { generateRawClaimToken, hashClaimToken, getRequestOrigin } from '@/lib/claims/claim-service';
+import {
+  deduplicateDishCollection,
+  isGenericCategory,
+  mergeDietaryLabelsSafely,
+  normalizeCategoryKey,
+  resolvePrimaryDietaryBucket,
+} from '@/lib/menu/deduplicate';
 
 export const dynamic = 'force-dynamic';
 
@@ -186,10 +193,49 @@ export async function POST(req: Request) {
       });
     }
 
+    // Deduplicate dishes server-side before canonical matching and DB writes
+    const { uniqueItems: uniqueDrafts, duplicatesRemoved: duplicatesSkippedCount } =
+      deduplicateDishCollection(
+        preparedDrafts,
+        (d) => ({
+          name: d.name,
+          category: d.category,
+          priceMinor: d.priceMinor,
+          dietaryBucket: resolvePrimaryDietaryBucket(d.dietaryStatus),
+        }),
+        (existing, dup) => {
+          const mergedCategory =
+            isGenericCategory(existing.category) && !isGenericCategory(dup.category)
+              ? dup.category
+              : existing.category;
+          const mergedPrice =
+            existing.priceMinor > 0 ? existing.priceMinor : dup.priceMinor;
+          const existingDesc = existing.description?.trim() || '';
+          const dupDesc = dup.description?.trim() || '';
+          const mergedDesc =
+            dupDesc.length > existingDesc.length
+              ? dupDesc
+              : existingDesc || null;
+
+          return {
+            ...existing,
+            category: mergedCategory,
+            description: mergedDesc,
+            priceMinor: mergedPrice,
+            dietaryStatus: mergeDietaryLabelsSafely(
+              existing.dietaryStatus,
+              dup.dietaryStatus
+            ),
+            isPopular: existing.isPopular || dup.isPopular,
+            chefRecommended: existing.chefRecommended || dup.chefRecommended,
+          };
+        }
+      );
+
     let matchResults: Array<{ canonicalId: string | null }> = [];
     try {
       matchResults = await matchCanonicalDishesBatch(
-        preparedDrafts.map((d) => ({
+        uniqueDrafts.map((d) => ({
           dishName: d.name,
           category: d.category,
           description: d.description || undefined,
@@ -201,7 +247,7 @@ export async function POST(req: Request) {
       matchResults = [];
     }
 
-    const preparedDishes = preparedDrafts.map((d, idx) => ({
+    const preparedDishes = uniqueDrafts.map((d, idx) => ({
       ...d,
       canonicalId: matchResults[idx]?.canonicalId ?? null,
     }));
@@ -210,151 +256,171 @@ export async function POST(req: Request) {
     const claimTokenHash = hashClaimToken(rawClaimToken);
     const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000); // 60 days
 
-    const restaurant = await prisma.$transaction(async (tx) => {
-      const createdRestaurant = await tx.restaurant.create({
-        data: {
-          slug,
-          displayName: trimmedName,
-          country: selectedCountry,
-          city:
-            (typeof city === 'string' ? city.trim() : '') ||
-            (selectedCountry === 'IN' ? 'Mumbai' : 'Austin'),
-          currency: selectedCurrency,
-          timezone: selectedCountry === 'IN' ? 'Asia/Kolkata' : 'America/New_York',
-          description:
-            (typeof description === 'string' ? description.trim() : '') ||
-            'Artisanal demo menu curated by the Menzy team.',
-          publicationState: PublicationState.PUBLISHED,
-          isClaimed: false,
-        },
-      });
+    const restaurant = await prisma.$transaction(
+      async (tx) => {
+        const createdRestaurant = await tx.restaurant.create({
+          data: {
+            slug,
+            displayName: trimmedName,
+            country: selectedCountry,
+            city:
+              (typeof city === 'string' ? city.trim() : '') ||
+              (selectedCountry === 'IN' ? 'Mumbai' : 'Austin'),
+            currency: selectedCurrency,
+            timezone: selectedCountry === 'IN' ? 'Asia/Kolkata' : 'America/New_York',
+            description:
+              (typeof description === 'string' ? description.trim() : '') ||
+              'Artisanal demo menu curated by the Menzy team.',
+            publicationState: PublicationState.PUBLISHED,
+            isClaimed: false,
+          },
+        });
 
-      await tx.restaurantTheme.create({
-        data: {
-          restaurantId: createdRestaurant.id,
-          presetKey: ThemePreset[resolvedPresetKey],
-          backgroundColor: presetConfig.backgroundColor,
-          surfaceColor: presetConfig.surfaceColor,
-          primaryTextColor: presetConfig.primaryTextColor,
-          secondaryTextColor: presetConfig.secondaryTextColor,
-          accentColor: presetConfig.accentColor,
-          secondaryAccentColor: presetConfig.secondaryAccentColor,
-          headingFont: normalizeThemeFont(presetConfig.headingFont, 'Lora'),
-          bodyFont: normalizeThemeFont(presetConfig.bodyFont, 'DM Sans'),
-          layoutMode:
-            presetConfig.layoutMode === 'LIST' ? LayoutMode.LIST : LayoutMode.GRID,
-          cardRadius: presetConfig.cardRadius,
-          buttonStyle: presetConfig.buttonStyle,
-          imageProportions: presetConfig.imageProportions,
-          texture: presetConfig.texture,
-          isPublished: true,
-        },
-      });
-
-      await tx.restaurantSettings.create({
-        data: {
-          restaurantId: createdRestaurant.id,
-          welcomeMessage: `Welcome to ${trimmedName}! Explore our interactive menu or ask our digital waiter anything.`,
-          aiTone: 'Warm Editorial & Helpful',
-        },
-      });
-
-      await tx.restaurantOrderingSettings.create({
-        data: {
-          restaurantId: createdRestaurant.id,
-          orderingEnabled: true,
-          acceptsNewOrders: true,
-          allowSpecialInstructions: true,
-          paymentMode: 'PAY_AT_COUNTER',
-          taxPercentage: 5.0,
-          serviceChargePercentage: 0.0,
-          maxActiveOrders: 50,
-        },
-      });
-
-      for (let i = 1; i <= parsedTables; i++) {
-        const rawTableToken = `tbl_${crypto.randomBytes(16).toString('hex')}`;
-        const qrTokenHash = crypto.createHash('sha256').update(rawTableToken).digest('hex');
-        const label = `Table ${String(i).padStart(2, '0')}`;
-        await tx.restaurantTable.create({
+        await tx.restaurantTheme.create({
           data: {
             restaurantId: createdRestaurant.id,
-            name: label,
+            presetKey: ThemePreset[resolvedPresetKey],
+            backgroundColor: presetConfig.backgroundColor,
+            surfaceColor: presetConfig.surfaceColor,
+            primaryTextColor: presetConfig.primaryTextColor,
+            secondaryTextColor: presetConfig.secondaryTextColor,
+            accentColor: presetConfig.accentColor,
+            secondaryAccentColor: presetConfig.secondaryAccentColor,
+            headingFont: normalizeThemeFont(presetConfig.headingFont, 'Lora'),
+            bodyFont: normalizeThemeFont(presetConfig.bodyFont, 'DM Sans'),
+            layoutMode:
+              presetConfig.layoutMode === 'LIST' ? LayoutMode.LIST : LayoutMode.GRID,
+            cardRadius: presetConfig.cardRadius,
+            buttonStyle: presetConfig.buttonStyle,
+            imageProportions: presetConfig.imageProportions,
+            texture: presetConfig.texture,
+            isPublished: true,
+          },
+        });
+
+        await tx.restaurantSettings.create({
+          data: {
+            restaurantId: createdRestaurant.id,
+            welcomeMessage: `Welcome to ${trimmedName}! Explore our interactive menu or ask our digital waiter anything.`,
+            aiTone: 'Warm Editorial & Helpful',
+          },
+        });
+
+        await tx.restaurantOrderingSettings.create({
+          data: {
+            restaurantId: createdRestaurant.id,
+            orderingEnabled: true,
+            acceptsNewOrders: true,
+            allowSpecialInstructions: true,
+            paymentMode: 'PAY_AT_COUNTER',
+            taxPercentage: 5.0,
+            serviceChargePercentage: 0.0,
+            maxActiveOrders: 50,
+          },
+        });
+
+        const tablesData = Array.from({ length: parsedTables }, (_, idx) => {
+          const i = idx + 1;
+          const rawTableToken = `tbl_${crypto.randomBytes(16).toString('hex')}`;
+          const qrTokenHash = crypto.createHash('sha256').update(rawTableToken).digest('hex');
+          return {
+            restaurantId: createdRestaurant.id,
+            name: `Table ${String(i).padStart(2, '0')}`,
             section: 'Main Dining',
             capacity: 4,
             qrTokenHash,
             qrVersion: 1,
             isActive: true,
-          },
+          };
         });
-      }
+        await tx.restaurantTable.createMany({ data: tablesData });
 
-      const menu = await tx.menu.create({
-        data: {
-          restaurantId: createdRestaurant.id,
-          title: 'Featured Menu',
-          active: true,
-        },
-      });
-
-      const categoryNames = Array.from(
-        new Set(
-          preparedDishes.length > 0
-            ? preparedDishes.map((d) => d.category)
-            : ['Chef Specials']
-        )
-      );
-
-      const categoryMap = new Map<string, string>();
-      for (let idx = 0; idx < categoryNames.length; idx++) {
-        const catName = categoryNames[idx];
-        const createdCategory = await tx.menuCategory.create({
-          data: {
-            menuId: menu.id,
-            name: catName,
-            sortOrder: idx + 1,
-          },
-        });
-        categoryMap.set(catName, createdCategory.id);
-      }
-
-      for (let idx = 0; idx < preparedDishes.length; idx++) {
-        const dish = preparedDishes[idx];
-        const categoryId =
-          categoryMap.get(dish.category) || Array.from(categoryMap.values())[0];
-
-        await tx.restaurantMenuItem.create({
+        const menu = await tx.menu.create({
           data: {
             restaurantId: createdRestaurant.id,
-            menuId: menu.id,
-            categoryId,
-            canonicalId: dish.canonicalId,
-            customName: dish.name,
-            restaurantDescription: dish.description,
-            priceMinor: dish.priceMinor,
-            currency: selectedCurrency,
-            dietaryStatus: dish.dietaryStatus,
-            isAvailable: true,
-            isPublished: true,
-            isPopular: dish.isPopular,
-            chefRecommended: dish.chefRecommended,
-            sortOrder: idx + 1,
+            title: 'Featured Menu',
+            active: true,
           },
         });
-      }
 
-      await tx.claimRequest.create({
-        data: {
-          restaurantId: createdRestaurant.id,
-          claimTokenHash,
-          status: ClaimStatus.UNCLAIMED,
-          expiresAt,
-          verificationNotes: 'Founder created demo menu.',
-        },
-      });
+        // Deduplicate categories case-insensitively and insert via single batch
+        const categoryDisplayByKey = new Map<string, string>();
+        for (const dish of preparedDishes) {
+          const key = normalizeCategoryKey(dish.category) || 'chef specials';
+          if (!categoryDisplayByKey.has(key)) {
+            categoryDisplayByKey.set(key, dish.category);
+          }
+        }
+        if (categoryDisplayByKey.size === 0) {
+          categoryDisplayByKey.set('chef specials', 'Chef Specials');
+        }
 
-      return createdRestaurant;
-    });
+        const categoryEntries = Array.from(categoryDisplayByKey.entries());
+        const categoryRowsToCreate = categoryEntries.map(([key, catName], idx) => ({
+          id: crypto.randomUUID(),
+          menuId: menu.id,
+          name: catName,
+          sortOrder: idx + 1,
+          _key: key,
+        }));
+
+        await tx.menuCategory.createMany({
+          data: categoryRowsToCreate.map(({ id, menuId, name, sortOrder }) => ({
+            id,
+            menuId,
+            name,
+            sortOrder,
+          })),
+        });
+
+        const categoryIdByKey = new Map<string, string>(
+          categoryRowsToCreate.map((row) => [row._key, row.id])
+        );
+        const fallbackCategoryId = categoryRowsToCreate[0].id;
+
+        if (preparedDishes.length > 0) {
+          const menuItemsData = preparedDishes.map((dish, idx) => {
+            const catKey = normalizeCategoryKey(dish.category) || 'chef specials';
+            return {
+              restaurantId: createdRestaurant.id,
+              menuId: menu.id,
+              categoryId: categoryIdByKey.get(catKey) || fallbackCategoryId,
+              canonicalId: dish.canonicalId,
+              customName: dish.name,
+              restaurantDescription: dish.description,
+              priceMinor: dish.priceMinor,
+              currency: selectedCurrency,
+              dietaryStatus: dish.dietaryStatus,
+              isAvailable: true,
+              isPublished: true,
+              isPopular: dish.isPopular,
+              chefRecommended: dish.chefRecommended,
+              sortOrder: idx + 1,
+            };
+          });
+
+          const BATCH_SIZE = 250;
+          for (let start = 0; start < menuItemsData.length; start += BATCH_SIZE) {
+            await tx.restaurantMenuItem.createMany({
+              data: menuItemsData.slice(start, start + BATCH_SIZE),
+            });
+          }
+        }
+
+        await tx.claimRequest.create({
+          data: {
+            restaurantId: createdRestaurant.id,
+            claimTokenHash,
+            status: ClaimStatus.UNCLAIMED,
+            expiresAt,
+            verificationNotes: 'Founder created demo menu.',
+          },
+        });
+
+        return createdRestaurant;
+      },
+      { maxWait: 10_000, timeout: 30_000 }
+    );
 
     const canonicalMatchedCount = preparedDishes.filter((d) => Boolean(d.canonicalId)).length;
 
@@ -368,6 +434,7 @@ export async function POST(req: Request) {
         slug: restaurant.slug,
         name: restaurant.displayName,
         dishCount: preparedDishes.length,
+        duplicatesSkippedCount,
         canonicalMatchedCount,
         themePreset: resolvedPresetKey,
       },
@@ -383,6 +450,7 @@ export async function POST(req: Request) {
       claimUrl: `${origin}/claim/${rawClaimToken}`,
       publicMenuUrl: `${origin}/m/${restaurant.slug}`,
       dishCount: preparedDishes.length,
+      duplicatesSkippedCount,
       canonicalMatchedCount,
       expiresAt: expiresAt.toISOString(),
     });

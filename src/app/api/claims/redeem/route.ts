@@ -26,13 +26,15 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await prisma.$transaction((tx) =>
-      redeemClaimWithinTransaction(tx, {
-        rawClaimToken: rawClaimToken.trim(),
-        userId: session.userId,
-        email: session.email,
-        verificationNotes: typeof verificationNotes === 'string' ? verificationNotes : undefined,
-      })
+    const result = await prisma.$transaction(
+      (tx) =>
+        redeemClaimWithinTransaction(tx, {
+          rawClaimToken: rawClaimToken.trim(),
+          userId: session.userId,
+          email: session.email,
+          verificationNotes: typeof verificationNotes === 'string' ? verificationNotes : undefined,
+        }),
+      { maxWait: 10_000, timeout: 20_000 }
     );
 
     const cache = getCache();

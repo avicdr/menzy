@@ -89,31 +89,34 @@ export async function POST(req: Request) {
       const claimTokenHash = hashClaimToken(rawClaimToken);
       const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000); // 60 days
 
-      const claim = await prisma.$transaction(async (tx) => {
-        // Supersede any existing unclaimed/open tokens so only the latest link remains active
-        await tx.claimRequest.updateMany({
-          where: {
-            restaurantId,
-            status: {
-              in: [ClaimStatus.UNCLAIMED, ClaimStatus.RESERVED, ClaimStatus.PENDING_VERIFICATION],
+      const claim = await prisma.$transaction(
+        async (tx) => {
+          // Supersede any existing unclaimed/open tokens so only the latest link remains active
+          await tx.claimRequest.updateMany({
+            where: {
+              restaurantId,
+              status: {
+                in: [ClaimStatus.UNCLAIMED, ClaimStatus.RESERVED, ClaimStatus.PENDING_VERIFICATION],
+              },
             },
-          },
-          data: {
-            status: ClaimStatus.REJECTED,
-            verificationNotes: 'Superseded by newly generated founder invitation link.',
-          },
-        });
+            data: {
+              status: ClaimStatus.REJECTED,
+              verificationNotes: 'Superseded by newly generated founder invitation link.',
+            },
+          });
 
-        return tx.claimRequest.create({
-          data: {
-            restaurantId,
-            claimTokenHash,
-            status: ClaimStatus.UNCLAIMED,
-            expiresAt,
-            verificationNotes: verificationNotes || 'Founder generated private invitation link.',
-          },
-        });
-      });
+          return tx.claimRequest.create({
+            data: {
+              restaurantId,
+              claimTokenHash,
+              status: ClaimStatus.UNCLAIMED,
+              expiresAt,
+              verificationNotes: verificationNotes || 'Founder generated private invitation link.',
+            },
+          });
+        },
+        { maxWait: 10_000, timeout: 20_000 }
+      );
 
       await logAdminAction({
         adminEmail: session.email,
@@ -286,7 +289,7 @@ export async function POST(req: Request) {
         });
 
         return { claim, slug: claim.restaurant.slug };
-      });
+      }, { maxWait: 10_000, timeout: 20_000 });
 
       const cache = getCache();
       await cache.del(`menu:slug:${result.slug}`);

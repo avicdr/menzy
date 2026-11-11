@@ -6,6 +6,7 @@ import {
   ClaimRedeemError,
   generateRawClaimToken,
   getClaimPreviewByToken,
+  getRequestOrigin,
   hashClaimToken,
   redeemClaimWithinTransaction,
 } from '../src/lib/claims/claim-service';
@@ -335,6 +336,101 @@ describe('Demo Claim Preview & Atomic Redemption Service', () => {
         })
       )
     ).rejects.toMatchObject({ status: 410 });
+  });
+
+  it('normalizes request origin for forwarded headers and scheme-less NEXT_PUBLIC_APP_URL', () => {
+    const prevAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+    try {
+      process.env.NEXT_PUBLIC_APP_URL = 'menzy.arenova.in';
+
+      const forwardedReq = new Request('http://0.0.0.0:3000/api/admin/restaurants', {
+        headers: {
+          'x-forwarded-host': 'menzy.arenova.in, internal-proxy',
+          'x-forwarded-proto': 'https, http',
+        },
+      });
+      expect(getRequestOrigin(forwardedReq)).toBe('https://menzy.arenova.in');
+
+      const fallbackReq = new Request('http://0.0.0.0:3000/api/admin/restaurants');
+      expect(getRequestOrigin(fallbackReq)).toBe('https://menzy.arenova.in');
+
+      const localhostReq = new Request('http://localhost:3000/api/admin/restaurants', {
+        headers: { host: 'localhost:3000' },
+      });
+      expect(getRequestOrigin(localhostReq)).toBe('http://localhost:3000');
+    } finally {
+      if (prevAppUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_APP_URL;
+      } else {
+        process.env.NEXT_PUBLIC_APP_URL = prevAppUrl;
+      }
+    }
+  });
+
+  it('creates large 65-dish demo menus via batched createMany without transaction expiration and leaves them claimable', async () => {
+    const suffix = crypto.randomBytes(4).toString('hex');
+    const rawToken = generateRawClaimToken();
+    const restaurant = await prisma.$transaction(
+      async (tx) => {
+        const created = await tx.restaurant.create({
+          data: {
+            slug: `test-batch-demo-${suffix}`,
+            displayName: `Batch Demo ${suffix}`,
+            country: 'IN',
+            city: 'Lucknow',
+            currency: 'INR',
+            publicationState: PublicationState.PUBLISHED,
+            isClaimed: false,
+          },
+        });
+        createdRestaurantIds.push(created.id);
+
+        const menu = await tx.menu.create({
+          data: {
+            restaurantId: created.id,
+            title: 'Featured Menu',
+            active: true,
+          },
+        });
+
+        const categoryId = crypto.randomUUID();
+        await tx.menuCategory.createMany({
+          data: [{ id: categoryId, menuId: menu.id, name: 'Chinese', sortOrder: 1 }],
+        });
+
+        await tx.restaurantMenuItem.createMany({
+          data: Array.from({ length: 65 }, (_, idx) => ({
+            restaurantId: created.id,
+            menuId: menu.id,
+            categoryId,
+            customName: `Signature Dish ${idx + 1}`,
+            priceMinor: 29500,
+            currency: 'INR',
+            isPublished: true,
+            isAvailable: true,
+            sortOrder: idx + 1,
+          })),
+        });
+
+        await tx.claimRequest.create({
+          data: {
+            restaurantId: created.id,
+            claimTokenHash: hashClaimToken(rawToken),
+            status: ClaimStatus.UNCLAIMED,
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          },
+        });
+
+        return created;
+      },
+      { maxWait: 10_000, timeout: 30_000 }
+    );
+
+    const preview = await getClaimPreviewByToken(rawToken);
+    expect(preview.valid).toBe(true);
+    expect(preview.state).toBe('UNCLAIMED');
+    expect(preview.restaurant?.dishCount).toBe(65);
+    expect(restaurant.isClaimed).toBe(false);
   });
 });
 
