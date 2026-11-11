@@ -49,7 +49,10 @@ export async function GET(req: Request) {
   // Generating or fetching a table-specific QR requires verified restaurant owner access
   // so diners at one table cannot obtain or mint QR tokens for other tables.
   if (tableId || tableToken) {
-    const auth = await verifyRestaurantOwnerAccess(restaurant.id);
+    const auth = await verifyRestaurantOwnerAccess(restaurant.id, {
+      includeOrderingSettings: false,
+      includeTheme: false,
+    });
     if (!auth.authorized) {
       return createTenantAccessDeniedResponse(auth);
     }

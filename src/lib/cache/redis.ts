@@ -79,7 +79,27 @@ const globalCacheState = globalThis as typeof globalThis & {
   __menzyRedisConnectPromise?: Promise<boolean> | null;
   __menzyRedisDisabledUntil?: number;
   __menzyInMemoryCache?: InMemoryCache;
+  __menzySingleflight?: Map<string, Promise<unknown>>;
 };
+
+export function withSingleflight<T>(key: string, loader: () => Promise<T>): Promise<T> {
+  if (!globalCacheState.__menzySingleflight) {
+    globalCacheState.__menzySingleflight = new Map();
+  }
+  const map = globalCacheState.__menzySingleflight;
+  const existing = map.get(key) as Promise<T> | undefined;
+  if (existing) {
+    return existing;
+  }
+
+  const promise = loader().finally(() => {
+    if (map.get(key) === promise) {
+      map.delete(key);
+    }
+  });
+  map.set(key, promise);
+  return promise;
+}
 
 async function getConnectedRedis(): Promise<Redis | null> {
   const redisUrl = process.env.REDIS_URL?.trim();
@@ -101,8 +121,8 @@ async function getConnectedRedis(): Promise<Redis | null> {
         lazyConnect: true,
         maxRetriesPerRequest: 1,
         enableOfflineQueue: false,
-        connectTimeout: 800,
-        commandTimeout: 800,
+        connectTimeout: 300,
+        commandTimeout: 300,
         retryStrategy: () => null, // never hang if redis isn't reachable
       });
 
@@ -149,7 +169,7 @@ async function getConnectedRedis(): Promise<Redis | null> {
 
     await Promise.race([
       globalCacheState.__menzyRedisConnectPromise,
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 850)),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 320)),
     ]);
   }
 

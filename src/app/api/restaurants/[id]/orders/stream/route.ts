@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const auth = await verifyStaffOrOwnerAccess(id, 'VIEW_ORDERS');
+  const auth = await verifyStaffOrOwnerAccess(id, 'VIEW_ORDERS', { includeDetails: false });
   if (!auth.authorized) {
     return createTenantAccessDeniedResponse(auth);
   }
@@ -18,19 +18,36 @@ export async function GET(
   let lastCheckedAt = sinceParam ? new Date(sinceParam) : new Date(Date.now() - 60000); // 1 minute lookback by default
 
   const encoder = new TextEncoder();
-  let intervalId: any = null;
+  let intervalId: ReturnType<typeof setInterval> | null = null;
+  let closed = false;
+  let pollInFlight = false;
+
+  const cleanup = () => {
+    closed = true;
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+  };
+
+  req.signal?.addEventListener('abort', cleanup, { once: true });
 
   const stream = new ReadableStream({
     async start(controller) {
-      // 1. Initial connection greeting
-      controller.enqueue(
-        encoder.encode(
-          `data: ${JSON.stringify({ type: 'CONNECTED', restaurantId: auth.restaurant.id, time: new Date().toISOString() })}\n\n`
-        )
-      );
+      try {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ type: 'CONNECTED', restaurantId: auth.restaurant.id, time: new Date().toISOString() })}\n\n`
+          )
+        );
+      } catch {
+        cleanup();
+        return;
+      }
 
-      // 2. Poll for new OrderEvents every 2 seconds
       intervalId = setInterval(async () => {
+        if (closed || pollInFlight) return;
+        pollInFlight = true;
         try {
           const events = await prisma.orderEvent.findMany({
             where: {
@@ -39,7 +56,17 @@ export async function GET(
             },
             orderBy: { createdAt: 'asc' },
             take: 20,
+            select: {
+              id: true,
+              restaurantId: true,
+              orderId: true,
+              eventType: true,
+              payload: true,
+              createdAt: true,
+            },
           });
+
+          if (closed) return;
 
           if (events.length > 0) {
             lastCheckedAt = events[events.length - 1].createdAt;
@@ -51,16 +78,19 @@ export async function GET(
               );
             }
           } else {
-            // Heartbeat
             controller.enqueue(encoder.encode(`: ping\n\n`));
           }
         } catch (err) {
-          console.error('SSE poll error:', err);
+          if (!closed) {
+            console.error('SSE poll error:', err);
+          }
+        } finally {
+          pollInFlight = false;
         }
       }, 2000);
     },
     cancel() {
-      if (intervalId) clearInterval(intervalId);
+      cleanup();
     },
   });
 

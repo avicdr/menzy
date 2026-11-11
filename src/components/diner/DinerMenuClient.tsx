@@ -75,6 +75,31 @@ export interface DinerMenuClientProps {
   initialTableIdParam?: string | null;
 }
 
+const TableRemainingBadge = React.memo(function TableRemainingBadge({
+  expiresAt,
+}: {
+  expiresAt?: string;
+}) {
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    if (!expiresAt) return;
+    setNowMs(Date.now());
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== 'hidden') {
+        setNowMs(Date.now());
+      }
+    }, 15_000);
+    return () => window.clearInterval(id);
+  }, [expiresAt]);
+
+  if (!expiresAt) return null;
+  const expiresMs = Date.parse(expiresAt);
+  if (Number.isNaN(expiresMs) || expiresMs <= nowMs) return null;
+  const mins = Math.max(1, Math.ceil((expiresMs - nowMs) / 60_000));
+  return <> • {mins}m left</>;
+});
+
 export function DinerMenuClient({
   initialSlug,
   initialMenuData = null,
@@ -103,8 +128,6 @@ export function DinerMenuClient({
     isCartOpen,
     setIsCartOpen,
   } = useCart();
-
-  const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
   const [data, setData] = useState<any>(initialMenuData);
   const [loading, setLoading] = useState<boolean>(
@@ -383,7 +406,6 @@ export function DinerMenuClient({
 
     const checkTimeout = () => {
       const currentNow = Date.now();
-      setNowMs(currentNow);
       const expiresMs = Date.parse(tableInfo.expiresAt!);
       if (!Number.isNaN(expiresMs) && currentNow > expiresMs) {
         expireTableSession(tableInfo.tableName, {
@@ -453,7 +475,12 @@ export function DinerMenuClient({
       for (const cat of menu.categories || []) {
         catList.push(cat);
         for (const it of cat.items || []) {
-          itemsList.push({ ...it, categoryName: cat.name });
+          const ingredientsText = Array.isArray(it.ingredients) ? it.ingredients.join(' ') : '';
+          itemsList.push({
+            ...it,
+            categoryName: cat.name,
+            _searchText: `${it.customName || ''} ${it.restaurantDescription || ''} ${ingredientsText}`.toLowerCase(),
+          });
         }
       }
     }
@@ -465,6 +492,7 @@ export function DinerMenuClient({
 
   // Filter items
   const filteredDishes = useMemo(() => {
+    const trimmedSearch = searchQuery.trim().toLowerCase();
     return allItems.filter((item) => {
       if (activeCategory !== 'ALL' && item.categoryId !== activeCategory) {
         return false;
@@ -474,14 +502,8 @@ export function DinerMenuClient({
         return false;
       }
 
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const nameMatch = item.customName?.toLowerCase().includes(q);
-        const descMatch = item.restaurantDescription?.toLowerCase().includes(q);
-        const ingMatch =
-          Array.isArray(item.ingredients) &&
-          item.ingredients.some((ing: string) => ing.toLowerCase().includes(q));
-        if (!nameMatch && !descMatch && !ingMatch) return false;
+      if (trimmedSearch && !item._searchText.includes(trimmedSearch)) {
+        return false;
       }
 
       return true;
@@ -489,25 +511,50 @@ export function DinerMenuClient({
   }, [allItems, activeCategory, selectedDietaryFilter, searchQuery]);
 
   // Handle open dish details
-  const handleOpenDetail = (dish: any) => {
-    setSelectedDish(dish);
-    setIsDetailOpen(true);
+  const restaurantIdForInteraction = data?.restaurant?.id;
+  const handleOpenDetail = useCallback(
+    (dish: any) => {
+      setSelectedDish(dish);
+      setIsDetailOpen(true);
 
-    const restId = data?.restaurant?.id;
-    if (restId && dish?.id) {
-      fetch('/api/diner/interactions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        keepalive: true,
-        body: JSON.stringify({
-          restaurantId: restId,
-          menuItemId: dish.id,
-          eventType: 'EXPAND',
-          sessionToken: sessionToken || undefined,
-        }),
-      }).catch(() => {});
-    }
-  };
+      if (restaurantIdForInteraction && dish?.id) {
+        fetch('/api/diner/interactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          keepalive: true,
+          body: JSON.stringify({
+            restaurantId: restaurantIdForInteraction,
+            menuItemId: dish.id,
+            eventType: 'EXPAND',
+            sessionToken: sessionToken || undefined,
+          }),
+        }).catch(() => {});
+      }
+    },
+    [restaurantIdForInteraction, sessionToken]
+  );
+
+  const theme = data?.theme || data?.restaurant?.theme;
+  const themeVars = useMemo(() => {
+    return theme
+      ? generateThemeVariables({
+          presetKey: theme.presetKey,
+          backgroundColor: theme.backgroundColor,
+          surfaceColor: theme.surfaceColor,
+          primaryTextColor: theme.primaryTextColor,
+          secondaryTextColor: theme.secondaryTextColor,
+          accentColor: theme.accentColor,
+          secondaryAccentColor: theme.secondaryAccentColor,
+          headingFont: theme.headingFont,
+          bodyFont: theme.bodyFont,
+          layoutMode: theme.layoutMode,
+          cardRadius: theme.cardRadius,
+          buttonStyle: theme.buttonStyle,
+          imageProportions: theme.imageProportions,
+          texture: theme.texture,
+        })
+      : generateThemeVariables(THEME_PRESETS.WARM_EDITORIAL);
+  }, [theme]);
 
   const handleAskAboutDish = (dish: any) => {
     setIsDetailOpen(false);
@@ -607,38 +654,11 @@ export function DinerMenuClient({
   }
 
   const { restaurant } = data;
-  const theme = data.theme || restaurant?.theme;
   const wifiConfig = data.wifi;
   const configuredScanTimeoutMinutes: number =
     data?.tableSession?.scanTimeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES;
   const effectiveExpiredTimeoutMinutes =
     expiredTimeoutMinutes ?? configuredScanTimeoutMinutes;
-  const remainingMinutesLabel = (() => {
-    if (!tableInfo?.expiresAt) return null;
-    const expiresMs = Date.parse(tableInfo.expiresAt);
-    if (Number.isNaN(expiresMs) || expiresMs <= nowMs) return null;
-    const mins = Math.max(1, Math.ceil((expiresMs - nowMs) / 60_000));
-    return `${mins}m left`;
-  })();
-
-  const themeVars = theme
-    ? generateThemeVariables({
-        presetKey: theme.presetKey,
-        backgroundColor: theme.backgroundColor,
-        surfaceColor: theme.surfaceColor,
-        primaryTextColor: theme.primaryTextColor,
-        secondaryTextColor: theme.secondaryTextColor,
-        accentColor: theme.accentColor,
-        secondaryAccentColor: theme.secondaryAccentColor,
-        headingFont: theme.headingFont,
-        bodyFont: theme.bodyFont,
-        layoutMode: theme.layoutMode,
-        cardRadius: theme.cardRadius,
-        buttonStyle: theme.buttonStyle,
-        imageProportions: theme.imageProportions,
-        texture: theme.texture,
-      })
-    : generateThemeVariables(THEME_PRESETS.WARM_EDITORIAL);
 
   const layoutMode = theme?.layoutMode || 'GRID';
 
@@ -672,7 +692,10 @@ export function DinerMenuClient({
                 <img
                   src={heroBannerUrl}
                   alt={`${restaurant.displayName} banner`}
+                  width={800}
+                  height={400}
                   fetchPriority="high"
+                  decoding="async"
                   onError={() => setBannerError(true)}
                   className="w-full aspect-[2/1] object-cover block bg-black/5"
                 />
@@ -696,7 +719,7 @@ export function DinerMenuClient({
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-[var(--dishora-bg)] text-[var(--dishora-text)] border border-[var(--dishora-border)] shadow-2xs">
                         📍 {tableInfo.tableName}
                         {tableInfo.tableSection ? ` • ${tableInfo.tableSection}` : ''}
-                        {remainingMinutesLabel ? ` • ${remainingMinutesLabel}` : ''}
+                        <TableRemainingBadge expiresAt={tableInfo.expiresAt} />
                       </span>
                     ) : tableSessionExpired ? (
                       <button
@@ -764,7 +787,7 @@ export function DinerMenuClient({
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-[var(--dishora-bg)] text-[var(--dishora-text)] border border-[var(--dishora-border)] shadow-2xs">
                         📍 {tableInfo.tableName}
                         {tableInfo.tableSection ? ` • ${tableInfo.tableSection}` : ''}
-                        {remainingMinutesLabel ? ` • ${remainingMinutesLabel}` : ''}
+                        <TableRemainingBadge expiresAt={tableInfo.expiresAt} />
                       </span>
                     ) : tableSessionExpired ? (
                       <button
@@ -1020,7 +1043,7 @@ export function DinerMenuClient({
                     {tableInfo ? (
                       <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
                         📍 Dining at {tableInfo.tableName}
-                        {remainingMinutesLabel ? ` • ${remainingMinutesLabel}` : ''}
+                        <TableRemainingBadge expiresAt={tableInfo.expiresAt} />
                       </span>
                     ) : tableSessionExpired ? (
                       <button
@@ -1149,12 +1172,15 @@ export function DinerMenuClient({
                     : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6'
                 }
               >
-                {filteredDishes.map((item) => (
+                {filteredDishes.map((item, index) => (
                   <DishCard
                     key={item.id}
                     item={item}
                     layoutMode={layoutMode}
                     onSelect={handleOpenDetail}
+                    priority={index < 2}
+                    eager={index < 4}
+                    deferRender={index >= 6}
                   />
                 ))}
               </div>

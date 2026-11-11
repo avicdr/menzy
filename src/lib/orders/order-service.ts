@@ -1,6 +1,10 @@
 import prisma from '../db/prisma';
 import { OrderStatus, StaffRole, OrderActorType } from '@prisma/client';
 import { isAllowedStatusTransition } from '../auth/staff-auth';
+import {
+  resolveServiceChargePercentageValue,
+  resolveTaxPercentageValue,
+} from './tax-config';
 
 export interface CartItemInput {
   menuItemId: string;
@@ -64,11 +68,66 @@ export async function calculateOrderQuote(
     };
   }
 
-  // Load restaurant settings
-  const restaurant = await prisma.restaurant.findUnique({
-    where: { id: restaurantId },
-    include: { orderingSettings: true },
-  });
+  const uniqueMenuItemIds = Array.from(
+    new Set(items.map((item) => item.menuItemId).filter((id): id is string => Boolean(id)))
+  );
+
+  // Load restaurant ordering settings & all requested dishes concurrently (eliminates N+1 queries)
+  const [restaurant, dishes] = await Promise.all([
+    prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: {
+        id: true,
+        currency: true,
+        orderingSettings: {
+          select: {
+            orderingEnabled: true,
+            acceptsNewOrders: true,
+            taxPercentage: true,
+            serviceChargePercentage: true,
+          },
+        },
+      },
+    }),
+    uniqueMenuItemIds.length > 0
+      ? prisma.restaurantMenuItem.findMany({
+          where: {
+            id: { in: uniqueMenuItemIds },
+            restaurantId,
+            isPublished: true,
+          },
+          select: {
+            id: true,
+            customName: true,
+            priceMinor: true,
+            isAvailable: true,
+            variants: {
+              select: {
+                id: true,
+                name: true,
+                supplementalPriceMinor: true,
+              },
+            },
+            modifierGroups: {
+              select: {
+                id: true,
+                name: true,
+                required: true,
+                minSelections: true,
+                options: {
+                  select: {
+                    id: true,
+                    name: true,
+                    priceMinor: true,
+                    isAvailable: true,
+                  },
+                },
+              },
+            },
+          },
+        })
+      : Promise.resolve([]),
+  ]);
 
   if (!restaurant) {
     return {
@@ -99,36 +158,26 @@ export async function calculateOrderQuote(
       taxMinor: 0,
       serviceChargeMinor: 0,
       totalMinor: 0,
-      taxPercentage: settings?.taxPercentage || 5.0,
-      serviceChargePercentage: settings?.serviceChargePercentage || 0.0,
+      taxPercentage: resolveTaxPercentageValue(settings?.taxPercentage),
+      serviceChargePercentage: resolveServiceChargePercentageValue(
+        settings?.serviceChargePercentage
+      ),
       orderingEnabled: false,
     };
   }
 
-  const taxPercentage = settings?.taxPercentage ?? 5.0;
-  const serviceChargePercentage = settings?.serviceChargePercentage ?? 0.0;
+  const taxPercentage = resolveTaxPercentageValue(settings?.taxPercentage);
+  const serviceChargePercentage = resolveServiceChargePercentageValue(
+    settings?.serviceChargePercentage
+  );
   const calculatedItems: CalculatedOrderItem[] = [];
   let subtotalMinor = 0;
 
+  const dishesById = new Map(dishes.map((d) => [d.id, d]));
+
   for (const item of items) {
     const qty = Math.max(1, Math.min(item.quantity || 1, 50)); // limits quantity to 1-50
-
-    // Fetch published menu item from DB
-    const dish = await prisma.restaurantMenuItem.findFirst({
-      where: {
-        id: item.menuItemId,
-        restaurantId,
-        isPublished: true,
-      },
-      include: {
-        variants: true,
-        modifierGroups: {
-          include: {
-            options: true,
-          },
-        },
-      },
-    });
+    const dish = dishesById.get(item.menuItemId);
 
     if (!dish) {
       return {
@@ -288,22 +337,25 @@ export async function calculateOrderQuote(
 
 /**
  * Generate sequential, restaurant-scoped order number (e.g. 1001, 1002)
- * Uses max numeric orderNumber rather than row count so deleted orders cannot cause collisions.
+ * Uses database MAX aggregation so deleted orders cannot cause collisions and large histories stay O(1).
  */
 async function generateNextOrderNumber(restaurantId: string, offset = 0): Promise<string> {
-  const existing = await prisma.order.findMany({
-    where: { restaurantId },
-    select: { orderNumber: true },
-  });
+  const rows = await prisma.$queryRaw<Array<{ max_num: number | null }>>`
+    SELECT COALESCE(
+      MAX(
+        CASE
+          WHEN "orderNumber" ~ '^[0-9]{1,9}'
+          THEN (SUBSTRING("orderNumber" FROM '^[0-9]{1,9}'))::INTEGER
+          ELSE NULL
+        END
+      ),
+      1000
+    )::INTEGER AS max_num
+    FROM "Order"
+    WHERE "restaurantId" = ${restaurantId}
+  `;
 
-  let maxNum = 1000;
-  for (const row of existing) {
-    const parsed = parseInt(row.orderNumber, 10);
-    if (!Number.isNaN(parsed) && parsed > maxNum) {
-      maxNum = parsed;
-    }
-  }
-
+  const maxNum = Math.max(1000, Number(rows?.[0]?.max_num ?? 1000));
   return `${maxNum + 1 + offset}`;
 }
 
@@ -318,38 +370,51 @@ export async function placeTableOrder(data: {
   items: CartItemInput[];
   specialInstructions?: string | null;
   idempotencyKey?: string | null;
+  preverifiedTable?: { id: string; name: string } | null;
+  preverifiedDinerSessionId?: string | null;
 }) {
-  // 1. Verify active table belongs to this restaurant
-  const table = await prisma.restaurantTable.findFirst({
-    where: {
-      id: data.tableId,
-      restaurantId: data.restaurantId,
-      isActive: true,
-      isArchived: false,
-    },
-  });
+  const candidateSession = data.dinerSessionId || data.sessionToken;
+  const hasPreverifiedTable = Boolean(
+    data.preverifiedTable && data.preverifiedTable.id === data.tableId
+  );
+  const hasPreverifiedSession = data.preverifiedDinerSessionId !== undefined;
 
+  // 1-3. Run table verification, session lookup, quote calculation, and max orderNumber concurrently
+  const [queriedTable, existingSession, quote, initialOrderNumber] = await Promise.all([
+    hasPreverifiedTable
+      ? Promise.resolve(data.preverifiedTable)
+      : prisma.restaurantTable.findFirst({
+          where: {
+            id: data.tableId,
+            restaurantId: data.restaurantId,
+            isActive: true,
+            isArchived: false,
+          },
+          select: { id: true, name: true },
+        }),
+    !hasPreverifiedSession && candidateSession
+      ? prisma.dinerSession.findFirst({
+          where: {
+            restaurantId: data.restaurantId,
+            OR: [{ id: candidateSession }, { sessionToken: candidateSession }],
+          },
+          select: { id: true, tableId: true },
+        })
+      : Promise.resolve(null),
+    calculateOrderQuote(data.restaurantId, data.items),
+    generateNextOrderNumber(data.restaurantId, 0),
+  ]);
+
+  const table = queriedTable;
   if (!table) {
     throw new Error('Dining table not found, inactive, or not authorized for this restaurant.');
   }
 
-  // 2. Resolve valid DinerSession ID (accepts DinerSession.id OR sessionToken)
-  let validDinerSessionId: string | null = null;
-  const candidateSession = data.dinerSessionId || data.sessionToken;
+  let validDinerSessionId: string | null = hasPreverifiedSession
+    ? (data.preverifiedDinerSessionId ?? null)
+    : null;
 
-  if (candidateSession) {
-    // Explicitly check existing session first so a cross-table mismatch is NEVER swallowed
-    const existingSession = await prisma.dinerSession.findFirst({
-      where: {
-        restaurantId: data.restaurantId,
-        OR: [
-          { id: candidateSession },
-          { sessionToken: candidateSession },
-        ],
-      },
-      select: { id: true, tableId: true },
-    });
-
+  if (!hasPreverifiedSession && candidateSession) {
     if (existingSession) {
       if (existingSession.tableId && existingSession.tableId !== data.tableId) {
         throw new Error('This device session is bound to another table and cannot place an order here.');
@@ -357,7 +422,6 @@ export async function placeTableOrder(data: {
       validDinerSessionId = existingSession.id;
     } else {
       try {
-        // Safe upsert if candidate is a session token so foreign key constraint is satisfied
         const newSession = await prisma.dinerSession.upsert({
           where: { sessionToken: candidateSession },
           update: {
@@ -379,8 +443,6 @@ export async function placeTableOrder(data: {
     }
   }
 
-  // 3. Revalidate and calculate server-side quote
-  const quote = await calculateOrderQuote(data.restaurantId, data.items);
   if (!quote.valid) {
     throw new Error(quote.error || 'Invalid order items or pricing.');
   }
@@ -389,13 +451,14 @@ export async function placeTableOrder(data: {
   let sessionIdForOrder = validDinerSessionId;
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    const orderNumber = await generateNextOrderNumber(data.restaurantId, attempt);
+    const orderNumber =
+      attempt === 0 ? initialOrderNumber : await generateNextOrderNumber(data.restaurantId, attempt);
 
     try {
       const order = await prisma.$transaction(async (tx) => {
-        // Re-verify session existence inside the transaction to guarantee FK integrity
-        let confirmedSessionId: string | null = null;
-        if (sessionIdForOrder) {
+        // Skip extra tx SELECT when session was already verified via evaluateDeviceTableSession; still guard inside retry
+        let confirmedSessionId: string | null = hasPreverifiedSession ? sessionIdForOrder : null;
+        if (!hasPreverifiedSession && sessionIdForOrder) {
           const verified = await tx.dinerSession.findUnique({
             where: { id: sessionIdForOrder },
             select: { id: true },

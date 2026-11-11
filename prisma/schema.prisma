@@ -201,6 +201,7 @@ model RestaurantTable {
 
   @@unique([restaurantId, name])
   @@index([restaurantId])
+  @@index([restaurantId, isArchived, isActive])
   @@index([qrTokenHash])
 }
 
@@ -240,6 +241,7 @@ model Menu {
   items        RestaurantMenuItem[]
 
   @@index([restaurantId])
+  @@index([restaurantId, active, sortOrder])
 }
 
 model MenuCategory {
@@ -302,8 +304,11 @@ model RestaurantMenuItem {
   dishInteractions      DishInteractionEvent[]
 
   @@index([restaurantId])
+  @@index([restaurantId, isPublished, sortOrder])
+  @@index([restaurantId, isPublished, isAvailable, sortOrder])
   @@index([menuId])
   @@index([categoryId])
+  @@index([categoryId, isPublished, sortOrder])
   @@index([canonicalId])
 }
 
@@ -499,6 +504,8 @@ model ExtractionJob {
 
   @@index([uploadId])
   @@index([restaurantId])
+  @@index([restaurantId, createdAt])
+  @@index([status, createdAt])
 }
 
 model GenerationJob {
@@ -521,6 +528,8 @@ model GenerationJob {
   outputAsset    Asset?              @relation("JobOutputAsset", fields: [outputAssetId], references: [id], onDelete: SetNull)
 
   @@index([restaurantId])
+  @@index([restaurantId, status, createdAt])
+  @@index([status, createdAt])
   @@index([menuItemId])
 }
 
@@ -617,6 +626,7 @@ model EntitlementGrant {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
+  @@index([organizationId, isActive, expirationDate])
 }
 
 model CreditLedger {
@@ -634,6 +644,7 @@ model CreditLedger {
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
+  @@index([organizationId, creditType, timestamp])
   @@index([idempotencyKey])
 }
 
@@ -670,7 +681,10 @@ model AIUsageEvent {
   restaurant      Restaurant?     @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
+  @@index([organizationId, operationType, createdAt])
   @@index([restaurantId])
+  @@index([restaurantId, operationType, createdAt])
+  @@index([operationType, createdAt])
   @@index([createdAt])
 }
 
@@ -730,6 +744,7 @@ model DinerSession {
   orders       Order[]
 
   @@index([restaurantId])
+  @@index([restaurantId, tableId])
   @@index([sessionToken])
 }
 
@@ -747,7 +762,9 @@ model ChatMessage {
   restaurant         Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
   @@index([sessionId])
+  @@index([sessionId, createdAt])
   @@index([restaurantId])
+  @@index([restaurantId, createdAt])
 }
 
 model ScanEvent {
@@ -764,6 +781,8 @@ model ScanEvent {
   table        RestaurantTable? @relation(fields: [tableId], references: [id], onDelete: SetNull)
 
   @@index([restaurantId])
+  @@index([restaurantId, timestamp])
+  @@index([restaurantId, tableId, timestamp])
   @@index([timestamp])
 }
 
@@ -779,6 +798,8 @@ model DishInteractionEvent {
   menuItem     RestaurantMenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
 
   @@index([restaurantId])
+  @@index([restaurantId, timestamp])
+  @@index([restaurantId, eventType, timestamp])
   @@index([menuItemId])
 }
 
@@ -905,6 +926,7 @@ model RestaurantStaff {
   statusHistory OrderStatusHistory[]
 
   @@index([restaurantId])
+  @@index([restaurantId, isActive])
   @@index([loginId])
 }
 
@@ -980,7 +1002,9 @@ model Order {
   @@unique([restaurantId, orderNumber])
   @@index([restaurantId, status, placedAt])
   @@index([restaurantId, tableId, placedAt])
+  @@index([restaurantId, dinerSessionId, placedAt])
   @@index([restaurantId, createdAt])
+  @@index([restaurantId, updatedAt])
 }
 
 model OrderItem {

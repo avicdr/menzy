@@ -10,6 +10,8 @@ export interface StaffSessionPayload {
   restaurantId: string;
   restaurantSlug: string;
   restaurantName: string;
+  currency?: string;
+  timezone?: string;
   displayName: string;
   loginId: string;
   role: StaffRole;
@@ -227,6 +229,8 @@ export async function getStaffSession(): Promise<StaffSessionPayload | null> {
               id: true,
               slug: true,
               displayName: true,
+              currency: true,
+              timezone: true,
               publicationState: true,
               organizationId: true,
               isClaimed: true,
@@ -275,6 +279,8 @@ export async function getStaffSession(): Promise<StaffSessionPayload | null> {
     restaurantId: session.staff.restaurantId,
     restaurantSlug: session.staff.restaurant.slug,
     restaurantName: session.staff.restaurant.displayName,
+    currency: session.staff.restaurant.currency,
+    timezone: session.staff.restaurant.timezone,
     displayName: session.staff.displayName,
     loginId: session.staff.loginId,
     role: session.staff.role,

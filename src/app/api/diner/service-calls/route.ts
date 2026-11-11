@@ -38,28 +38,39 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'restaurantId or restaurantSlug is required' }, { status: 400 });
     }
 
-    const subAccess = await checkRestaurantSubscriptionAccess(targetRestaurantId, {
-      byIdOnly: true,
-    });
+    const cookieName = getDinerSessionCookieName(targetRestaurantId);
+    const cookieToken = readCookieFromRequest(req, cookieName);
+
+    const [subAccess, resolvedTable, sessionCheck] = await Promise.all([
+      checkRestaurantSubscriptionAccess(targetRestaurantId, { byIdOnly: true }),
+      tableId
+        ? prisma.restaurantTable.findFirst({
+            where: {
+              id: tableId,
+              restaurantId: targetRestaurantId,
+              isActive: true,
+              isArchived: false,
+            },
+            select: { id: true, name: true, section: true },
+          })
+        : Promise.resolve(null),
+      tableId
+        ? evaluateDeviceTableSession({
+            restaurantId: targetRestaurantId,
+            tableId,
+            cookieSessionToken: cookieToken,
+            sessionToken: sessionToken || null,
+            dinerSessionId: dinerSessionId || null,
+          })
+        : Promise.resolve(null),
+    ]);
+
     if (subAccess.found && !subAccess.access.allowed) {
       return createSubscriptionExpiredResponse(subAccess.access, {
         restaurantId: subAccess.restaurant?.id || targetRestaurantId,
         restaurantSlug: subAccess.restaurant?.slug,
         restaurantName: subAccess.restaurant?.displayName,
         audience: 'DINER',
-      });
-    }
-
-    // Resolve table
-    let resolvedTable: any = null;
-    if (tableId) {
-      resolvedTable = await prisma.restaurantTable.findFirst({
-        where: {
-          id: tableId,
-          restaurantId: targetRestaurantId,
-          isActive: true,
-          isArchived: false,
-        },
       });
     }
 
@@ -74,33 +85,22 @@ export async function POST(req: Request) {
       );
     }
 
-    const cookieName = getDinerSessionCookieName(targetRestaurantId);
-    const cookieToken = readCookieFromRequest(req, cookieName);
-
-    const sessionCheck = await evaluateDeviceTableSession({
-      restaurantId: targetRestaurantId,
-      tableId: resolvedTable.id,
-      cookieSessionToken: cookieToken,
-      sessionToken: sessionToken || null,
-      dinerSessionId: dinerSessionId || null,
-    });
-
-    if (!sessionCheck.valid) {
-      const isTableMismatch = sessionCheck.code === 'TABLE_MISMATCH';
+    if (!sessionCheck || !sessionCheck.valid) {
+      const isTableMismatch = sessionCheck?.code === 'TABLE_MISMATCH';
       return NextResponse.json(
         {
           error:
-            sessionCheck.error ||
+            sessionCheck?.error ||
             'Your table session has expired. Please rescan your table QR code to call a waiter.',
-          code: sessionCheck.code || 'TABLE_SCAN_EXPIRED',
+          code: sessionCheck?.code || 'TABLE_SCAN_EXPIRED',
           tableName: resolvedTable.name,
-          currentTableName: sessionCheck.currentTableName || null,
-          currentTable: sessionCheck.currentTable || null,
-          timeoutMinutes: sessionCheck.timeoutMinutes ?? null,
-          timeoutKind: sessionCheck.timeoutKind ?? null,
-          scanTimeoutMinutes: sessionCheck.scanTimeoutMinutes ?? null,
-          orderExtensionMinutes: sessionCheck.orderExtensionMinutes ?? null,
-          requiresRescan: !isTableMismatch || !sessionCheck.currentTable,
+          currentTableName: sessionCheck?.currentTableName || null,
+          currentTable: sessionCheck?.currentTable || null,
+          timeoutMinutes: sessionCheck?.timeoutMinutes ?? null,
+          timeoutKind: sessionCheck?.timeoutKind ?? null,
+          scanTimeoutMinutes: sessionCheck?.scanTimeoutMinutes ?? null,
+          orderExtensionMinutes: sessionCheck?.orderExtensionMinutes ?? null,
+          requiresRescan: !isTableMismatch || !sessionCheck?.currentTable,
         },
         { status: 403 }
       );

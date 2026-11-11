@@ -43,32 +43,63 @@ export async function POST(req: Request) {
     const attemptedRawTableId =
       !qrTokenCandidate && typeof tableId === 'string' && tableId.trim().length > 0;
 
+    const bodySessionStr =
+      typeof bodySessionToken === 'string' && bodySessionToken.trim()
+        ? bodySessionToken.trim()
+        : null;
+
     const nowCheck = new Date();
-    const restaurant = await prisma.restaurant.findUnique({
-      where: { slug: restaurantSlug },
-      include: {
-        orderingSettings: {
-          select: { notificationSettings: true },
-        },
-        organization: {
-          include: {
-            subscriptions: { take: 1 },
-            entitlements: {
-              where: {
-                isActive: true,
-                expirationDate: { gt: nowCheck },
+    const [restaurant, prefetchedResolvedTable, bodySessionRecord] = await Promise.all([
+      prisma.restaurant.findUnique({
+        where: { slug: restaurantSlug },
+        select: {
+          id: true,
+          slug: true,
+          displayName: true,
+          isClaimed: true,
+          organizationId: true,
+          orderingSettings: {
+            select: { notificationSettings: true },
+          },
+          organization: {
+            select: {
+              subscriptions: {
+                take: 1,
+                select: {
+                  planKey: true,
+                  status: true,
+                  provider: true,
+                  billingPeriod: true,
+                  paidThrough: true,
+                  cancelAtPeriodEnd: true,
+                  createdAt: true,
+                },
               },
-              select: {
-                grantType: true,
-                tierOrValue: true,
-                isActive: true,
-                expirationDate: true,
+              entitlements: {
+                where: {
+                  isActive: true,
+                  expirationDate: { gt: nowCheck },
+                },
+                select: {
+                  grantType: true,
+                  tierOrValue: true,
+                  isActive: true,
+                  expirationDate: true,
+                },
               },
             },
           },
         },
-      },
-    });
+      }),
+      qrTokenCandidate
+        ? resolveTableFromToken(restaurantSlug, qrTokenCandidate)
+        : Promise.resolve(null),
+      bodySessionStr
+        ? prisma.dinerSession.findUnique({
+            where: { sessionToken: bodySessionStr },
+          })
+        : Promise.resolve(null),
+    ]);
 
     if (!restaurant) {
       return NextResponse.json({ error: 'Restaurant not found' }, { status: 404 });
@@ -98,21 +129,19 @@ export async function POST(req: Request) {
     const cookieName = getDinerSessionCookieName(restaurant.id);
     const cookieToken = readCookieFromRequest(req, cookieName);
     // Prefer the device's HttpOnly cookie so client body tampering cannot probe another diner's session
-    const rawCandidateToken = cookieToken || bodySessionToken || null;
+    const rawCandidateToken = cookieToken || bodySessionStr || null;
 
     let existingSession: Awaited<ReturnType<typeof prisma.dinerSession.findUnique>> = null;
     let sessionToken = `ds_${crypto.randomBytes(16).toString('hex')}`;
 
-    const [foundSession, prefetchedResolvedTable] = await Promise.all([
-      rawCandidateToken && typeof rawCandidateToken === 'string'
-        ? prisma.dinerSession.findUnique({
-            where: { sessionToken: rawCandidateToken },
+    const foundSession =
+      cookieToken && cookieToken !== bodySessionStr
+        ? await prisma.dinerSession.findUnique({
+            where: { sessionToken: cookieToken },
           })
-        : Promise.resolve(null),
-      qrTokenCandidate
-        ? resolveTableFromToken(restaurantSlug, qrTokenCandidate)
-        : Promise.resolve(null),
-    ]);
+        : rawCandidateToken && rawCandidateToken === bodySessionStr
+          ? bodySessionRecord
+          : null;
 
     if (rawCandidateToken && typeof rawCandidateToken === 'string') {
       if (!foundSession) {

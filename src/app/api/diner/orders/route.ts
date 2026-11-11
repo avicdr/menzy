@@ -35,7 +35,20 @@ export async function POST(req: Request) {
       );
     }
 
-    const subAccess = await checkRestaurantSubscriptionAccess(restaurantId, { byIdOnly: true });
+    const cookieName = getDinerSessionCookieName(restaurantId);
+    const cookieToken = readCookieFromRequest(req, cookieName);
+
+    const [subAccess, sessionCheck] = await Promise.all([
+      checkRestaurantSubscriptionAccess(restaurantId, { byIdOnly: true }),
+      evaluateDeviceTableSession({
+        restaurantId,
+        tableId,
+        cookieSessionToken: cookieToken,
+        sessionToken: sessionToken || null,
+        dinerSessionId: dinerSessionId || null,
+      }),
+    ]);
+
     if (subAccess.found && !subAccess.access.allowed) {
       return createSubscriptionExpiredResponse(subAccess.access, {
         restaurantId: subAccess.restaurant?.id || restaurantId,
@@ -44,17 +57,6 @@ export async function POST(req: Request) {
         audience: 'DINER',
       });
     }
-
-    const cookieName = getDinerSessionCookieName(restaurantId);
-    const cookieToken = readCookieFromRequest(req, cookieName);
-
-    const sessionCheck = await evaluateDeviceTableSession({
-      restaurantId,
-      tableId,
-      cookieSessionToken: cookieToken,
-      sessionToken: sessionToken || null,
-      dinerSessionId: dinerSessionId || null,
-    });
 
     if (!sessionCheck.valid || !sessionCheck.session) {
       const isTableMismatch = sessionCheck.code === 'TABLE_MISMATCH';
@@ -85,6 +87,10 @@ export async function POST(req: Request) {
       items,
       specialInstructions,
       idempotencyKey,
+      preverifiedTable: sessionCheck.table
+        ? { id: sessionCheck.table.id, name: sessionCheck.table.name }
+        : undefined,
+      preverifiedDinerSessionId: sessionCheck.session.id,
     });
 
     const scanTimeoutMinutes =

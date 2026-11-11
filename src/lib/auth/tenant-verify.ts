@@ -26,7 +26,10 @@ export function createTenantAccessDeniedResponse(auth: {
 /**
  * Verify restaurant access for owner operations (table config, staff management, settings)
  */
-export async function verifyRestaurantOwnerAccess(restaurantId: string) {
+export async function verifyRestaurantOwnerAccess(
+  restaurantId: string,
+  options?: { includeOrderingSettings?: boolean; includeTheme?: boolean }
+) {
   const ownerSession = await getOwnerSession();
   if (!ownerSession) {
     return { authorized: false as const, status: 401 as const, error: 'Unauthorized: Please log in as restaurant owner.' };
@@ -34,9 +37,15 @@ export async function verifyRestaurantOwnerAccess(restaurantId: string) {
 
   const now = new Date();
   const isAuto = !restaurantId || restaurantId === 'current' || restaurantId === '_auto';
+  const includeOrderingSettings = options?.includeOrderingSettings ?? true;
+  const includeTheme = options?.includeTheme ?? true;
 
-  const organizationInclude = {
-    include: {
+  const organizationSelect = {
+    select: {
+      id: true,
+      name: true,
+      billingCountry: true,
+      billingCurrency: true,
       subscriptions: {
         take: 1,
         select: {
@@ -70,9 +79,9 @@ export async function verifyRestaurantOwnerAccess(restaurantId: string) {
           organizationId: { in: ownerSession.organizations.map((org) => org.id) },
         },
         include: {
-          organization: organizationInclude,
-          theme: true,
-          orderingSettings: true,
+          organization: organizationSelect,
+          ...(includeTheme ? { theme: true } : {}),
+          ...(includeOrderingSettings ? { orderingSettings: true } : {}),
         },
       })
     : await prisma.restaurant.findFirst({
@@ -80,9 +89,9 @@ export async function verifyRestaurantOwnerAccess(restaurantId: string) {
           OR: [{ id: restaurantId }, { slug: restaurantId }],
         },
         include: {
-          organization: organizationInclude,
-          theme: true,
-          orderingSettings: true,
+          organization: organizationSelect,
+          ...(includeTheme ? { theme: true } : {}),
+          ...(includeOrderingSettings ? { orderingSettings: true } : {}),
         },
       });
 
@@ -163,7 +172,7 @@ export async function verifyStaffOrOwnerAccess(
   const now = new Date();
 
   const organizationSubscriptionInclude = {
-    include: {
+    select: {
       subscriptions: {
         take: 1,
         select: {
@@ -309,6 +318,8 @@ export async function verifyStaffOrOwnerAccess(
         id: staffSession.restaurantId,
         slug: staffSession.restaurantSlug,
         displayName: staffSession.restaurantName,
+        currency: staffSession.currency ?? 'INR',
+        timezone: staffSession.timezone ?? 'Asia/Kolkata',
         isClaimed: staffSession.isClaimed ?? true,
         organizationId: staffSession.organizationId ?? null,
         organization: staffSession.organization ?? null,

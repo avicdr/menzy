@@ -46,6 +46,67 @@ export function parseGeminiJsonResponse(responseText: string): any {
   }
 }
 
+export function serializeCompactMenuForPrompt(
+  items: Array<{
+    id: string;
+    customName: string;
+    priceMinor: number | null;
+    currency: string;
+    restaurantDescription: string | null;
+    dietaryStatus: unknown;
+    allergenVerification: unknown;
+    nutritionFields: unknown;
+    nutritionSource: string;
+    chefRecommended: boolean;
+    category?: { name: string } | null;
+  }>
+) {
+  return items.map((i) => {
+    const entry: Record<string, unknown> = {
+      id: i.id,
+      name: i.customName,
+      category: i.category?.name || 'General',
+      ...(i.priceMinor !== null ? { priceMinor: i.priceMinor } : {}),
+      currency: i.currency,
+    };
+
+    const desc = typeof i.restaurantDescription === 'string' ? i.restaurantDescription.trim() : '';
+    if (desc) {
+      entry.description = desc;
+    }
+
+    if (Array.isArray(i.dietaryStatus) && i.dietaryStatus.length > 0) {
+      entry.dietary = i.dietaryStatus;
+    }
+
+    if (
+      i.allergenVerification &&
+      (typeof i.allergenVerification !== 'object' ||
+        Object.keys(i.allergenVerification as Record<string, unknown>).length > 0)
+    ) {
+      entry.allergenVerification = i.allergenVerification;
+    }
+
+    if (
+      i.nutritionFields &&
+      (typeof i.nutritionFields !== 'object' ||
+        Object.keys(i.nutritionFields as Record<string, unknown>).length > 0)
+    ) {
+      entry.nutrition = i.nutritionFields;
+    }
+
+    if (i.nutritionSource && i.nutritionSource !== 'NOT_PROVIDED') {
+      entry.nutritionSource = i.nutritionSource;
+    }
+
+    if (i.chefRecommended) {
+      entry.chefRecommended = true;
+    }
+
+    return entry;
+  });
+}
+
 export async function processDinerQuery(params: {
   restaurantId: string;
   userMessage: string;
@@ -58,23 +119,37 @@ export async function processDinerQuery(params: {
     params.timeoutMs ??
     (Number(process.env.GEMINI_CHAT_TIMEOUT_MS) || DEFAULT_GEMINI_CHAT_TIMEOUT_MS);
 
-  // 1. Load published & available menu items for this restaurant
-  const items = await prisma.restaurantMenuItem.findMany({
-    where: {
-      restaurantId: params.restaurantId,
-      isPublished: true,
-      isAvailable: true,
-    },
-    include: {
-      category: true,
-      canonical: true,
-    },
-  });
-
-  const restaurant = await prisma.restaurant.findUnique({
-    where: { id: params.restaurantId },
-    include: { settings: true },
-  });
+  // 1. Load published & available menu items + restaurant context concurrently with slim selects
+  const [items, restaurant] = await Promise.all([
+    prisma.restaurantMenuItem.findMany({
+      where: {
+        restaurantId: params.restaurantId,
+        isPublished: true,
+        isAvailable: true,
+      },
+      select: {
+        id: true,
+        customName: true,
+        priceMinor: true,
+        currency: true,
+        restaurantDescription: true,
+        dietaryStatus: true,
+        allergenVerification: true,
+        nutritionFields: true,
+        nutritionSource: true,
+        chefRecommended: true,
+        category: { select: { name: true } },
+        canonical: { select: { normalizedName: true } },
+      },
+    }),
+    prisma.restaurant.findUnique({
+      where: { id: params.restaurantId },
+      select: {
+        displayName: true,
+        settings: { select: { aiTone: true } },
+      },
+    }),
+  ]);
 
   if (!items.length) {
     return {
@@ -163,31 +238,19 @@ export async function processDinerQuery(params: {
   };
 
   if (geminiClients.length > 0 || openAiEnabled) {
-    const sanitizedMenu = items.map((i) => ({
-      id: i.id,
-      name: i.customName,
-      category: i.category?.name || 'General',
-      priceMinor: i.priceMinor,
-      currency: i.currency,
-      description: i.restaurantDescription,
-      dietary: i.dietaryStatus,
-      allergenVerification: i.allergenVerification,
-      nutrition: i.nutritionFields,
-      nutritionSource: i.nutritionSource,
-      chefRecommended: i.chefRecommended,
-    }));
+    const sanitizedMenu = serializeCompactMenuForPrompt(items);
 
     const systemPrompt = `You are the digital host & AI waiter for "${restaurant?.displayName || 'our restaurant'}".
 Tone: ${restaurant?.settings?.aiTone || 'warm, hospitable, knowledgeable, concise'}.
 
 CRITICAL RULES:
-1. ONLY refer to items in the provided menu snapshot. NEVER invent dishes, prices, recipes or ingredients.
+1. ONLY refer to items in the provided menu snapshot (omitted fields like description, dietary, allergenVerification, nutrition, or chefRecommended mean not provided / false). NEVER invent dishes, prices, recipes or ingredients.
 2. If asked about allergies (peanuts, gluten, dairy, etc.):
-   - Check the item's 'allergenVerification' field.
+   - Check the item's 'allergenVerification' field (omitted when unverified).
    - If NOT verified explicitly by restaurant or if allergen is unverified/unknown, respond that ingredients or cross-contact cannot be guaranteed and advise consulting the floor staff.
    - NEVER give an unjustified 100% allergy-free guarantee.
 3. If asked about protein/calories/nutrition:
-   - Reference the provided numbers.
+   - Reference the provided numbers (or note they are unavailable if 'nutrition' is omitted).
    - State whether they are "Restaurant verified" or "Approximate culinary estimate".
 4. If a dish is currently focused (${focusedDish ? `Focused dish: "${focusedDish.customName}" (ID: ${focusedDish.id})` : 'none'}), tailor follow-up answers to that dish.
 5. If recommending a pairing, pick an available item from a beverage or dessert category in the menu.

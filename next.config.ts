@@ -3,9 +3,15 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  compress: true,
   // Ensure every crawler, link-preview bot, and audit engine receives full <head> metadata directly in HTML
   htmlLimitedBots: /.*/,
+  experimental: {
+    optimizePackageImports: ["lucide-react", "@google/genai", "zod"],
+  },
   images: {
+    formats: ["image/avif", "image/webp"],
+    minimumCacheTTL: 86400,
     remotePatterns: [
       { protocol: "https", hostname: "**" },
       { protocol: "http", hostname: "**" },

@@ -5,6 +5,8 @@ import {
   createSubscriptionExpiredResponse,
 } from '@/lib/billing/subscription-access';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -17,7 +19,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const subAccess = await checkRestaurantSubscriptionAccess(restaurantId, { byIdOnly: true });
+    const [subAccess, quote] = await Promise.all([
+      checkRestaurantSubscriptionAccess(restaurantId, { byIdOnly: true }),
+      calculateOrderQuote(restaurantId, items),
+    ]);
     if (subAccess.found && !subAccess.access.allowed) {
       return createSubscriptionExpiredResponse(subAccess.access, {
         restaurantId: subAccess.restaurant?.id || restaurantId,
@@ -27,9 +32,9 @@ export async function POST(req: Request) {
       });
     }
 
-    const quote = await calculateOrderQuote(restaurantId, items);
-
-    return NextResponse.json(quote);
+    return NextResponse.json(quote, {
+      headers: { 'Cache-Control': 'no-store, max-age=0' },
+    });
   } catch (error: any) {
     console.error('Order quote error:', error);
     return NextResponse.json(

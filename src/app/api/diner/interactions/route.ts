@@ -30,7 +30,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, ignored: true });
     }
 
-    const subAccess = await checkRestaurantSubscriptionAccess(restaurantId, { byIdOnly: true });
+    const [subAccess, menuItem, dinerSession] = await Promise.all([
+      checkRestaurantSubscriptionAccess(restaurantId, { byIdOnly: true }),
+      prisma.restaurantMenuItem.findFirst({
+        where: {
+          id: menuItemId,
+          restaurantId,
+          isPublished: true,
+        },
+        select: { id: true },
+      }),
+      sessionToken
+        ? prisma.dinerSession.findUnique({
+            where: { sessionToken },
+            select: { id: true, restaurantId: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
     if (subAccess.found && !subAccess.access.allowed) {
       return createSubscriptionExpiredResponse(subAccess.access, {
         restaurantId: subAccess.restaurant?.id || restaurantId,
@@ -40,30 +57,12 @@ export async function POST(req: Request) {
       });
     }
 
-    // Verify the menu item belongs to the target restaurant and is published
-    const menuItem = await prisma.restaurantMenuItem.findFirst({
-      where: {
-        id: menuItemId,
-        restaurantId,
-        isPublished: true,
-      },
-      select: { id: true },
-    });
-
     if (!menuItem) {
       return NextResponse.json({ error: 'Menu item not found for restaurant' }, { status: 404 });
     }
 
-    let dinerSessionId: string | undefined;
-    if (sessionToken) {
-      const dinerSession = await prisma.dinerSession.findUnique({
-        where: { sessionToken },
-        select: { id: true, restaurantId: true },
-      });
-      if (dinerSession && dinerSession.restaurantId === restaurantId) {
-        dinerSessionId = dinerSession.id;
-      }
-    }
+    const dinerSessionId =
+      dinerSession && dinerSession.restaurantId === restaurantId ? dinerSession.id : undefined;
 
     await trackDishInteraction({
       restaurantId,

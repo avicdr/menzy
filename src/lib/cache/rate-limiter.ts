@@ -13,6 +13,38 @@ export interface RateLimitResult {
   message?: string;
 }
 
+const PLAN_QUOTA_CACHE_TTL_MS = 5 * 60 * 1000;
+const globalPlanQuotaCache = globalThis as typeof globalThis & {
+  __menzyPlanQuotaCache?: Map<string, { quota: number; expiresAt: number }>;
+};
+
+async function getPlanMonthlyQuota(planKey: string): Promise<number> {
+  if (planKey === TRIAL_PLAN_KEY) {
+    return TRIAL_PLAN.aiQuestionsMonthly;
+  }
+  const catalogPlan = PLAN_CATALOG[planKey as PlanKey];
+  if (catalogPlan?.aiQuestionsMonthly) {
+    return catalogPlan.aiQuestionsMonthly;
+  }
+
+  const cacheMap =
+    globalPlanQuotaCache.__menzyPlanQuotaCache ??
+    (globalPlanQuotaCache.__menzyPlanQuotaCache = new Map());
+  const now = Date.now();
+  const cached = cacheMap.get(planKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.quota;
+  }
+
+  const plan = await prisma.plan.findUnique({
+    where: { key: planKey },
+    select: { aiQuestionsMonthly: true },
+  });
+  const quota = plan?.aiQuestionsMonthly || TRIAL_PLAN.aiQuestionsMonthly;
+  cacheMap.set(planKey, { quota, expiresAt: now + PLAN_QUOTA_CACHE_TTL_MS });
+  return quota;
+}
+
 export async function checkDinerAIRateLimit(
   sessionToken: string,
   clientIp: string,
@@ -29,11 +61,11 @@ export async function checkDinerAIRateLimit(
   const sessionKey = `rl:session:${sessionHash}`;
   const ipKey = `rl:ip:${ipHash}`;
 
-  // 1. Check Session rolling window
-  const sessionCheck = await cache.slidingWindowCheck(sessionKey, maxLimit, windowSeconds);
-
-  // 2. Check IP rolling window
-  const ipCheck = await cache.slidingWindowCheck(ipKey, maxLimit, windowSeconds);
+  // 1 & 2. Check Session and IP rolling windows concurrently
+  const [sessionCheck, ipCheck] = await Promise.all([
+    cache.slidingWindowCheck(sessionKey, maxLimit, windowSeconds),
+    cache.slidingWindowCheck(ipKey, maxLimit, windowSeconds),
+  ]);
 
   const isSessionAllowed = sessionCheck.allowed;
   const isIpAllowed = ipCheck.allowed;
@@ -53,31 +85,41 @@ export async function checkDinerAIRateLimit(
     };
   }
 
-  // 3. Check Restaurant's monthly AI query limit
-  const restaurant = await prisma.restaurant.findUnique({
-    where: { id: restaurantId },
-    include: {
-      organization: {
-        include: {
-          subscriptions: true,
-          entitlements: { where: { isActive: true, expirationDate: { gt: new Date() } } },
+  // 3. Check Restaurant's monthly AI query limit (subscription/entitlements + monthly usage in parallel)
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const [restaurant, usedCount] = await Promise.all([
+    prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: {
+        id: true,
+        organization: {
+          select: {
+            subscriptions: {
+              take: 1,
+              select: { planKey: true },
+            },
+            entitlements: {
+              where: { isActive: true, expirationDate: { gt: now } },
+              select: { grantType: true, quantity: true },
+            },
+          },
         },
       },
-    },
-  });
+    }),
+    prisma.aIUsageEvent.count({
+      where: {
+        restaurantId,
+        operationType: 'DINER_CHAT',
+        createdAt: { gte: startOfMonth },
+      },
+    }),
+  ]);
 
   if (restaurant?.organization) {
     const sub = restaurant.organization.subscriptions[0];
     const planKey = sub?.planKey || TRIAL_PLAN_KEY;
-    const isTrial = planKey === TRIAL_PLAN_KEY;
-    const catalogPlan = isTrial ? null : PLAN_CATALOG[planKey as PlanKey];
-    const plan =
-      isTrial || catalogPlan ? null : await prisma.plan.findUnique({ where: { key: planKey } });
-    const baseQuota = isTrial
-      ? TRIAL_PLAN.aiQuestionsMonthly
-      : catalogPlan?.aiQuestionsMonthly ||
-        plan?.aiQuestionsMonthly ||
-        TRIAL_PLAN.aiQuestionsMonthly;
+    const baseQuota = await getPlanMonthlyQuota(planKey);
 
     // Check bonus entitlements
     const bonusQuestions = restaurant.organization.entitlements
@@ -85,16 +127,6 @@ export async function checkDinerAIRateLimit(
       .reduce((acc, curr) => acc + curr.quantity, 0);
 
     const totalAllowed = baseQuota + bonusQuestions;
-
-    // Count this month's AI chat events
-    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    const usedCount = await prisma.aIUsageEvent.count({
-      where: {
-        restaurantId,
-        operationType: 'DINER_CHAT',
-        createdAt: { gte: startOfMonth },
-      },
-    });
 
     if (usedCount >= totalAllowed) {
       return {

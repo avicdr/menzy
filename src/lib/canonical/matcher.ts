@@ -238,7 +238,7 @@ function buildIndexedCanonicals(
 
 type CanonicalIndexData = ReturnType<typeof buildIndexedCanonicals>;
 
-const CANONICAL_INDEX_CACHE_TTL_MS = 10_000;
+const CANONICAL_INDEX_CACHE_TTL_MS = 60_000;
 const globalMatcherCache = globalThis as typeof globalThis & {
   __menzyCanonicalIndexCache?: {
     expiresAt: number;
@@ -265,7 +265,13 @@ async function loadCanonicalIndex(forceRefresh = false): Promise<CanonicalIndexD
 
   const fetchPromise = prisma.canonicalDish
     .findMany({
-      include: { canonicalAliases: true },
+      select: {
+        id: true,
+        normalizedName: true,
+        cuisine: true,
+        imageAssetId: true,
+        canonicalAliases: { select: { normalizedAlias: true } },
+      },
     })
     .then((rows) => {
       const data = buildIndexedCanonicals(rows);

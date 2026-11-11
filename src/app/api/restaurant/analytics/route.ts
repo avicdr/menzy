@@ -14,7 +14,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'restaurantId required' }, { status: 400 });
     }
 
-    const auth = await requireRestaurantAccess(restaurantId);
+    const auth = await requireRestaurantAccess(restaurantId, {
+      includeSettings: false,
+      includeTheme: false,
+    });
     if (!auth.authorized || !auth.restaurant) {
       return createOwnerAccessDeniedResponse(auth, 403);
     }
@@ -24,73 +27,49 @@ export async function GET(req: Request) {
     const startOfToday = getStartOfDayInTimezone(timeZone, 0, now);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
+    // Consolidated into 6 parallel DB queries (down from 12) via PostgreSQL FILTER aggregates
     const [
-      totalScans,
-      scansToday,
-      scans30Days,
-      tableScans30Days,
-      chatQueries30Days,
-      chatQueriesTotal,
-      imageGenCount,
+      scanSummaryRows,
+      aiSummaryRows,
       dishViewsTotal,
-      dishViews30Days,
       groupedInteractions30Days,
       menuItems,
       orders30DaysRows,
     ] = await Promise.all([
-      prisma.scanEvent.count({
-        where: { restaurantId },
-      }),
-      prisma.scanEvent.count({
-        where: {
-          restaurantId,
-          timestamp: { gte: startOfToday },
-        },
-      }),
-      prisma.scanEvent.count({
-        where: {
-          restaurantId,
-          timestamp: { gte: thirtyDaysAgo },
-        },
-      }),
-      prisma.scanEvent.count({
-        where: {
-          restaurantId,
-          tableId: { not: null },
-          timestamp: { gte: thirtyDaysAgo },
-        },
-      }),
-      prisma.aIUsageEvent.count({
-        where: {
-          restaurantId,
-          operationType: 'DINER_CHAT',
-          createdAt: { gte: thirtyDaysAgo },
-        },
-      }),
-      prisma.aIUsageEvent.count({
-        where: {
-          restaurantId,
-          operationType: 'DINER_CHAT',
-        },
-      }),
-      prisma.aIUsageEvent.count({
-        where: {
-          restaurantId,
-          operationType: { in: ['IMAGE_GENERATION', 'IMAGE_REGENERATION'] },
-          createdAt: { gte: thirtyDaysAgo },
-        },
-      }),
+      prisma.$queryRaw<
+        Array<{
+          total_scans: number;
+          scans_today: number;
+          scans_30_days: number;
+          table_scans_30_days: number;
+        }>
+      >`
+        SELECT
+          COUNT(*)::INTEGER AS total_scans,
+          COUNT(*) FILTER (WHERE "timestamp" >= ${startOfToday})::INTEGER AS scans_today,
+          COUNT(*) FILTER (WHERE "timestamp" >= ${thirtyDaysAgo})::INTEGER AS scans_30_days,
+          COUNT(*) FILTER (WHERE "tableId" IS NOT NULL AND "timestamp" >= ${thirtyDaysAgo})::INTEGER AS table_scans_30_days
+        FROM "ScanEvent"
+        WHERE "restaurantId" = ${restaurantId}
+      `,
+      prisma.$queryRaw<
+        Array<{
+          chat_queries_30_days: number;
+          chat_queries_total: number;
+          image_gen_count: number;
+        }>
+      >`
+        SELECT
+          COUNT(*) FILTER (WHERE "operationType"::text = 'DINER_CHAT' AND "createdAt" >= ${thirtyDaysAgo})::INTEGER AS chat_queries_30_days,
+          COUNT(*) FILTER (WHERE "operationType"::text = 'DINER_CHAT')::INTEGER AS chat_queries_total,
+          COUNT(*) FILTER (WHERE "operationType"::text IN ('IMAGE_GENERATION', 'IMAGE_REGENERATION') AND "createdAt" >= ${thirtyDaysAgo})::INTEGER AS image_gen_count
+        FROM "AIUsageEvent"
+        WHERE "restaurantId" = ${restaurantId}
+      `,
       prisma.dishInteractionEvent.count({
         where: {
           restaurantId,
           eventType: { in: ['VIEW', 'EXPAND'] },
-        },
-      }),
-      prisma.dishInteractionEvent.count({
-        where: {
-          restaurantId,
-          eventType: { in: ['VIEW', 'EXPAND'] },
-          timestamp: { gte: thirtyDaysAgo },
         },
       }),
       prisma.dishInteractionEvent.groupBy({
@@ -133,6 +112,19 @@ export async function GET(req: Request) {
         },
       }),
     ]);
+
+    const scanRow = scanSummaryRows[0];
+    const totalScans = Number(scanRow?.total_scans ?? 0);
+    const scansToday = Number(scanRow?.scans_today ?? 0);
+    const scans30Days = Number(scanRow?.scans_30_days ?? 0);
+    const tableScans30Days = Number(scanRow?.table_scans_30_days ?? 0);
+
+    const aiRow = aiSummaryRows[0];
+    const chatQueries30Days = Number(aiRow?.chat_queries_30_days ?? 0);
+    const chatQueriesTotal = Number(aiRow?.chat_queries_total ?? 0);
+    const imageGenCount = Number(aiRow?.image_gen_count ?? 0);
+
+    let dishViews30Days = 0;
 
     // Dietary composition across menu items
     let vegCount = 0;
@@ -201,9 +193,12 @@ export async function GET(req: Request) {
     };
 
     for (const row of groupedInteractions30Days) {
+      const count = row._count._all;
+      if (row.eventType === 'VIEW' || row.eventType === 'EXPAND') {
+        dishViews30Days += count;
+      }
       const stat = ensureDishStat(row.menuItemId);
       if (!stat) continue;
-      const count = row._count._all;
       if (row.eventType === 'VIEW' || row.eventType === 'EXPAND') {
         stat.views += count;
       } else {

@@ -131,6 +131,7 @@ export function CartSheet({
 
         const res = await fetch('/api/diner/orders/quote', {
           method: 'POST',
+          cache: 'no-store',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             restaurantId,

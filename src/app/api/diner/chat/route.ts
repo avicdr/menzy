@@ -56,37 +56,56 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2. Process grounded query through Gemini
-    const response = await processDinerQuery({
-      restaurantId,
-      userMessage: message,
-      selectedDishId,
-      history,
-    });
+    // 2. Process grounded query through Gemini concurrently with diner session lookup
+    const shouldPersistTelemetry = sessionToken !== 'owner-test-session';
+    const [response, dinerSession] = await Promise.all([
+      processDinerQuery({
+        restaurantId,
+        userMessage: message,
+        selectedDishId,
+        history,
+      }),
+      shouldPersistTelemetry && sessionToken
+        ? prisma.dinerSession
+            .findUnique({
+              where: { sessionToken },
+              select: { id: true, restaurantId: true },
+            })
+            .catch(() => null)
+        : Promise.resolve(null),
+    ]);
 
-    // 3. Persist chat message & dish inquiry telemetry for real diner sessions
-    if (sessionToken !== 'owner-test-session') {
-      let resolvedSessionId: string | null = null;
+    // 3. Persist chat message & dish inquiry telemetry in parallel for real diner sessions
+    if (shouldPersistTelemetry) {
+      const validSession =
+        dinerSession && dinerSession.restaurantId === restaurantId ? dinerSession : null;
+      const resolvedSessionId = validSession?.id ?? null;
 
-      if (sessionToken) {
-        try {
-          const dinerSession = await prisma.dinerSession.findUnique({
-            where: { sessionToken },
-            select: { id: true, restaurantId: true },
-          });
+      const engagedDishIds = Array.from(
+        new Set(
+          [
+            response.selectedDishId,
+            ...(Array.isArray(response.dishIds) ? response.dishIds : []),
+            response.pairingDishId,
+          ].filter((id): id is string => typeof id === 'string' && id.length > 0)
+        )
+      ).slice(0, 5);
 
-          if (dinerSession && dinerSession.restaurantId === restaurantId) {
-            resolvedSessionId = dinerSession.id;
-            await prisma.chatMessage.createMany({
+      const persistenceTasks: Promise<unknown>[] = [];
+
+      if (validSession) {
+        persistenceTasks.push(
+          prisma.chatMessage
+            .createMany({
               data: [
                 {
-                  sessionId: dinerSession.id,
+                  sessionId: validSession.id,
                   restaurantId,
                   sender: 'USER',
                   content: message,
                 },
                 {
-                  sessionId: dinerSession.id,
+                  sessionId: validSession.id,
                   restaurantId,
                   sender: 'ASSISTANT',
                   content: response.message,
@@ -98,40 +117,37 @@ export async function POST(req: Request) {
                   },
                 },
               ],
-            });
-          }
-        } catch (persistErr) {
-          console.warn('Failed to persist diner chat transcript:', persistErr);
-        }
+            })
+            .catch((persistErr) =>
+              console.warn('Failed to persist diner chat transcript:', persistErr)
+            )
+        );
       }
 
-      // Log real CHAT_QUERY interactions for grounded menu items discussed or recommended
-      const engagedDishIds = Array.from(
-        new Set(
-          [
-            response.selectedDishId,
-            ...(Array.isArray(response.dishIds) ? response.dishIds : []),
-            response.pairingDishId,
-          ].filter((id): id is string => typeof id === 'string' && id.length > 0)
-        )
-      ).slice(0, 5);
-
       if (engagedDishIds.length > 0) {
-        try {
-          await prisma.dishInteractionEvent.createMany({
-            data: engagedDishIds.map((dishId) => ({
-              restaurantId,
-              menuItemId: dishId,
-              eventType:
-                response.pairingDishId && dishId === response.pairingDishId && dishId !== response.selectedDishId
-                  ? 'PAIRING_CLICK'
-                  : 'CHAT_QUERY',
-              sessionId: resolvedSessionId,
-            })),
-          });
-        } catch (telemetryErr) {
-          console.warn('Failed to record chat dish interaction events:', telemetryErr);
-        }
+        persistenceTasks.push(
+          prisma.dishInteractionEvent
+            .createMany({
+              data: engagedDishIds.map((dishId) => ({
+                restaurantId,
+                menuItemId: dishId,
+                eventType:
+                  response.pairingDishId &&
+                  dishId === response.pairingDishId &&
+                  dishId !== response.selectedDishId
+                    ? 'PAIRING_CLICK'
+                    : 'CHAT_QUERY',
+                sessionId: resolvedSessionId,
+              })),
+            })
+            .catch((telemetryErr) =>
+              console.warn('Failed to record chat dish interaction events:', telemetryErr)
+            )
+        );
+      }
+
+      if (persistenceTasks.length > 0) {
+        await Promise.all(persistenceTasks);
       }
     }
 

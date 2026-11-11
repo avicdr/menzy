@@ -19,7 +19,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'restaurantId is required' }, { status: 400 });
     }
 
-    const auth = await requireRestaurantAccess(restaurantId);
+    const auth = await requireRestaurantAccess(restaurantId, {
+      includeSettings: false,
+      includeTheme: false,
+    });
     if (!auth.authorized || !auth.restaurant?.organizationId) {
       return createOwnerAccessDeniedResponse(auth, 403);
     }
@@ -90,28 +93,37 @@ export async function POST(req: Request) {
             }
           );
 
+          const pendingUpdates: Array<{ id: string; canonicalId: string }> = [];
           for (let idx = 0; idx < itemsNeedingCanonicalMatch.length; idx++) {
             const targetItem = itemsNeedingCanonicalMatch[idx];
             const match = matches[idx];
             if (!match?.canonicalId || match.canonicalId === targetItem.canonicalId) {
               continue;
             }
+            pendingUpdates.push({ id: targetItem.id, canonicalId: match.canonicalId });
+          }
 
-            const linked = await prisma.restaurantMenuItem.update({
-              where: { id: targetItem.id },
-              data: { canonicalId: match.canonicalId },
-              include: {
-                category: true,
-                canonical: {
-                  include: { imageAsset: true },
-                },
-                imageOverride: true,
-              },
-            });
-
-            updatedItemsMap.set(linked.id, linked);
-            if (linked.canonical?.imageAssetId) {
-              canonicalLinkedCount++;
+          if (pendingUpdates.length > 0) {
+            const linkedRows = await prisma.$transaction(
+              pendingUpdates.map((u) =>
+                prisma.restaurantMenuItem.update({
+                  where: { id: u.id },
+                  data: { canonicalId: u.canonicalId },
+                  include: {
+                    category: true,
+                    canonical: {
+                      include: { imageAsset: true },
+                    },
+                    imageOverride: true,
+                  },
+                })
+              )
+            );
+            for (const linked of linkedRows) {
+              updatedItemsMap.set(linked.id, linked);
+              if (linked.canonical?.imageAssetId) {
+                canonicalLinkedCount++;
+              }
             }
           }
         } catch (canonErr) {

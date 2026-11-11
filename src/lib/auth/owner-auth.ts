@@ -161,7 +161,11 @@ export function createOwnerAccessDeniedResponse(
  */
 export async function requireRestaurantAccess(
   restaurantIdOrSlug: string,
-  options?: { allowDuringExpiredSubscription?: boolean }
+  options?: {
+    allowDuringExpiredSubscription?: boolean;
+    includeSettings?: boolean;
+    includeTheme?: boolean;
+  }
 ): Promise<RequireRestaurantAccessResult> {
   const verified = await getVerifiedOwnerCookie();
   if (!verified) {
@@ -169,6 +173,9 @@ export async function requireRestaurantAccess(
   }
 
   const now = new Date();
+  const includeSettings = options?.includeSettings ?? true;
+  const includeTheme = options?.includeTheme ?? true;
+
   const [dbUser, restaurant] = await Promise.all([
     prisma.user.findUnique({
       where: { id: verified.userId },
@@ -195,8 +202,25 @@ export async function requireRestaurantAccess(
       },
       include: {
         organization: {
-          include: {
-            subscriptions: true,
+          select: {
+            id: true,
+            name: true,
+            billingCountry: true,
+            billingCurrency: true,
+            subscriptions: {
+              take: 1,
+              select: {
+                id: true,
+                planKey: true,
+                status: true,
+                provider: true,
+                currency: true,
+                billingPeriod: true,
+                paidThrough: true,
+                cancelAtPeriodEnd: true,
+                createdAt: true,
+              },
+            },
             entitlements: {
               where: {
                 isActive: true,
@@ -212,8 +236,8 @@ export async function requireRestaurantAccess(
             },
           },
         },
-        settings: true,
-        theme: true,
+        ...(includeSettings ? { settings: true } : {}),
+        ...(includeTheme ? { theme: true } : {}),
       },
     }),
   ]);

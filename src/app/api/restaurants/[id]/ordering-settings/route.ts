@@ -7,6 +7,12 @@ import {
   extractTableSessionConfig,
   normalizeTableSessionConfigInput,
 } from '@/lib/diner/table-session-config';
+import {
+  normalizeServiceChargeInput,
+  normalizeTaxPercentageInput,
+} from '@/lib/orders/tax-config';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   req: Request,
@@ -14,7 +20,10 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const auth = await verifyRestaurantOwnerAccess(id);
+    const auth = await verifyRestaurantOwnerAccess(id, {
+      includeOrderingSettings: false,
+      includeTheme: false,
+    });
     if (!auth.authorized) {
       return createTenantAccessDeniedResponse(auth);
     }
@@ -34,10 +43,13 @@ export async function GET(
       update: {},
     });
 
-    return NextResponse.json({
-      settings,
-      tableSession: extractTableSessionConfig(settings.notificationSettings),
-    });
+    return NextResponse.json(
+      {
+        settings,
+        tableSession: extractTableSessionConfig(settings.notificationSettings),
+      },
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (error: any) {
     console.error('Ordering settings GET error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -50,7 +62,10 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const auth = await verifyRestaurantOwnerAccess(id);
+    const auth = await verifyRestaurantOwnerAccess(id, {
+      includeOrderingSettings: false,
+      includeTheme: false,
+    });
     if (!auth.authorized) {
       return createTenantAccessDeniedResponse(auth);
     }
@@ -79,10 +94,18 @@ export async function PATCH(
       if (valid.includes(paymentMode)) data.paymentMode = paymentMode;
     }
     if (taxPercentage !== undefined) {
-      data.taxPercentage = Math.max(0, Math.min(100, Number(taxPercentage) || 0));
+      const parsedTax = normalizeTaxPercentageInput(taxPercentage);
+      if (!parsedTax.ok) {
+        return NextResponse.json({ error: parsedTax.error }, { status: 400 });
+      }
+      data.taxPercentage = parsedTax.taxPercentage;
     }
     if (serviceChargePercentage !== undefined) {
-      data.serviceChargePercentage = Math.max(0, Math.min(100, Number(serviceChargePercentage) || 0));
+      const parsedServiceCharge = normalizeServiceChargeInput(serviceChargePercentage);
+      if (!parsedServiceCharge.ok) {
+        return NextResponse.json({ error: parsedServiceCharge.error }, { status: 400 });
+      }
+      data.serviceChargePercentage = parsedServiceCharge.serviceChargePercentage;
     }
     if (maxActiveOrders !== undefined) {
       data.maxActiveOrders = Math.max(1, Math.min(500, Number(maxActiveOrders) || 50));
@@ -152,20 +175,19 @@ export async function PATCH(
     });
 
     // Invalidate restaurant diner cache if exists
-    const rest = await prisma.restaurant.findUnique({
-      where: { id: auth.restaurant.id },
-      select: { slug: true },
-    });
-    if (rest?.slug) {
+    if (auth.restaurant.slug) {
       const cache = getCache();
-      await cache.del(`menu:slug:${rest.slug}`);
+      await cache.del(`menu:slug:${auth.restaurant.slug}`);
     }
 
-    return NextResponse.json({
-      success: true,
-      settings,
-      tableSession: extractTableSessionConfig(settings.notificationSettings),
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        settings,
+        tableSession: extractTableSessionConfig(settings.notificationSettings),
+      },
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (error: any) {
     console.error('Ordering settings PATCH error:', error);
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });

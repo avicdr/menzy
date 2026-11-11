@@ -9,7 +9,9 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const auth = await verifyStaffOrOwnerAccess(id, 'VIEW_HISTORY');
+    const auth = await verifyStaffOrOwnerAccess(id, 'VIEW_HISTORY', {
+      includeDetails: false,
+    });
     if (!auth.authorized) {
       return createTenantAccessDeniedResponse(auth);
     }

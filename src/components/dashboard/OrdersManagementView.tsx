@@ -40,19 +40,38 @@ import {
   MIN_TABLE_SESSION_MINUTES,
   normalizeTableSessionConfigInput,
 } from '@/lib/diner/table-session-config';
+import {
+  DEFAULT_SERVICE_CHARGE_PERCENTAGE,
+  DEFAULT_TAX_PERCENTAGE,
+  MAX_SERVICE_CHARGE_PERCENTAGE,
+  MAX_TAX_PERCENTAGE,
+  MIN_SERVICE_CHARGE_PERCENTAGE,
+  MIN_TAX_PERCENTAGE,
+  normalizeServiceChargeInput,
+  normalizeTaxPercentageInput,
+  resolveServiceChargePercentageValue,
+  resolveTaxPercentageValue,
+} from '@/lib/orders/tax-config';
+import dynamic from 'next/dynamic';
 import { Modal } from '@/components/ui/Modal';
-import { GooglePlacesModal } from './GooglePlacesModal';
+
+const GooglePlacesModal = dynamic(
+  () => import('./GooglePlacesModal').then((m) => m.GooglePlacesModal),
+  { ssr: false }
+);
 
 interface OrdersManagementViewProps {
   restaurant: any;
   initialSubTab?: 'live' | 'history' | 'analytics' | 'settings';
   onSubscriptionExpired?: (payload: any) => void;
+  onTaxSettingsUpdated?: (taxPercentage: number, serviceChargePercentage: number) => void;
 }
 
 export function OrdersManagementView({
   restaurant,
   initialSubTab = 'live',
   onSubscriptionExpired,
+  onTaxSettingsUpdated,
 }: OrdersManagementViewProps) {
   const [activeSubTab, setActiveSubTab] = useState<'live' | 'history' | 'analytics' | 'settings'>(
     initialSubTab
@@ -77,6 +96,8 @@ export function OrdersManagementView({
   const inFlightMutationsRef = useRef<Map<string, number>>(new Map());
   const recentlyUpdatedRef = useRef<Map<string, { status: string; expiresAt: number }>>(new Map());
   const mutationSeqRef = useRef(0);
+  const inFlightPollRef = useRef(false);
+  const tablesLoadedRef = useRef(false);
 
   // History Orders
   const [historyOrders, setHistoryOrders] = useState<any[]>([]);
@@ -108,6 +129,10 @@ export function OrdersManagementView({
     scanTimeoutMinutes: String(DEFAULT_SCAN_TIMEOUT_MINUTES),
     orderExtensionMinutes: String(DEFAULT_ORDER_EXTENSION_MINUTES),
   });
+  const [taxInputs, setTaxInputs] = useState({
+    taxPercentage: String(DEFAULT_TAX_PERCENTAGE),
+    serviceChargePercentage: String(DEFAULT_SERVICE_CHARGE_PERCENTAGE),
+  });
   const [googleReviewUrl, setGoogleReviewUrl] = useState(restaurant?.googleReviewUrl || '');
   const [isPlacesModalOpen, setIsPlacesModalOpen] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -117,20 +142,33 @@ export function OrdersManagementView({
     setTimeout(() => setSuccessMsg(null), 3500);
   };
 
-  // 1. Load Live Orders + Tables + Service Calls
+  // 1. Load Live Orders + Service Calls (+ Tables on initial/manual refresh only)
   const loadLiveOrders = async (silent = false) => {
+    if (silent && inFlightPollRef.current) return;
+    inFlightPollRef.current = true;
     const fetchStartedAt = Date.now();
+    const shouldFetchTables = !silent || !tablesLoadedRef.current;
     try {
       if (!silent) setLoading(true);
       setError(null);
-      const [ordersRes, tablesRes, callsRes] = await Promise.all([
+      const [ordersRes, callsRes, tablesRes] = await Promise.all([
         fetch(`/api/restaurants/${restaurant.id}/orders?limit=50`),
-        fetch(`/api/restaurants/${restaurant.id}/tables`),
         fetch(`/api/restaurants/${restaurant.id}/service-calls`),
+        shouldFetchTables
+          ? fetch(`/api/restaurants/${restaurant.id}/tables`)
+          : Promise.resolve(null),
       ]);
-      if (ordersRes.status === 402 || tablesRes.status === 402 || callsRes.status === 402) {
+      if (
+        ordersRes.status === 402 ||
+        callsRes.status === 402 ||
+        tablesRes?.status === 402
+      ) {
         const pausedRes =
-          ordersRes.status === 402 ? ordersRes : tablesRes.status === 402 ? tablesRes : callsRes;
+          ordersRes.status === 402
+            ? ordersRes
+            : callsRes.status === 402
+              ? callsRes
+              : tablesRes!;
         const payload = await pausedRes.json().catch(() => ({}));
         setSubscriptionPaused(true);
         onSubscriptionExpired?.(payload);
@@ -183,9 +221,10 @@ export function OrdersManagementView({
       });
       setLiveOrdersLoaded(true);
 
-      if (tablesRes.ok) {
+      if (tablesRes && tablesRes.ok) {
         const tablesData = await tablesRes.json();
         setTables(tablesData.tables || []);
+        tablesLoadedRef.current = true;
       }
 
       if (callsRes.ok) {
@@ -195,6 +234,7 @@ export function OrdersManagementView({
     } catch (err: any) {
       if (!silent) setError(err.message || 'Error loading live orders');
     } finally {
+      inFlightPollRef.current = false;
       if (!silent) setLoading(false);
     }
   };
@@ -270,19 +310,28 @@ export function OrdersManagementView({
           const wifi = data.settings.notificationSettings?.wifi || {};
           const tableSession =
             data.tableSession ?? extractTableSessionConfig(data.settings.notificationSettings);
+          const resolvedTax = resolveTaxPercentageValue(data.settings.taxPercentage);
+          const resolvedServiceCharge = resolveServiceChargePercentageValue(
+            data.settings.serviceChargePercentage
+          );
           setOrderingSettings({
             orderingEnabled: data.settings.orderingEnabled ?? true,
             acceptsNewOrders: data.settings.acceptsNewOrders ?? true,
             allowSpecialInstructions: data.settings.allowSpecialInstructions ?? true,
             paymentMode: data.settings.paymentMode ?? 'PAY_AT_COUNTER',
-            taxPercentage: Number(data.settings.taxPercentage) || 5.0,
-            serviceChargePercentage: Number(data.settings.serviceChargePercentage) || 0.0,
+            taxPercentage: resolvedTax,
+            serviceChargePercentage: resolvedServiceCharge,
             maxActiveOrders: Number(data.settings.maxActiveOrders) || 50,
             wifiEnabled: Boolean(wifi.enabled),
             wifiSsid: wifi.ssid || '',
             wifiPassword: wifi.password || '',
             wifiSecurity: wifi.security || 'WPA',
           });
+          setTaxInputs({
+            taxPercentage: String(resolvedTax),
+            serviceChargePercentage: String(resolvedServiceCharge),
+          });
+          onTaxSettingsUpdated?.(resolvedTax, resolvedServiceCharge);
           setTableSessionTimers({
             scanTimeoutMinutes: String(tableSession.scanTimeoutMinutes),
             orderExtensionMinutes: String(tableSession.orderExtensionMinutes),
@@ -304,8 +353,26 @@ export function OrdersManagementView({
     if (restaurant?.id && !subscriptionPaused) {
       if (activeSubTab === 'live') {
         loadLiveOrders();
-        const interval = setInterval(() => loadLiveOrders(true), 8000);
-        return () => clearInterval(interval);
+        const interval = setInterval(() => {
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+            return;
+          }
+          loadLiveOrders(true);
+        }, 8000);
+        const handleVisibilityChange = () => {
+          if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+            loadLiveOrders(true);
+          }
+        };
+        if (typeof document !== 'undefined') {
+          document.addEventListener('visibilitychange', handleVisibilityChange);
+        }
+        return () => {
+          clearInterval(interval);
+          if (typeof document !== 'undefined') {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+          }
+        };
       }
       if (activeSubTab === 'history') loadHistoryOrders(1);
       if (activeSubTab === 'analytics') loadAnalytics();
@@ -453,6 +520,20 @@ export function OrdersManagementView({
       return;
     }
 
+    const parsedTax = normalizeTaxPercentageInput(taxInputs.taxPercentage.trim());
+    if (!parsedTax.ok) {
+      setError(parsedTax.error);
+      return;
+    }
+
+    const parsedServiceCharge = normalizeServiceChargeInput(
+      taxInputs.serviceChargePercentage.trim()
+    );
+    if (!parsedServiceCharge.ok) {
+      setError(parsedServiceCharge.error);
+      return;
+    }
+
     try {
       setIsSavingSettings(true);
       setError(null);
@@ -463,6 +544,8 @@ export function OrdersManagementView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...orderingSettings,
+          taxPercentage: parsedTax.taxPercentage,
+          serviceChargePercentage: parsedServiceCharge.serviceChargePercentage,
           tableSession: parsedTimers.tableSession,
           wifi: {
             enabled: orderingSettings.wifiEnabled,
@@ -479,6 +562,25 @@ export function OrdersManagementView({
         return;
       }
       if (!res.ok) throw new Error(data.error || 'Failed to save settings');
+
+      const savedTax = resolveTaxPercentageValue(
+        data.settings?.taxPercentage,
+        parsedTax.taxPercentage
+      );
+      const savedServiceCharge = resolveServiceChargePercentageValue(
+        data.settings?.serviceChargePercentage,
+        parsedServiceCharge.serviceChargePercentage
+      );
+      setOrderingSettings((prev) => ({
+        ...prev,
+        taxPercentage: savedTax,
+        serviceChargePercentage: savedServiceCharge,
+      }));
+      setTaxInputs({
+        taxPercentage: String(savedTax),
+        serviceChargePercentage: String(savedServiceCharge),
+      });
+      onTaxSettingsUpdated?.(savedTax, savedServiceCharge);
 
       if (data.tableSession) {
         setTableSessionTimers({
@@ -1544,22 +1646,24 @@ export function OrdersManagementView({
                 <div className="relative">
                   <input
                     type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    value={orderingSettings.taxPercentage}
-                    onChange={(e) =>
-                      setOrderingSettings({
-                        ...orderingSettings,
-                        taxPercentage: parseFloat(e.target.value) || 0,
-                      })
-                    }
+                    step="0.01"
+                    min={MIN_TAX_PERCENTAGE}
+                    max={MAX_TAX_PERCENTAGE}
+                    required
+                    value={taxInputs.taxPercentage}
+                    onChange={(e) => {
+                      setError(null);
+                      setTaxInputs((prev) => ({
+                        ...prev,
+                        taxPercentage: e.target.value,
+                      }));
+                    }}
                     className="w-full px-3 py-2 pr-8 rounded-xl border border-cream-300 bg-cream-50 focus:bg-white text-xs sm:text-sm font-mono text-espresso-900"
                   />
                   <Percent className="w-3.5 h-3.5 text-taupe-400 absolute right-3 top-3" />
                 </div>
                 <span className="text-[11px] text-taupe-400 mt-1 block">
-                  India standard is 5.0% GST
+                  India standard is 5.0% GST (enter 0 for no tax)
                 </span>
               </div>
 
@@ -1570,16 +1674,18 @@ export function OrdersManagementView({
                 <div className="relative">
                   <input
                     type="number"
-                    step="0.1"
-                    min="0"
-                    max="50"
-                    value={orderingSettings.serviceChargePercentage}
-                    onChange={(e) =>
-                      setOrderingSettings({
-                        ...orderingSettings,
-                        serviceChargePercentage: parseFloat(e.target.value) || 0,
-                      })
-                    }
+                    step="0.01"
+                    min={MIN_SERVICE_CHARGE_PERCENTAGE}
+                    max={MAX_SERVICE_CHARGE_PERCENTAGE}
+                    required
+                    value={taxInputs.serviceChargePercentage}
+                    onChange={(e) => {
+                      setError(null);
+                      setTaxInputs((prev) => ({
+                        ...prev,
+                        serviceChargePercentage: e.target.value,
+                      }));
+                    }}
                     className="w-full px-3 py-2 pr-8 rounded-xl border border-cream-300 bg-cream-50 focus:bg-white text-xs sm:text-sm font-mono text-espresso-900"
                   />
                   <Percent className="w-3.5 h-3.5 text-taupe-400 absolute right-3 top-3" />
@@ -1930,7 +2036,11 @@ export function OrdersManagementView({
                 <span className="font-mono">{formatPrice(selectedOrderForDetail.subtotalMinor || 0)}</span>
               </div>
               <div className="flex justify-between text-taupe-600">
-                <span>Tax ({selectedOrderForDetail.taxPercentageSnapshot || 0}%):</span>
+                <span>
+                  {selectedOrderForDetail.taxPercentageSnapshot != null
+                    ? `Tax (${selectedOrderForDetail.taxPercentageSnapshot}%):`
+                    : 'Tax:'}
+                </span>
                 <span className="font-mono">{formatPrice(selectedOrderForDetail.taxMinor || 0)}</span>
               </div>
               {selectedOrderForDetail.serviceChargeMinor > 0 && (

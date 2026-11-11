@@ -3,63 +3,169 @@ import prisma from '@/lib/db/prisma';
 import { getStaffSession } from '@/lib/auth/staff-auth';
 import { getOwnerSession } from '@/lib/auth/owner-auth';
 import {
-  checkRestaurantSubscriptionAccess,
-  createSubscriptionExpiredResponse,
+  buildSubscriptionExpiredPayload,
+  evaluateOrganizationAccess,
 } from '@/lib/billing/subscription-access';
 
-export async function GET(req: Request) {
+export async function GET(_req?: Request) {
   try {
-    let restaurantId: string | null = null;
+    // Check staff and owner sessions concurrently in 1 round trip
+    const [staffSession, ownerSession] = await Promise.all([
+      getStaffSession(),
+      getOwnerSession(),
+    ]);
+
+    const now = new Date();
     let actorName = 'Staff';
     let actorRole = 'KITCHEN';
+    let restaurant: {
+      id: string;
+      displayName: string;
+      slug: string;
+      currency: string;
+      isClaimed: boolean;
+      organizationId: string | null;
+      organization: {
+        subscriptions: Array<{
+          planKey: string;
+          status: string;
+          provider: string;
+          billingPeriod: string;
+          paidThrough: Date | null;
+          cancelAtPeriodEnd: boolean;
+          createdAt: Date;
+        }>;
+        entitlements: Array<{
+          grantType: string;
+          tierOrValue: string | null;
+          isActive: boolean;
+          expirationDate: Date;
+        }>;
+      } | null;
+    } | null = null;
 
-    // 1. Try staff session
-    const staffSession = await getStaffSession();
     if (staffSession) {
-      restaurantId = staffSession.restaurantId;
       actorName = staffSession.displayName;
       actorRole = staffSession.role;
-    } else {
-      // 2. Try owner session
-      const ownerSession = await getOwnerSession();
-      if (ownerSession && ownerSession.organizations.length > 0) {
-        const orgId = ownerSession.organizations[0].id;
-        const rest = await prisma.restaurant.findFirst({
-          where: { organizationId: orgId },
+      // If getStaffSession already hydrated organization subscription/entitlements, verify without extra query
+      if ('organization' in staffSession && staffSession.organization !== undefined) {
+        restaurant = {
+          id: staffSession.restaurantId,
+          displayName: staffSession.restaurantName,
+          slug: staffSession.restaurantSlug,
+          currency: staffSession.currency ?? 'INR',
+          isClaimed: staffSession.isClaimed ?? true,
+          organizationId: staffSession.organizationId ?? null,
+          organization: staffSession.organization,
+        };
+      } else {
+        restaurant = await prisma.restaurant.findUnique({
+          where: { id: staffSession.restaurantId },
+          select: {
+            id: true,
+            displayName: true,
+            slug: true,
+            currency: true,
+            isClaimed: true,
+            organizationId: true,
+            organization: {
+              select: {
+                subscriptions: {
+                  take: 1,
+                  select: {
+                    planKey: true,
+                    status: true,
+                    provider: true,
+                    billingPeriod: true,
+                    paidThrough: true,
+                    cancelAtPeriodEnd: true,
+                    createdAt: true,
+                  },
+                },
+                entitlements: {
+                  where: { isActive: true, expirationDate: { gt: now } },
+                  select: {
+                    grantType: true,
+                    tierOrValue: true,
+                    isActive: true,
+                    expirationDate: true,
+                  },
+                },
+              },
+            },
+          },
         });
-        if (rest) {
-          restaurantId = rest.id;
-          actorName = ownerSession.name || ownerSession.email;
-          actorRole = 'OWNER';
-        }
       }
-    }
-
-    if (!restaurantId) {
-      return NextResponse.json({ error: 'Unauthorized: Please log in to order portal.' }, { status: 401 });
-    }
-
-    const subAccess = await checkRestaurantSubscriptionAccess(restaurantId, { byIdOnly: true });
-    if (!subAccess.found || !subAccess.restaurant) {
-      return NextResponse.json({ error: 'Restaurant not found.' }, { status: 404 });
-    }
-    if (!subAccess.access.allowed) {
-      return createSubscriptionExpiredResponse(subAccess.access, {
-        restaurantId: subAccess.restaurant.id,
-        restaurantSlug: subAccess.restaurant.slug,
-        restaurantName: subAccess.restaurant.displayName,
-        audience: 'STAFF',
+    } else if (ownerSession && ownerSession.organizations.length > 0) {
+      actorName = ownerSession.name || ownerSession.email;
+      actorRole = 'OWNER';
+      const orgId = ownerSession.organizations[0].id;
+      restaurant = await prisma.restaurant.findFirst({
+        where: { organizationId: orgId },
+        select: {
+          id: true,
+          displayName: true,
+          slug: true,
+          currency: true,
+          isClaimed: true,
+          organizationId: true,
+          organization: {
+            select: {
+              subscriptions: {
+                take: 1,
+                select: {
+                  planKey: true,
+                  status: true,
+                  provider: true,
+                  billingPeriod: true,
+                  paidThrough: true,
+                  cancelAtPeriodEnd: true,
+                  createdAt: true,
+                },
+              },
+              entitlements: {
+                where: { isActive: true, expirationDate: { gt: now } },
+                select: {
+                  grantType: true,
+                  tierOrValue: true,
+                  isActive: true,
+                  expirationDate: true,
+                },
+              },
+            },
+          },
+        },
       });
     }
 
-    const restaurant = await prisma.restaurant.findUnique({
-      where: { id: restaurantId },
-      select: { id: true, displayName: true, slug: true, currency: true },
+    if (!restaurant) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Please log in to order portal.' },
+        { status: 401 }
+      );
+    }
+
+    const access = evaluateOrganizationAccess({
+      organizationId: restaurant.organizationId,
+      isClaimed: restaurant.isClaimed,
+      subscription: restaurant.organization?.subscriptions?.[0] ?? null,
+      activeGrants: restaurant.organization?.entitlements ?? [],
+      now,
     });
 
-    if (!restaurant) {
-      return NextResponse.json({ error: 'Restaurant not found.' }, { status: 404 });
+    if (!access.allowed) {
+      return NextResponse.json(
+        buildSubscriptionExpiredPayload(access, {
+          restaurantId: restaurant.id,
+          restaurantSlug: restaurant.slug,
+          restaurantName: restaurant.displayName,
+          audience: 'STAFF',
+        }),
+        { status: 402, headers: { 'Cache-Control': 'no-store, max-age=0' } }
+      );
     }
+
+    const restaurantId = restaurant.id;
 
     const orders = await prisma.order.findMany({
       where: {
@@ -69,13 +175,37 @@ export async function GET(req: Request) {
         },
       },
       orderBy: { placedAt: 'desc' },
-      include: {
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        currency: true,
+        subtotalMinor: true,
+        taxMinor: true,
+        serviceChargeMinor: true,
+        totalMinor: true,
+        paymentMethod: true,
+        paymentStatus: true,
+        specialInstructions: true,
+        placedAt: true,
+        acceptedAt: true,
+        preparingAt: true,
+        readyAt: true,
+        servedAt: true,
+        completedAt: true,
         table: { select: { id: true, name: true, section: true } },
-        items: true,
-        statusHistory: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          include: { staff: { select: { displayName: true } } },
+        items: {
+          select: {
+            id: true,
+            dishNameSnapshot: true,
+            variantSnapshot: true,
+            modifierSnapshot: true,
+            quantity: true,
+            unitPriceMinor: true,
+            modifiersTotalMinor: true,
+            lineTotalMinor: true,
+            specialInstructions: true,
+          },
         },
       },
     });

@@ -20,7 +20,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'restaurantId is required' }, { status: 400 });
     }
 
-    const auth = await requireRestaurantAccess(restaurantId);
+    const auth = await requireRestaurantAccess(restaurantId, {
+      includeSettings: false,
+      includeTheme: false,
+    });
     if (!auth.authorized) {
       return createOwnerAccessDeniedResponse(auth, 403);
     }
@@ -89,11 +92,12 @@ export async function POST(req: Request) {
       });
     }
 
-    const uploadedKeys: string[] = [];
-    for (const item of validatedFiles) {
-      const res = await uploadAsset(item.buffer, item.normalizedFileName, item.mimeType, 'menus');
-      uploadedKeys.push(res.publicUrl);
-    }
+    const uploadResults = await Promise.all(
+      validatedFiles.map((item) =>
+        uploadAsset(item.buffer, item.normalizedFileName, item.mimeType, 'menus')
+      )
+    );
+    const uploadedKeys = uploadResults.map((res) => res.publicUrl);
 
     if (existingUpload) {
       const combinedKeys = [...existingKeys, ...uploadedKeys];

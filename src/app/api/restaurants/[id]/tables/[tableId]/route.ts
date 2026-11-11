@@ -8,7 +8,10 @@ export async function PATCH(
 ) {
   try {
     const { id, tableId } = await params;
-    const auth = await verifyRestaurantOwnerAccess(id);
+    const auth = await verifyRestaurantOwnerAccess(id, {
+      includeOrderingSettings: false,
+      includeTheme: false,
+    });
     if (!auth.authorized) {
       return createTenantAccessDeniedResponse(auth);
     }
@@ -70,7 +73,10 @@ export async function DELETE(
 ) {
   try {
     const { id, tableId } = await params;
-    const auth = await verifyRestaurantOwnerAccess(id);
+    const auth = await verifyRestaurantOwnerAccess(id, {
+      includeOrderingSettings: false,
+      includeTheme: false,
+    });
     if (!auth.authorized) {
       return createTenantAccessDeniedResponse(auth);
     }

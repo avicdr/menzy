@@ -10,6 +10,13 @@ import {
   normalizeTableSessionConfigInput,
   type TableSessionConfig,
 } from '@/lib/diner/table-session-config';
+import {
+  DEFAULT_SERVICE_CHARGE_PERCENTAGE,
+  normalizeServiceChargeInput,
+  normalizeTaxPercentageInput,
+  resolveServiceChargePercentageValue,
+  resolveTaxPercentageValue,
+} from '@/lib/orders/tax-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,7 +40,11 @@ export async function GET(req: Request) {
     const [orderingSettings, hydratedRestaurant] = await Promise.all([
       prisma.restaurantOrderingSettings.findUnique({
         where: { restaurantId: auth.restaurant.id },
-        select: { notificationSettings: true },
+        select: {
+          notificationSettings: true,
+          taxPercentage: true,
+          serviceChargePercentage: true,
+        },
       }),
       hasEmbeddedSettings
         ? Promise.resolve(null)
@@ -55,12 +66,19 @@ export async function GET(req: Request) {
     const notifSettings = (orderingSettings?.notificationSettings as Record<string, any>) || {};
     const wifi = notifSettings?.wifi || { enabled: false, ssid: '', password: '', security: 'WPA' };
     const tableSession = extractTableSessionConfig(notifSettings);
+    const taxPercentage = resolveTaxPercentageValue(orderingSettings?.taxPercentage);
+    const serviceChargePercentage = resolveServiceChargePercentageValue(
+      orderingSettings?.serviceChargePercentage,
+      DEFAULT_SERVICE_CHARGE_PERCENTAGE
+    );
 
     return NextResponse.json(
       {
         restaurant,
         wifi,
         tableSession,
+        taxPercentage,
+        serviceChargePercentage,
         theme,
         settings: restaurantRecord.settings || {
           welcomeMessage: 'Welcome! Explore our dishes or ask our AI waiter anything.',
@@ -96,6 +114,8 @@ export async function PATCH(req: Request) {
       coverUrl,
       wifi,
       tableSession,
+      taxPercentage,
+      serviceChargePercentage,
       welcomeMessage,
       aiTone,
       allowDinerChat,
@@ -107,9 +127,33 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'restaurantId is required' }, { status: 400 });
     }
 
-    const auth = await requireRestaurantAccess(restaurantId);
-    if (!auth.authorized) {
+    const auth = await requireRestaurantAccess(restaurantId, {
+      includeSettings: false,
+      includeTheme: false,
+    });
+    if (!auth.authorized || !auth.restaurant) {
       return createOwnerAccessDeniedResponse(auth, 403);
+    }
+
+    const targetRestaurantId = auth.restaurant.id;
+
+    // Validate tax & service charge percentages before mutating records
+    let savedTaxPercentage: number | undefined;
+    if (taxPercentage !== undefined) {
+      const parsedTax = normalizeTaxPercentageInput(taxPercentage);
+      if (!parsedTax.ok) {
+        return NextResponse.json({ error: parsedTax.error }, { status: 400 });
+      }
+      savedTaxPercentage = parsedTax.taxPercentage;
+    }
+
+    let savedServiceChargePercentage: number | undefined;
+    if (serviceChargePercentage !== undefined) {
+      const parsedService = normalizeServiceChargeInput(serviceChargePercentage);
+      if (!parsedService.ok) {
+        return NextResponse.json({ error: parsedService.error }, { status: 400 });
+      }
+      savedServiceChargePercentage = parsedService.serviceChargePercentage;
     }
 
     // Validate Wi-Fi configuration before mutating restaurant or settings records
@@ -130,7 +174,7 @@ export async function PATCH(req: Request) {
     let existingNotifSettings: Record<string, any> | undefined;
     if (tableSession !== undefined) {
       const existingOrd = await prisma.restaurantOrderingSettings.findUnique({
-        where: { restaurantId },
+        where: { restaurantId: targetRestaurantId },
         select: { notificationSettings: true },
       });
       existingNotifSettings = (existingOrd?.notificationSettings as Record<string, any>) || {};
@@ -164,12 +208,7 @@ export async function PATCH(req: Request) {
       restaurantUpdates.coverUrl = parsedCover.value;
     }
 
-    const updatedRestaurant = await prisma.restaurant.update({
-      where: { id: restaurantId },
-      data: restaurantUpdates,
-    });
-
-    // 2. Upsert RestaurantSettings
+    // 2. Prepare RestaurantSettings updates
     const settingsUpdates: any = {};
     if (welcomeMessage !== undefined) settingsUpdates.welcomeMessage = welcomeMessage;
     if (aiTone !== undefined) settingsUpdates.aiTone = aiTone;
@@ -177,45 +216,67 @@ export async function PATCH(req: Request) {
     if (allowPairings !== undefined) settingsUpdates.allowPairings = Boolean(allowPairings);
     if (maxDinerChatPerSession !== undefined) settingsUpdates.maxDinerChatPerSession = Number(maxDinerChatPerSession);
 
-    const updatedSettings = await prisma.restaurantSettings.upsert({
-      where: { restaurantId },
-      create: {
-        restaurantId,
-        welcomeMessage: welcomeMessage ?? 'Welcome! Explore our dishes or ask our AI waiter anything.',
-        aiTone: aiTone ?? 'Warm Editorial & Helpful',
-        allowDinerChat: allowDinerChat ?? true,
-        allowPairings: allowPairings ?? true,
-        maxDinerChatPerSession: maxDinerChatPerSession ? Number(maxDinerChatPerSession) : 25,
-      },
-      update: settingsUpdates,
-    });
+    const resolveOrderingUpdate = async () => {
+      const hasNotifUpdate = Boolean(savedWifi || savedTableSession);
+      const hasChargeUpdate =
+        savedTaxPercentage !== undefined || savedServiceChargePercentage !== undefined;
+      if (!hasNotifUpdate && !hasChargeUpdate) return null;
 
-    if (savedWifi || savedTableSession) {
-      const currentNotifs =
-        existingNotifSettings ??
-        ((
-          await prisma.restaurantOrderingSettings.findUnique({
-            where: { restaurantId },
-            select: { notificationSettings: true },
-          })
-        )?.notificationSettings as Record<string, any>) ??
-        {};
-      const nextNotifs: Record<string, any> = {
-        ...currentNotifs,
-        ...(savedWifi ? { wifi: savedWifi } : {}),
-        ...(savedTableSession ? { tableSession: { ...savedTableSession } } : {}),
+      let nextNotifs: Record<string, any> | undefined;
+      if (hasNotifUpdate) {
+        const currentNotifs =
+          existingNotifSettings ??
+          ((
+            await prisma.restaurantOrderingSettings.findUnique({
+              where: { restaurantId: targetRestaurantId },
+              select: { notificationSettings: true },
+            })
+          )?.notificationSettings as Record<string, any>) ??
+          {};
+        nextNotifs = {
+          ...currentNotifs,
+          ...(savedWifi ? { wifi: savedWifi } : {}),
+          ...(savedTableSession ? { tableSession: { ...savedTableSession } } : {}),
+        };
+      }
+
+      const orderingUpdates: any = {
+        ...(savedTaxPercentage !== undefined ? { taxPercentage: savedTaxPercentage } : {}),
+        ...(savedServiceChargePercentage !== undefined
+          ? { serviceChargePercentage: savedServiceChargePercentage }
+          : {}),
+        ...(nextNotifs ? { notificationSettings: nextNotifs as any } : {}),
       };
-      await prisma.restaurantOrderingSettings.upsert({
-        where: { restaurantId },
+
+      return prisma.restaurantOrderingSettings.upsert({
+        where: { restaurantId: targetRestaurantId },
         create: {
-          restaurantId,
-          notificationSettings: nextNotifs as any,
+          restaurantId: targetRestaurantId,
+          ...orderingUpdates,
         },
-        update: {
-          notificationSettings: nextNotifs as any,
-        },
+        update: orderingUpdates,
       });
-    }
+    };
+
+    const [updatedRestaurant, updatedSettings, updatedOrderingSettings] = await Promise.all([
+      prisma.restaurant.update({
+        where: { id: targetRestaurantId },
+        data: restaurantUpdates,
+      }),
+      prisma.restaurantSettings.upsert({
+        where: { restaurantId: targetRestaurantId },
+        create: {
+          restaurantId: targetRestaurantId,
+          welcomeMessage: welcomeMessage ?? 'Welcome! Explore our dishes or ask our AI waiter anything.',
+          aiTone: aiTone ?? 'Warm Editorial & Helpful',
+          allowDinerChat: allowDinerChat ?? true,
+          allowPairings: allowPairings ?? true,
+          maxDinerChatPerSession: maxDinerChatPerSession ? Number(maxDinerChatPerSession) : 25,
+        },
+        update: settingsUpdates,
+      }),
+      resolveOrderingUpdate(),
+    ]);
 
     // Invalidate public diner cache
     const cache = getCache();
@@ -227,6 +288,15 @@ export async function PATCH(req: Request) {
       settings: updatedSettings,
       ...(savedWifi ? { wifi: savedWifi } : {}),
       ...(savedTableSession ? { tableSession: savedTableSession } : {}),
+      ...(updatedOrderingSettings
+        ? {
+            taxPercentage: resolveTaxPercentageValue(updatedOrderingSettings.taxPercentage),
+            serviceChargePercentage: resolveServiceChargePercentageValue(
+              updatedOrderingSettings.serviceChargePercentage,
+              DEFAULT_SERVICE_CHARGE_PERCENTAGE
+            ),
+          }
+        : {}),
     });
   } catch (error: any) {
     console.error('Restaurant settings PATCH error:', error);

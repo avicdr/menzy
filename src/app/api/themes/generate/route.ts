@@ -25,7 +25,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'restaurantId required' }, { status: 400 });
     }
 
-    const auth = await requireRestaurantAccess(restaurantId);
+    const auth = await requireRestaurantAccess(restaurantId, {
+      includeSettings: false,
+      includeTheme: false,
+    });
     if (!auth.authorized) {
       return createOwnerAccessDeniedResponse(
         auth,

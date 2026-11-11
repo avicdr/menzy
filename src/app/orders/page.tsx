@@ -108,6 +108,7 @@ export default function StaffOrderPortalPage() {
   const inFlightMutationsRef = useRef<Map<string, number>>(new Map());
   const recentlyUpdatedRef = useRef<Map<string, { status: string; expiresAt: number }>>(new Map());
   const mutationSeqRef = useRef(0);
+  const inFlightPollRef = useRef(false);
 
   // Load sound setting from localStorage
   useEffect(() => {
@@ -128,6 +129,10 @@ export default function StaffOrderPortalPage() {
 
   // Fetch active orders & service calls via the staff-aware _auto endpoint
   const fetchOrders = async (isManual = false) => {
+    if (inFlightPollRef.current && !isManual) {
+      return;
+    }
+    inFlightPollRef.current = true;
     const fetchStartedAt = Date.now();
     try {
       if (isManual) setRefreshing(true);
@@ -251,6 +256,7 @@ export default function StaffOrderPortalPage() {
     } catch (err: any) {
       console.error('Fetch orders error:', err);
     } finally {
+      inFlightPollRef.current = false;
       setLoading(false);
       setRefreshing(false);
     }
@@ -291,12 +297,29 @@ export default function StaffOrderPortalPage() {
     if (subscriptionPaused) return;
     fetchOrders();
 
-    // 4-second polling loop
+    // Visibility-aware 4-second polling loop with overlap guard
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
       fetchOrders();
     }, 4000);
 
-    return () => clearInterval(interval);
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchOrders();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
   }, [subscriptionPaused]);
 
   const handleUpdateStatus = async (orderId: string, targetStatus: string, reason?: string) => {

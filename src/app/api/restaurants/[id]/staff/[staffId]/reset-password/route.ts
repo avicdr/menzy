@@ -9,7 +9,10 @@ export async function POST(
 ) {
   try {
     const { id, staffId } = await params;
-    const auth = await verifyRestaurantOwnerAccess(id);
+    const auth = await verifyRestaurantOwnerAccess(id, {
+      includeOrderingSettings: false,
+      includeTheme: false,
+    });
     if (!auth.authorized) {
       return createTenantAccessDeniedResponse(auth);
     }

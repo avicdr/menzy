@@ -41,6 +41,17 @@ export const BODY_FONT_OPTIONS = [
 
 const SANS_FONT_SET = new Set(['DM Sans', 'Manrope', 'Plus Jakarta Sans', 'Outfit', 'Inter']);
 
+const FONT_CSS_VAR_MAP: Record<string, string> = {
+  'Plus Jakarta Sans': 'var(--font-next-plus-jakarta-sans)',
+  Inter: 'var(--font-next-inter)',
+  'DM Sans': 'var(--font-next-dm-sans)',
+  Lora: 'var(--font-next-lora)',
+  'DM Serif Display': 'var(--font-next-dm-serif-display)',
+  'Playfair Display': 'var(--font-next-playfair-display)',
+  Manrope: 'var(--font-next-manrope)',
+  Outfit: 'var(--font-next-outfit)',
+};
+
 /**
  * Replaces legacy condensed fonts with clean static web-safe alternatives
  */
@@ -52,9 +63,11 @@ export function normalizeThemeFont(font: string | null | undefined, fallback: st
 
 export function buildFontCssStack(font: string | null | undefined, fallback: string): string {
   const normalized = normalizeThemeFont(font, fallback);
+  const cssVar = FONT_CSS_VAR_MAP[normalized];
+  const fontRef = cssVar ? `${cssVar}, '${normalized}'` : `'${normalized}'`;
   return SANS_FONT_SET.has(normalized)
-    ? `'${normalized}', -apple-system, BlinkMacSystemFont, sans-serif`
-    : `'${normalized}', Georgia, serif`;
+    ? `${fontRef}, -apple-system, BlinkMacSystemFont, sans-serif`
+    : `${fontRef}, Georgia, serif`;
 }
 
 export const THEME_PRESETS: Record<string, ThemeConfig> = {

@@ -12,7 +12,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'restaurantId required' }, { status: 400 });
     }
 
-    const auth = await requireRestaurantAccess(restaurantId);
+    const auth = await requireRestaurantAccess(restaurantId, {
+      includeSettings: false,
+      includeTheme: false,
+    });
     if (!auth.authorized) {
       return createOwnerAccessDeniedResponse(auth, 403);
     }
@@ -22,6 +25,7 @@ export async function POST(req: Request) {
     const restaurant = await prisma.restaurant.update({
       where: { id: restaurantId },
       data: { publicationState: state },
+      select: { slug: true, publicationState: true },
     });
 
     // Invalidate public Redis cache

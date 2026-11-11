@@ -3,6 +3,7 @@ import prisma from '@/lib/db/prisma';
 import { getAdminSession, logAdminAction } from '@/lib/auth/admin-auth';
 import { getCanonicalDisplayMeta } from '@/lib/canonical/catalog';
 import { invalidateCanonicalIndexCache } from '@/lib/canonical/matcher';
+import { getCache } from '@/lib/cache/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,6 +87,7 @@ export async function POST(req: Request) {
       });
 
       invalidateCanonicalIndexCache();
+      await getCache().del('canonical:library:all');
       return NextResponse.json({ success: true, dish });
     }
 
@@ -105,6 +107,7 @@ export async function POST(req: Request) {
       });
 
       invalidateCanonicalIndexCache();
+      await getCache().del('canonical:library:all');
       return NextResponse.json({ success: true });
     }
 
@@ -127,6 +130,7 @@ export async function POST(req: Request) {
       }
 
       invalidateCanonicalIndexCache();
+      await getCache().del('canonical:library:all');
       return NextResponse.json({ success: true });
     }
 

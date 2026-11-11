@@ -8,21 +8,35 @@ interface DishCardProps {
   item: any;
   layoutMode?: 'GRID' | 'LIST';
   onSelect: (item: any) => void;
+  priority?: boolean;
+  eager?: boolean;
+  deferRender?: boolean;
 }
 
-export function DishCard({ item, layoutMode = 'GRID', onSelect }: DishCardProps) {
+export const DishCard = React.memo(function DishCard({
+  item,
+  layoutMode = 'GRID',
+  onSelect,
+  priority = false,
+  eager = false,
+  deferRender = false,
+}: DishCardProps) {
   const imageUrl = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
   const priceDisplay = item.priceMinor != null ? formatCurrencyMinor(item.priceMinor, item.currency) : '';
   const dietarySignals = resolveDishDietarySignals(item);
   const dietaryLabels = dietarySignals.displayLabels;
   const indianMarker = dietarySignals.indianMarker;
   const allowFssaiVegMarker = !dietarySignals.containsEgg && !dietarySignals.isNonVeg;
+  const imgLoading = priority || eager ? 'eager' : 'lazy';
+  const imgFetchPriority = priority ? 'high' : undefined;
 
   if (layoutMode === 'LIST') {
     return (
       <div
         onClick={() => onSelect(item)}
-        className="group relative flex items-center justify-between p-4 bg-[var(--dishora-surface)] rounded-2xl border border-[var(--dishora-border)] hover:border-[var(--dishora-accent)] transition-all duration-200 cursor-pointer shadow-soft hover:shadow-lifted"
+        className={`group relative flex items-center justify-between p-4 bg-[var(--dishora-surface)] rounded-2xl border border-[var(--dishora-border)] hover:border-[var(--dishora-accent)] transition-all duration-200 cursor-pointer shadow-soft hover:shadow-lifted ${
+          deferRender ? 'menzy-dish-deferred--list' : ''
+        }`}
       >
         <div className="flex-1 pr-4">
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
@@ -63,11 +77,14 @@ export function DishCard({ item, layoutMode = 'GRID', onSelect }: DishCardProps)
           <img
             src={imageUrl}
             alt={item.customName}
+            width={96}
+            height={96}
+            fetchPriority={imgFetchPriority}
             onError={(e) => {
               e.currentTarget.src = '/placeholder-dish.svg';
             }}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            loading="lazy"
+            loading={imgLoading}
             decoding="async"
           />
           {!item.isAvailable && (
@@ -86,18 +103,23 @@ export function DishCard({ item, layoutMode = 'GRID', onSelect }: DishCardProps)
   return (
     <div
       onClick={() => onSelect(item)}
-      className="group relative flex flex-col bg-[var(--dishora-surface)] rounded-2xl border border-[var(--dishora-border)] hover:border-[var(--dishora-accent)] transition-all duration-200 overflow-hidden cursor-pointer shadow-soft hover:shadow-lifted"
+      className={`group relative flex flex-col bg-[var(--dishora-surface)] rounded-2xl border border-[var(--dishora-border)] hover:border-[var(--dishora-accent)] transition-all duration-200 overflow-hidden cursor-pointer shadow-soft hover:shadow-lifted ${
+        deferRender ? 'menzy-dish-deferred--grid' : ''
+      }`}
     >
       {/* 3D Visual Asset */}
       <div className="relative aspect-square w-full overflow-hidden bg-cream-100">
         <img
           src={imageUrl}
           alt={item.customName}
+          width={320}
+          height={320}
+          fetchPriority={imgFetchPriority}
           onError={(e) => {
             e.currentTarget.src = '/placeholder-dish.svg';
           }}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          loading="lazy"
+          loading={imgLoading}
           decoding="async"
         />
 
@@ -162,4 +184,4 @@ export function DishCard({ item, layoutMode = 'GRID', onSelect }: DishCardProps)
       </div>
     </div>
   );
-}
+});

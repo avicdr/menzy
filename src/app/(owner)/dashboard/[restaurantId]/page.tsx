@@ -1,93 +1,99 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { DashboardNav } from '@/components/dashboard/DashboardNav';
 import {
-  Sparkles,
   Upload,
-  Plus,
-  Trash2,
   CheckCircle2,
   QrCode,
-  Download,
-  AlertCircle,
   ExternalLink,
-  RefreshCw,
-  Palette,
   Camera,
-  Layers,
   ArrowRight,
   TrendingUp,
-  Flame,
-  Pencil,
   X,
-  Check,
-  MessageSquare,
-  Send,
-  Sliders,
-  Store,
-  Bot,
-  BarChart3,
-  Utensils,
-  Save,
-  HelpCircle,
-  Search,
-  Image as ImageIcon,
   FileText,
-  Wifi,
   Clock,
   Lock,
   Mail,
   CreditCard,
-  ShieldCheck,
-  Wand2,
-  RotateCcw,
 } from 'lucide-react';
-import { Modal } from '@/components/ui/Modal';
 import { Portal } from '@/components/ui/Portal';
 import {
   MENU_PDF_ACCEPT,
   MENU_PHOTO_ACCEPT,
 } from '@/lib/menu/menu-file-validator';
-import {
-  readApiErrorMessage,
-  uploadMenuFilesInBatches,
-  validateAndPrepareMenuFiles,
-} from '@/lib/menu/client-menu-upload';
-import {
-  formatCurrencyMinor,
-  FREE_TRIAL_DAYS,
-  TRIAL_PLAN,
-  type PlanDefinition,
-  type TrialPlanDefinition,
-} from '@/lib/payments/plans';
+import { formatCurrencyMinor, FREE_TRIAL_DAYS } from '@/lib/payments/plans';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 import {
   DEFAULT_ORDER_EXTENSION_MINUTES,
   DEFAULT_SCAN_TIMEOUT_MINUTES,
-  MAX_TABLE_SESSION_MINUTES,
-  MIN_TABLE_SESSION_MINUTES,
-  normalizeTableSessionConfigInput,
 } from '@/lib/diner/table-session-config';
 import {
-  THEME_PRESETS,
-  ThemeConfig,
-  validateThemeAccessibility,
-  generateThemeVariables,
-  normalizeThemeFont,
-  pickContrastForeground,
-  getThemeSignature,
-  HEADING_FONT_OPTIONS,
-  BODY_FONT_OPTIONS,
-} from '@/lib/theme/theme-presets';
-import { DietaryBadge, FssaiMarker } from '@/components/diner/DietaryBadge';
-import { TablesManagementView } from '@/components/dashboard/TablesManagementView';
-import { OrdersManagementView } from '@/components/dashboard/OrdersManagementView';
-import { StaffManagementView } from '@/components/dashboard/StaffManagementView';
-import { GooglePlacesModal } from '@/components/dashboard/GooglePlacesModal';
-import { trackConversionEvent } from '@/lib/analytics/events';
-import { sortCanonicalCategories } from '@/lib/canonical/catalog';
+  DEFAULT_SERVICE_CHARGE_PERCENTAGE,
+  DEFAULT_TAX_PERCENTAGE,
+} from '@/lib/orders/tax-config';
+
+const TabLoadingFallback = () => (
+  <div className="p-10 bg-white rounded-3xl border border-cream-200 shadow-soft flex items-center justify-center min-h-[260px]">
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-8 h-8 border-4 border-terracotta border-t-transparent rounded-full animate-spin" />
+      <span className="text-xs text-taupe-500 font-medium">Loading studio...</span>
+    </div>
+  </div>
+);
+
+const DashboardMenuTab = dynamic(
+  () => import('@/components/dashboard/DashboardMenuTab').then((m) => m.DashboardMenuTab),
+  { ssr: false, loading: TabLoadingFallback }
+);
+const DashboardIllustrationTab = dynamic(
+  () =>
+    import('@/components/dashboard/DashboardIllustrationTab').then(
+      (m) => m.DashboardIllustrationTab
+    ),
+  { ssr: false, loading: TabLoadingFallback }
+);
+const DashboardThemeTab = dynamic(
+  () => import('@/components/dashboard/DashboardThemeTab').then((m) => m.DashboardThemeTab),
+  { ssr: false, loading: TabLoadingFallback }
+);
+const DashboardAiTab = dynamic(
+  () => import('@/components/dashboard/DashboardAiTab').then((m) => m.DashboardAiTab),
+  { ssr: false, loading: TabLoadingFallback }
+);
+const DashboardQrTab = dynamic(
+  () => import('@/components/dashboard/DashboardQrTab').then((m) => m.DashboardQrTab),
+  { ssr: false, loading: TabLoadingFallback }
+);
+const DashboardAnalyticsTab = dynamic(
+  () =>
+    import('@/components/dashboard/DashboardAnalyticsTab').then((m) => m.DashboardAnalyticsTab),
+  { ssr: false, loading: TabLoadingFallback }
+);
+const DashboardSettingsTab = dynamic(
+  () => import('@/components/dashboard/DashboardSettingsTab').then((m) => m.DashboardSettingsTab),
+  { ssr: false, loading: TabLoadingFallback }
+);
+const DashboardBillingTab = dynamic(
+  () => import('@/components/dashboard/DashboardBillingTab').then((m) => m.DashboardBillingTab),
+  { ssr: false, loading: TabLoadingFallback }
+);
+const TablesManagementView = dynamic(
+  () =>
+    import('@/components/dashboard/TablesManagementView').then((m) => m.TablesManagementView),
+  { ssr: false, loading: TabLoadingFallback }
+);
+const OrdersManagementView = dynamic(
+  () =>
+    import('@/components/dashboard/OrdersManagementView').then((m) => m.OrdersManagementView),
+  { ssr: false, loading: TabLoadingFallback }
+);
+const StaffManagementView = dynamic(
+  () => import('@/components/dashboard/StaffManagementView').then((m) => m.StaffManagementView),
+  { ssr: false, loading: TabLoadingFallback }
+);
 
 export default function RestaurantDashboardPage() {
   return (
@@ -138,17 +144,11 @@ function RestaurantDashboardContent() {
     );
   }, []);
 
-  // Menu Studio State - Add Dish
-  const [isAddDishOpen, setIsAddDishOpen] = useState(false);
-  const [newDishName, setNewDishName] = useState('');
-  const [newDishPrice, setNewDishPrice] = useState('250');
-  const [newDishCategory, setNewDishCategory] = useState('');
-  const [newDishDescription, setNewDishDescription] = useState('');
-  const [newDishIsPopular, setNewDishIsPopular] = useState(false);
-  const [newDishChefRecommended, setNewDishChefRecommended] = useState(false);
-  const [newDishFoodType, setNewDishFoodType] = useState<'VEG' | 'NON_VEG' | 'EGG'>('VEG');
-  const [newDishDietaryTags, setNewDishDietaryTags] = useState<string[]>([]);
-  const [menuFilter, setMenuFilter] = useState<string>('ALL');
+  // Raw config slices passed down to lazily loaded studio tabs
+  const [rawTheme, setRawTheme] = useState<any>(null);
+  const [rawSettings, setRawSettings] = useState<any>(null);
+
+  // Shared Menu Upload / Extraction State (triggered from Overview empty state & Menu Studio)
   const [isUploadingMenu, setIsUploadingMenu] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [extractionError, setExtractionError] = useState<string | null>(null);
@@ -179,135 +179,54 @@ function RestaurantDashboardContent() {
       if (extractionToastTimerRef.current) {
         clearTimeout(extractionToastTimerRef.current);
       }
-      if (themeSavedTimerRef.current) {
-        clearTimeout(themeSavedTimerRef.current);
-      }
     };
   }, []);
 
-  // Menu Studio State - Edit Dish
-  const [editingDish, setEditingDish] = useState<any | null>(null);
-  const [isEditDishOpen, setIsEditDishOpen] = useState(false);
-  const [editDishName, setEditDishName] = useState('');
-  const [editDishPrice, setEditDishPrice] = useState('');
-  const [editDishCategory, setEditDishCategory] = useState('');
-  const [editDishDescription, setEditDishDescription] = useState('');
-  const [editDishIsPopular, setEditDishIsPopular] = useState(false);
-  const [editDishChefRecommended, setEditDishChefRecommended] = useState(false);
-  const [editDishFoodType, setEditDishFoodType] = useState<'VEG' | 'NON_VEG' | 'EGG'>('VEG');
-  const [editDishDietaryTags, setEditDishDietaryTags] = useState<string[]>([]);
-  const [editDishIsAvailable, setEditDishIsAvailable] = useState(true);
-  const [isSavingEdit, setIsSavingEdit] = useState(false);
-
-  // Delete Dish State (On-Screen Confirm Modal)
-  const [dishToDelete, setDishToDelete] = useState<any | null>(null);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [isDeletingDish, setIsDeletingDish] = useState(false);
-  const [deleteToast, setDeleteToast] = useState<string | null>(null);
-
-  // Candidate Image Review (Accept / Reject Workflow)
-  const [candidateReview, setCandidateReview] = useState<{
-    item: any;
-    asset: any;
-    isReused: boolean;
-  } | null>(null);
-  const [isApplyingCandidate, setIsApplyingCandidate] = useState(false);
-  const [candidatePromptTweak, setCandidatePromptTweak] = useState('');
-  const [isPlacesModalOpen, setIsPlacesModalOpen] = useState(false);
-
-  // Theme Studio State
-  const [themeState, setThemeState] = useState<ThemeConfig>(THEME_PRESETS.WARM_EDITORIAL);
-  const [themeWarnings, setThemeWarnings] = useState<string[]>([]);
-  const [themeSavedToast, setThemeSavedToast] = useState(false);
-  const [themeSavedToastMode, setThemeSavedToastMode] = useState<'draft' | 'publish' | null>(null);
-  const [savingThemeAction, setSavingThemeAction] = useState<'draft' | 'publish' | null>(null);
-  const [themeSaveError, setThemeSaveError] = useState<string | null>(null);
-  const themeSavedTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [themePrompt, setThemePrompt] = useState('');
-  const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
-  const [themeGenError, setThemeGenError] = useState<string | null>(null);
-  const [generatedThemeBanner, setGeneratedThemeBanner] = useState<{
-    name: string;
-    rationale: string;
-    mode: 'prompt' | 'random';
-    savedStatus?: 'draft' | 'published';
-  } | null>(null);
-  const [themeHistory, setThemeHistory] = useState<
-    Array<{
-      theme: ThemeConfig;
-      banner: {
-        name: string;
-        rationale: string;
-        mode: 'prompt' | 'random';
-        savedStatus?: 'draft' | 'published';
-      } | null;
-    }>
-  >([]);
-  const seenThemeSignaturesRef = React.useRef<string[]>([]);
-
-  // Illustration Lab State
-  const [isGeneratingImg, setIsGeneratingImg] = useState<string | null>(null);
-  const [isGeneratingBatch, setIsGeneratingBatch] = useState(false);
-  const [batchStatusMsg, setBatchStatusMsg] = useState<string | null>(null);
-  const [customPromptTweak, setCustomPromptTweak] = useState('');
-  const [isCanonicalGalleryOpen, setIsCanonicalGalleryOpen] = useState(false);
-  const [canonicalGalleryLoading, setCanonicalGalleryLoading] = useState(false);
-  const [canonicalGalleryItems, setCanonicalGalleryItems] = useState<any[]>([]);
-  const [canonicalGallerySearch, setCanonicalGallerySearch] = useState('');
-  const [canonicalGalleryCategory, setCanonicalGalleryCategory] = useState('ALL');
-  const [galleryTargetDishId, setGalleryTargetDishId] = useState<string>('');
-  const [isApplyingGalleryAsset, setIsApplyingGalleryAsset] = useState<string | null>(null);
   const [isTogglingPublish, setIsTogglingPublish] = useState(false);
 
-  // AI Waiter State
-  const [welcomeMsg, setWelcomeMsg] = useState('Welcome! Explore our dishes or ask our AI waiter anything.');
-  const [aiTone, setAiTone] = useState('Warm Editorial & Helpful');
-  const [allowDinerChat, setAllowDinerChat] = useState(true);
-  const [allowPairings, setAllowPairings] = useState(true);
-  const [maxDinerChat, setMaxDinerChat] = useState(25);
-  const [aiSavedToast, setAiSavedToast] = useState(false);
-  const [aiTestPrompt, setAiTestPrompt] = useState('');
-  const [aiTestLoading, setAiTestLoading] = useState(false);
-  const [aiTestResponse, setAiTestResponse] = useState<any>(null);
-
-  // Analytics State
+  // Analytics State (Overview KPI card + Analytics tab)
   const [analyticsData, setAnalyticsData] = useState<any>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const analyticsRequestRef = React.useRef(0);
 
-  const loadAnalytics = useCallback(async (targetRestaurantId: string) => {
-    const reqId = ++analyticsRequestRef.current;
-    try {
-      setAnalyticsLoading(true);
-      setAnalyticsError(null);
-      const res = await fetch(`/api/restaurant/analytics?restaurantId=${targetRestaurantId}`, { cache: 'no-store' });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 402) {
-        if (analyticsRequestRef.current === reqId) {
-          handleSubscriptionExpired(data);
+  const loadAnalytics = useCallback(
+    async (targetRestaurantId: string) => {
+      const reqId = ++analyticsRequestRef.current;
+      try {
+        setAnalyticsLoading(true);
+        setAnalyticsError(null);
+        const res = await fetch(`/api/restaurant/analytics?restaurantId=${targetRestaurantId}`, {
+          cache: 'no-store',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 402) {
+          if (analyticsRequestRef.current === reqId) {
+            handleSubscriptionExpired(data);
+          }
+          return;
         }
-        return;
+        if (!res.ok || !data?.success) {
+          throw new Error(data.error || 'Failed to load restaurant analytics');
+        }
+        if (analyticsRequestRef.current === reqId) {
+          setAnalyticsData(data);
+        }
+      } catch (err: any) {
+        if (analyticsRequestRef.current === reqId) {
+          console.error('Analytics load error:', err);
+          setAnalyticsError(err.message || 'Unable to load analytics data.');
+        }
+      } finally {
+        if (analyticsRequestRef.current === reqId) {
+          setAnalyticsLoading(false);
+        }
       }
-      if (!res.ok || !data?.success) {
-        throw new Error(data.error || 'Failed to load restaurant analytics');
-      }
-      if (analyticsRequestRef.current === reqId) {
-        setAnalyticsData(data);
-      }
-    } catch (err: any) {
-      if (analyticsRequestRef.current === reqId) {
-        console.error('Analytics load error:', err);
-        setAnalyticsError(err.message || 'Unable to load analytics data.');
-      }
-    } finally {
-      if (analyticsRequestRef.current === reqId) {
-        setAnalyticsLoading(false);
-      }
-    }
-  }, []);
+    },
+    [handleSubscriptionExpired]
+  );
 
-  // Settings State
+  // Settings & Banner State (shared between Settings Tab & Theme Studio Banner section)
   const [settingsForm, setSettingsForm] = useState({
     displayName: '',
     description: '',
@@ -339,17 +258,32 @@ function RestaurantDashboardContent() {
     scanTimeoutMinutes: String(DEFAULT_SCAN_TIMEOUT_MINUTES),
     orderExtensionMinutes: String(DEFAULT_ORDER_EXTENSION_MINUTES),
   });
-  const [settingsError, setSettingsError] = useState<string | null>(null);
-  const [settingsSavedToast, setSettingsSavedToast] = useState(false);
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [taxForm, setTaxForm] = useState<{
+    taxPercentage: string;
+    serviceChargePercentage: string;
+  }>({
+    taxPercentage: String(DEFAULT_TAX_PERCENTAGE),
+    serviceChargePercentage: String(DEFAULT_SERVICE_CHARGE_PERCENTAGE),
+  });
+  const handleTaxSettingsUpdated = useCallback(
+    (taxPercentage: number, serviceChargePercentage: number) => {
+      setTaxForm({
+        taxPercentage: String(taxPercentage),
+        serviceChargePercentage: String(serviceChargePercentage),
+      });
+    },
+    []
+  );
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
   const [bannerError, setBannerError] = useState<string | null>(null);
   const [bannerToast, setBannerToast] = useState<string | null>(null);
-  const [bannerDimensions, setBannerDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [bannerDimensions, setBannerDimensions] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
 
-  // QR Studio State
+  // Cached QR Studio State
   const [qrData, setQrData] = useState<{ qrDataUrl: string; targetUrl: string } | null>(null);
-  const [qrLoading, setQrLoading] = useState(false);
 
   // Progressive non-blocking background fetch state
   const [secondaryLoading, setSecondaryLoading] = useState({
@@ -371,6 +305,8 @@ function RestaurantDashboardContent() {
         setQrData(null);
         setBillingUsage(null);
         setMenuItems([]);
+        setRawTheme(null);
+        setRawSettings(null);
         setSecondaryLoading({ items: true, billing: true, settings: true });
 
         const meRes = await fetch('/api/auth/me', { cache: 'no-store' });
@@ -464,7 +400,9 @@ function RestaurantDashboardContent() {
                 }
               });
 
-        const loadBillingPromise = fetch(`/api/billing/usage?restaurantId=${targetRest.id}`, { cache: 'no-store' })
+        const loadBillingPromise = fetch(`/api/billing/usage?restaurantId=${targetRest.id}`, {
+          cache: 'no-store',
+        })
           .then((res) => (res.ok ? res.json() : null))
           .then((billData) => {
             if (!cancelled && billData) {
@@ -505,80 +443,73 @@ function RestaurantDashboardContent() {
                 return res.ok ? res.json() : null;
               })
               .then((rsData) => {
-            if (cancelled || !rsData) return;
+                if (cancelled || !rsData) return;
 
-            if (rsData.theme) {
-              setThemeState({
-                presetKey: rsData.theme.presetKey || 'WARM_EDITORIAL',
-                backgroundColor: rsData.theme.backgroundColor || '#F7F3EC',
-                surfaceColor: rsData.theme.surfaceColor || '#FFFFFF',
-                primaryTextColor: rsData.theme.primaryTextColor || '#35271F',
-                secondaryTextColor: rsData.theme.secondaryTextColor || '#7C695C',
-                accentColor: rsData.theme.accentColor || '#B86D52',
-                secondaryAccentColor: rsData.theme.secondaryAccentColor || '#70816B',
-                headingFont: normalizeThemeFont(rsData.theme.headingFont, 'Plus Jakarta Sans'),
-                bodyFont: normalizeThemeFont(rsData.theme.bodyFont, 'Inter'),
-                layoutMode: rsData.theme.layoutMode || 'GRID',
-                cardRadius: rsData.theme.cardRadius || '16px',
-                buttonStyle: rsData.theme.buttonStyle || 'rounded',
-                imageProportions: rsData.theme.imageProportions || 'square',
-                texture: rsData.theme.texture || 'none',
+                if (rsData.theme) {
+                  setRawTheme(rsData.theme);
+                }
+
+                if (rsData.settings) {
+                  setRawSettings(rsData.settings);
+                }
+
+                if (rsData.wifi) {
+                  setWifiForm({
+                    enabled: Boolean(rsData.wifi.enabled),
+                    ssid: rsData.wifi.ssid || '',
+                    password: rsData.wifi.password || '',
+                    security: ['WPA', 'WEP', 'nopass'].includes(rsData.wifi.security)
+                      ? rsData.wifi.security
+                      : 'WPA',
+                  });
+                }
+
+                if (rsData.tableSession) {
+                  setTableSessionForm({
+                    scanTimeoutMinutes: String(
+                      rsData.tableSession.scanTimeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES
+                    ),
+                    orderExtensionMinutes: String(
+                      rsData.tableSession.orderExtensionMinutes ?? DEFAULT_ORDER_EXTENSION_MINUTES
+                    ),
+                  });
+                }
+
+                if (
+                  rsData.taxPercentage !== undefined ||
+                  rsData.serviceChargePercentage !== undefined
+                ) {
+                  setTaxForm({
+                    taxPercentage: String(rsData.taxPercentage ?? DEFAULT_TAX_PERCENTAGE),
+                    serviceChargePercentage: String(
+                      rsData.serviceChargePercentage ?? DEFAULT_SERVICE_CHARGE_PERCENTAGE
+                    ),
+                  });
+                }
+
+                if (rsData.restaurant) {
+                  setRestaurant(rsData.restaurant);
+                  setSettingsForm({
+                    displayName: rsData.restaurant.displayName || '',
+                    description: rsData.restaurant.description || '',
+                    address: rsData.restaurant.address || '',
+                    city: rsData.restaurant.city || '',
+                    country: rsData.restaurant.country || 'IN',
+                    currency: rsData.restaurant.currency || 'INR',
+                    timezone: rsData.restaurant.timezone || 'Asia/Kolkata',
+                    phone: rsData.restaurant.phone || '',
+                    email: rsData.restaurant.email || '',
+                    googleReviewUrl: rsData.restaurant.googleReviewUrl || '',
+                    coverUrl: rsData.restaurant.coverUrl || '',
+                  });
+                }
+              })
+              .catch(() => {})
+              .finally(() => {
+                if (!cancelled) {
+                  setSecondaryLoading((prev) => ({ ...prev, settings: false }));
+                }
               });
-            }
-
-            if (rsData.settings) {
-              setWelcomeMsg(
-                rsData.settings.welcomeMessage || 'Welcome! Explore our dishes or ask our AI waiter anything.'
-              );
-              setAiTone(rsData.settings.aiTone || 'Warm Editorial & Helpful');
-              setAllowDinerChat(rsData.settings.allowDinerChat ?? true);
-              setAllowPairings(rsData.settings.allowPairings ?? true);
-              setMaxDinerChat(rsData.settings.maxDinerChatPerSession ?? 25);
-            }
-
-            if (rsData.wifi) {
-              setWifiForm({
-                enabled: Boolean(rsData.wifi.enabled),
-                ssid: rsData.wifi.ssid || '',
-                password: rsData.wifi.password || '',
-                security: ['WPA', 'WEP', 'nopass'].includes(rsData.wifi.security) ? rsData.wifi.security : 'WPA',
-              });
-            }
-
-            if (rsData.tableSession) {
-              setTableSessionForm({
-                scanTimeoutMinutes: String(
-                  rsData.tableSession.scanTimeoutMinutes ?? DEFAULT_SCAN_TIMEOUT_MINUTES
-                ),
-                orderExtensionMinutes: String(
-                  rsData.tableSession.orderExtensionMinutes ?? DEFAULT_ORDER_EXTENSION_MINUTES
-                ),
-              });
-            }
-
-            if (rsData.restaurant) {
-              setRestaurant(rsData.restaurant);
-              setSettingsForm({
-                displayName: rsData.restaurant.displayName || '',
-                description: rsData.restaurant.description || '',
-                address: rsData.restaurant.address || '',
-                city: rsData.restaurant.city || '',
-                country: rsData.restaurant.country || 'IN',
-                currency: rsData.restaurant.currency || 'INR',
-                timezone: rsData.restaurant.timezone || 'Asia/Kolkata',
-                phone: rsData.restaurant.phone || '',
-                email: rsData.restaurant.email || '',
-                googleReviewUrl: rsData.restaurant.googleReviewUrl || '',
-                coverUrl: rsData.restaurant.coverUrl || '',
-              });
-            }
-          })
-          .catch(() => {})
-          .finally(() => {
-            if (!cancelled) {
-              setSecondaryLoading((prev) => ({ ...prev, settings: false }));
-            }
-          });
 
         await Promise.allSettled([loadItemsPromise, loadBillingPromise, loadSettingsPromise]);
       } catch (err) {
@@ -594,35 +525,7 @@ function RestaurantDashboardContent() {
     return () => {
       cancelled = true;
     };
-  }, [restaurantId, router]);
-
-  // Lazy-load QR asset only when QR Studio tab is opened
-  useEffect(() => {
-    if (currentTab !== 'qr' || !restaurant?.slug || qrData || expiredGate || targetOrgAccess?.expired) return;
-    let cancelled = false;
-    setQrLoading(true);
-    fetch(`/api/qr/generate?slug=${restaurant.slug}`, { cache: 'no-store' })
-      .then(async (res) => {
-        if (res.status === 402) {
-          const payload = await res.json().catch(() => ({}));
-          if (!cancelled) handleSubscriptionExpired(payload);
-          return null;
-        }
-        return res.ok ? res.json() : null;
-      })
-      .then((qData) => {
-        if (!cancelled && qData) {
-          setQrData(qData);
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setQrLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [currentTab, restaurant?.slug, qrData, expiredGate, targetOrgAccess?.expired, handleSubscriptionExpired]);
+  }, [restaurantId, router, handleSubscriptionExpired]);
 
   // Keep analytics metrics fresh whenever Overview or Analytics tab is active
   useEffect(() => {
@@ -638,7 +541,9 @@ function RestaurantDashboardContent() {
 
   // Keep table session timers, Wi-Fi & profile settings fresh whenever owner navigates to Settings tab
   useEffect(() => {
-    if (currentTab !== 'settings' || !restaurant?.id || expiredGate || targetOrgAccess?.expired) return;
+    if (currentTab !== 'settings' || !restaurant?.id || expiredGate || targetOrgAccess?.expired) {
+      return;
+    }
     if (skipInitialSettingsEffectRef.current === restaurant.id) {
       skipInitialSettingsEffectRef.current = null;
       return;
@@ -660,7 +565,9 @@ function RestaurantDashboardContent() {
             enabled: Boolean(rsData.wifi.enabled),
             ssid: rsData.wifi.ssid || '',
             password: rsData.wifi.password || '',
-            security: ['WPA', 'WEP', 'nopass'].includes(rsData.wifi.security) ? rsData.wifi.security : 'WPA',
+            security: ['WPA', 'WEP', 'nopass'].includes(rsData.wifi.security)
+              ? rsData.wifi.security
+              : 'WPA',
           });
         }
         if (rsData.tableSession) {
@@ -670,6 +577,17 @@ function RestaurantDashboardContent() {
             ),
             orderExtensionMinutes: String(
               rsData.tableSession.orderExtensionMinutes ?? DEFAULT_ORDER_EXTENSION_MINUTES
+            ),
+          });
+        }
+        if (
+          rsData.taxPercentage !== undefined ||
+          rsData.serviceChargePercentage !== undefined
+        ) {
+          setTaxForm({
+            taxPercentage: String(rsData.taxPercentage ?? DEFAULT_TAX_PERCENTAGE),
+            serviceChargePercentage: String(
+              rsData.serviceChargePercentage ?? DEFAULT_SERVICE_CHARGE_PERCENTAGE
             ),
           });
         }
@@ -691,245 +609,11 @@ function RestaurantDashboardContent() {
         }
       })
       .catch(() => {});
-  }, [currentTab, restaurant?.id]);
-
-  // Toggle dish availability
-  const handleToggleAvailability = async (item: any) => {
-    const updated = !item.isAvailable;
-    setMenuItems((prev) =>
-      prev.map((i) => (i.id === item.id ? { ...i, isAvailable: updated } : i))
-    );
-
-    await fetch('/api/menus/items', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        itemId: item.id,
-        restaurantId: restaurant.id,
-        isAvailable: updated,
-      }),
-    });
-  };
-
-  // Prompt on-screen delete dish confirmation modal
-  const handlePromptDeleteDish = (item: any) => {
-    setDishToDelete(item);
-    setIsDeleteDialogOpen(true);
-  };
-
-  // Confirm delete dish without browser alert popup
-  const handleConfirmDeleteDish = async () => {
-    if (!dishToDelete) return;
-    setIsDeletingDish(true);
-    try {
-      const res = await fetch(
-        `/api/menus/items?itemId=${dishToDelete.id}&restaurantId=${restaurant.id}`,
-        {
-          method: 'DELETE',
-        }
-      );
-      if (res.status === 402) {
-        const payload = await res.json().catch(() => ({}));
-        setIsDeleteDialogOpen(false);
-        handleSubscriptionExpired(payload);
-        return;
-      }
-      if (res.ok) {
-        setMenuItems((prev) => prev.filter((i) => i.id !== dishToDelete.id));
-        setDeleteToast(`"${dishToDelete.customName}" was removed from your menu.`);
-        setTimeout(() => setDeleteToast(null), 3500);
-        setIsDeleteDialogOpen(false);
-        setDishToDelete(null);
-      } else {
-        alert('Failed to delete dish');
-      }
-    } catch (err) {
-      alert('Error deleting dish');
-    } finally {
-      setIsDeletingDish(false);
-    }
-  };
-
-  // Derived unique categories
-  const existingCategories = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const it of menuItems) {
-      if (it.category) {
-        map.set(it.category.id, it.category.name);
-      }
-    }
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
-  }, [menuItems]);
+  }, [currentTab, restaurant?.id, expiredGate, targetOrgAccess?.expired, handleSubscriptionExpired]);
 
   const isIndianRestaurant = restaurant?.country === 'IN' || restaurant?.currency === 'INR';
 
-  // Toggle Popular / Bestseller
-  const handleTogglePopular = async (item: any) => {
-    const updated = !item.isPopular;
-    setMenuItems((prev) =>
-      prev.map((i) => (i.id === item.id ? { ...i, isPopular: updated } : i))
-    );
-
-    await fetch('/api/menus/items', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        itemId: item.id,
-        restaurantId: restaurant.id,
-        isPopular: updated,
-      }),
-    });
-  };
-
-  // Toggle Chef Recommendation
-  const handleToggleChefPick = async (item: any) => {
-    const updated = !item.chefRecommended;
-    setMenuItems((prev) =>
-      prev.map((i) => (i.id === item.id ? { ...i, chefRecommended: updated } : i))
-    );
-
-    await fetch('/api/menus/items', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        itemId: item.id,
-        restaurantId: restaurant.id,
-        chefRecommended: updated,
-      }),
-    });
-  };
-
-  // Open Edit Dish Modal
-  const handleOpenEditDish = (item: any) => {
-    setEditingDish(item);
-    setEditDishName(item.customName || '');
-    setEditDishPrice(item.priceMinor ? (item.priceMinor / 100).toFixed(2) : '0.00');
-    setEditDishCategory(item.categoryId || '');
-    setEditDishDescription(item.restaurantDescription || '');
-    setEditDishIsPopular(Boolean(item.isPopular));
-    setEditDishChefRecommended(Boolean(item.chefRecommended));
-    setEditDishIsAvailable(Boolean(item.isAvailable));
-
-    const tags = ((item.dietaryStatus as string[]) || []).map((t) => t.toUpperCase());
-    const isVeg = tags.some((l) => ['VEG', 'VEGETARIAN', 'PURE_VEG'].includes(l));
-    const isNonVeg = tags.some((l) => ['NON_VEG', 'NON-VEG', 'NONVEG'].includes(l));
-    const isEgg = tags.some((l) => ['EGG', 'CONTAINS_EGG', 'EGGETARIAN'].includes(l));
-    setEditDishFoodType(isNonVeg ? 'NON_VEG' : isEgg ? 'EGG' : 'VEG');
-
-    const customTags = ((item.dietaryStatus as string[]) || []).filter(
-      (t) => !['VEG', 'VEGETARIAN', 'PURE_VEG', 'NON_VEG', 'NON-VEG', 'NONVEG', 'EGG', 'CONTAINS_EGG', 'EGGETARIAN'].includes(t.toUpperCase())
-    );
-    setEditDishDietaryTags(customTags);
-    setIsEditDishOpen(true);
-  };
-
-  // Save Edited Dish
-  const handleSaveEditedDish = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingDish || !editDishName.trim()) return;
-
-    setIsSavingEdit(true);
-    try {
-      const priceMinor = Math.round(parseFloat(editDishPrice || '0') * 100);
-      const dietaryStatus = isIndianRestaurant
-        ? [editDishFoodType, ...editDishDietaryTags]
-        : editDishDietaryTags;
-
-      const res = await fetch('/api/menus/items', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          itemId: editingDish.id,
-          restaurantId: restaurant.id,
-          customName: editDishName.trim(),
-          priceMinor,
-          description: editDishDescription.trim(),
-          categoryId: editDishCategory || undefined,
-          isPopular: editDishIsPopular,
-          chefRecommended: editDishChefRecommended,
-          isAvailable: editDishIsAvailable,
-          dietaryStatus,
-        }),
-      });
-
-      if (res.status === 402) {
-        const payload = await res.json().catch(() => ({}));
-        setIsEditDishOpen(false);
-        handleSubscriptionExpired(payload);
-        return;
-      }
-
-      if (res.ok) {
-        const data = await res.json();
-        setMenuItems((prev) =>
-          prev.map((i) => (i.id === editingDish.id ? { ...i, ...data.item } : i))
-        );
-        setIsEditDishOpen(false);
-        setEditingDish(null);
-      } else {
-        alert('Failed to save changes to dish');
-      }
-    } catch (err) {
-      alert('Error updating dish');
-    } finally {
-      setIsSavingEdit(false);
-    }
-  };
-
-  // Add custom dish
-  const handleAddDish = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newDishName.trim()) return;
-
-    const priceMinor = Math.round(parseFloat(newDishPrice || '0') * 100);
-
-    let finalDietaryStatus: string[] = [];
-    if (isIndianRestaurant) {
-      finalDietaryStatus = [newDishFoodType, ...newDishDietaryTags];
-    } else {
-      finalDietaryStatus = [...newDishDietaryTags];
-    }
-
-    const res = await fetch('/api/menus/items', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        restaurantId: restaurant.id,
-        categoryId: newDishCategory || undefined,
-        categoryName: newDishCategory ? undefined : 'Chef Specials',
-        customName: newDishName,
-        priceMinor,
-        description: newDishDescription,
-        currency: restaurant.currency,
-        isPopular: newDishIsPopular,
-        chefRecommended: newDishChefRecommended,
-        dietaryStatus: finalDietaryStatus,
-      }),
-    });
-
-    if (res.status === 402) {
-      const payload = await res.json().catch(() => ({}));
-      setIsAddDishOpen(false);
-      handleSubscriptionExpired(payload);
-      return;
-    }
-
-    if (res.ok) {
-      const data = await res.json();
-      setMenuItems((prev) => [...prev, data.item]);
-      setIsAddDishOpen(false);
-      setNewDishName('');
-      setNewDishDescription('');
-      setNewDishPrice(restaurant.currency === 'USD' ? '12.50' : '250');
-      setNewDishCategory('');
-      setNewDishIsPopular(false);
-      setNewDishChefRecommended(false);
-      setNewDishFoodType('VEG');
-      setNewDishDietaryTags([]);
-    }
-  };
-
-  // OCR Menu Extraction (supports photos & multi-page PDFs)
+  // OCR Menu Extraction (supports photos & multi-page PDFs; client-menu-upload dynamically imported on demand)
   const processMenuFiles = async (rawFiles: FileList | File[] | null | undefined) => {
     if (!rawFiles || rawFiles.length === 0 || isUploadingMenu) return;
 
@@ -943,6 +627,9 @@ function RestaurantDashboardContent() {
     setUploadProgress('Checking & optimizing menu files...');
 
     try {
+      const { readApiErrorMessage, uploadMenuFilesInBatches, validateAndPrepareMenuFiles } =
+        await import('@/lib/menu/client-menu-upload');
+
       const prepared = await validateAndPrepareMenuFiles(rawFiles);
       setUploadProgress(`Uploading ${prepared.summaryLabel} to secure storage...`);
 
@@ -1023,7 +710,6 @@ function RestaurantDashboardContent() {
         subtitleParts.push(`${canonicalMatched} matched with canonical 3D visuals`);
       }
 
-      // Immediately show toast notification as soon as menu scanning finishes
       showExtractionToast(
         toastTitle,
         subtitleParts.length > 0 ? subtitleParts.join(' • ') : 'Added to your menu studio'
@@ -1038,7 +724,7 @@ function RestaurantDashboardContent() {
       setExtractionSuccess(
         `Extracted ${addedCount} ${addedCount === 1 ? 'dish' : 'dishes'} from ${prepared.summaryLabel} successfully${linkedMsg}${skippedMsg}!`
       );
-      // Reload items
+
       const itemsRes = await fetch(`/api/menus/items?restaurantId=${restaurant.id}`, {
         cache: 'no-store',
       });
@@ -1050,7 +736,8 @@ function RestaurantDashboardContent() {
       console.error('Menu extraction failed:', err);
       setExtractionSuccess(null);
       setExtractionError(
-        err.message || 'Menu extraction failed. Please ensure the menu photos or PDF are clear and legible, and please try again later.'
+        err.message ||
+          'Menu extraction failed. Please ensure the menu photos or PDF are clear and legible, and please try again later.'
       );
     } finally {
       setIsUploadingMenu(false);
@@ -1094,116 +781,6 @@ function RestaurantDashboardContent() {
     }
   };
 
-  // Generate / Regenerate Illustration with Accept/Reject Preview
-  const handleGenerateIllustration = async (item: any, tweak?: string) => {
-    setIsGeneratingImg(item.id);
-    try {
-      const res = await fetch('/api/images/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          restaurantId: restaurant.id,
-          menuItemId: item.id,
-          dishName: item.customName,
-          visualDescription: item.restaurantDescription || item.customName,
-          customInstructions: tweak || customPromptTweak || undefined,
-          forceRegenerate: true,
-          applyImmediately: false, // Owner previews candidate first!
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 402) {
-        handleSubscriptionExpired(data);
-        return;
-      }
-      if (!res.ok) {
-        alert(data.message || data.error || 'Failed to generate illustration');
-        return;
-      }
-
-      // Open Candidate Review Modal
-      setCandidateReview({
-        item,
-        asset: data.asset,
-        isReused: data.isReused,
-      });
-
-      // Refresh billing credits
-      const billRes = await fetch(`/api/billing/usage?restaurantId=${restaurant.id}`, {
-        cache: 'no-store',
-      });
-      if (billRes.ok) {
-        setBillingUsage(await billRes.json());
-      }
-    } catch (err) {
-      alert('Error generating illustration');
-    } finally {
-      setIsGeneratingImg(null);
-    }
-  };
-
-  // Accept Candidate 3D Image
-  const handleAcceptCandidateImage = async () => {
-    if (!candidateReview) return;
-    setIsApplyingCandidate(true);
-    try {
-      const res = await fetch('/api/menus/items', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          itemId: candidateReview.item.id,
-          restaurantId: restaurant.id,
-          imageOverrideAssetId: candidateReview.asset.id,
-        }),
-      });
-
-      if (res.ok) {
-        setMenuItems((prev) =>
-          prev.map((i) =>
-            i.id === candidateReview.item.id
-              ? {
-                  ...i,
-                  imageOverride: candidateReview.asset,
-                  imageOverrideAssetId: candidateReview.asset.id,
-                }
-              : i
-          )
-        );
-        setCandidateReview(null);
-      } else {
-        alert('Failed to apply image override');
-      }
-    } catch (err) {
-      alert('Error applying image override');
-    } finally {
-      setIsApplyingCandidate(false);
-    }
-  };
-
-  // Open Shared Canonical Gallery Browser (always refresh in background so newly seeded assets appear)
-  const handleOpenCanonicalGallery = async (targetDish?: any) => {
-    setIsCanonicalGalleryOpen(true);
-    setGalleryTargetDishId(targetDish?.id || menuItems[0]?.id || '');
-    const showInitialLoader = canonicalGalleryItems.length === 0;
-    if (showInitialLoader) {
-      setCanonicalGalleryLoading(true);
-    }
-    try {
-      const res = await fetch('/api/images/library', { cache: 'no-store' });
-      if (res.ok) {
-        const data = await res.json();
-        setCanonicalGalleryItems(data.assets || []);
-      }
-    } catch (err) {
-      console.error('Failed to load canonical gallery:', err);
-    } finally {
-      if (showInitialLoader) {
-        setCanonicalGalleryLoading(false);
-      }
-    }
-  };
-
   // Toggle Menu Publication State (PUBLISHED vs DRAFT)
   const handleTogglePublication = async () => {
     if (!restaurant?.id || isTogglingPublish) return;
@@ -1238,315 +815,6 @@ function RestaurantDashboardContent() {
     }
   };
 
-  // Match canonical illustrations first (0 credits) then generate up to 5 custom visuals
-  const handleBatchIllustrateMenu = async () => {
-    if (!restaurant?.id || isGeneratingBatch) return;
-    setIsGeneratingBatch(true);
-    setBatchStatusMsg(null);
-    try {
-      const res = await fetch('/api/images/batch-generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          restaurantId: restaurant.id,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 402) {
-        handleSubscriptionExpired(data);
-        return;
-      }
-      if (!res.ok) {
-        alert(data.error || 'Batch visual matching failed');
-        return;
-      }
-
-      const [itemsRes, billRes] = await Promise.all([
-        fetch(`/api/menus/items?restaurantId=${restaurant.id}`, { cache: 'no-store' }),
-        fetch(`/api/billing/usage?restaurantId=${restaurant.id}`, { cache: 'no-store' }),
-      ]);
-      if (itemsRes.ok) {
-        const itemsData = await itemsRes.json();
-        setMenuItems(itemsData.items || []);
-      }
-      if (billRes.ok) {
-        setBillingUsage(await billRes.json());
-      }
-
-      const linked = Number(data.canonicalLinkedCount || 0);
-      const generated = Number(data.generatedCount || 0);
-      if (linked === 0 && generated === 0) {
-        setBatchStatusMsg(data.message || 'All dishes already have 3D illustrations.');
-      } else {
-        const parts = [];
-        if (linked > 0) parts.push(`linked ${linked} canonical visuals (0 credits)`);
-        if (generated > 0) parts.push(`generated ${generated} custom 3D visuals (cap 5/batch)`);
-        setBatchStatusMsg(`Success: ${parts.join(' and ')}.`);
-      }
-      setTimeout(() => setBatchStatusMsg(null), 5000);
-    } catch {
-      alert('Error running batch visual generation');
-    } finally {
-      setIsGeneratingBatch(false);
-    }
-  };
-
-  // Apply Canonical Gallery Illustration to Selected Menu Item (0 Credits)
-  const handleApplyCanonicalFromGallery = async (galleryEntry: any) => {
-    if (!galleryTargetDishId || !restaurant?.id) return;
-    setIsApplyingGalleryAsset(galleryEntry.canonicalId);
-    try {
-      const res = await fetch('/api/menus/items', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          itemId: galleryTargetDishId,
-          restaurantId: restaurant.id,
-          canonicalId: galleryEntry.canonicalId,
-          imageOverrideAssetId: null,
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setMenuItems((prev) =>
-          prev.map((i) => (i.id === galleryTargetDishId ? { ...i, ...data.item } : i))
-        );
-        setIsCanonicalGalleryOpen(false);
-      } else {
-        alert('Failed to link canonical illustration');
-      }
-    } catch (err) {
-      alert('Error linking canonical illustration');
-    } finally {
-      setIsApplyingGalleryAsset(null);
-    }
-  };
-
-  const applyThemeWithHistory = (
-    nextTheme: ThemeConfig,
-    nextBanner: {
-      name: string;
-      rationale: string;
-      mode: 'prompt' | 'random';
-      savedStatus?: 'draft' | 'published';
-    } | null
-  ) => {
-    setThemeHistory((prev) => [
-      ...prev.slice(-19),
-      { theme: themeState, banner: generatedThemeBanner },
-    ]);
-    setThemeState(nextTheme);
-    setGeneratedThemeBanner(nextBanner);
-    setThemeSavedToast(false);
-    setThemeWarnings(validateThemeAccessibility(nextTheme).warnings);
-  };
-
-  const handleGenerateTheme = async (mode: 'prompt' | 'random', overridePrompt?: string) => {
-    if (!restaurant?.id || isGeneratingTheme) return;
-
-    const cleanPrompt = (overridePrompt ?? themePrompt).trim();
-    if (mode === 'prompt' && !cleanPrompt) {
-      setThemeGenError('Enter a vibe or cuisine prompt, or click Surprise Me to craft a random theme.');
-      return;
-    }
-
-    if (overridePrompt !== undefined) {
-      setThemePrompt(overridePrompt);
-    }
-
-    setIsGeneratingTheme(true);
-    setThemeGenError(null);
-
-    try {
-      const currentSig = getThemeSignature(themeState);
-      const excludeSignatures = Array.from(
-        new Set([...seenThemeSignaturesRef.current, currentSig].filter(Boolean))
-      ).slice(-14);
-
-      const res = await fetch('/api/themes/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          restaurantId: restaurant.id,
-          mode,
-          prompt: mode === 'prompt' ? cleanPrompt : undefined,
-          excludeSignatures,
-        }),
-      });
-
-      const payload = await res.json().catch(() => ({}));
-      if (res.status === 402) {
-        handleSubscriptionExpired(payload);
-        return;
-      }
-
-      if (!res.ok || !payload?.theme) {
-        throw new Error(payload?.error || 'Could not generate a theme right now. Please try again.');
-      }
-
-      const generatedSig = getThemeSignature(payload.theme);
-      seenThemeSignaturesRef.current = Array.from(
-        new Set([...seenThemeSignaturesRef.current, currentSig, generatedSig].filter(Boolean))
-      ).slice(-14);
-
-      applyThemeWithHistory(payload.theme, {
-        name: payload.themeName || (mode === 'prompt' ? 'Prompt-Styled Look' : 'Curated Studio Look'),
-        rationale:
-          payload.rationale ||
-          'Automatically applied to your live preview with readable typography and contrast.',
-        mode,
-      });
-    } catch (err: any) {
-      setThemeGenError(err?.message || 'Unable to generate theme right now.');
-    } finally {
-      setIsGeneratingTheme(false);
-    }
-  };
-
-  const handleReturnToPreviousTheme = () => {
-    if (themeHistory.length === 0) return;
-    const previousSnapshot = themeHistory[themeHistory.length - 1];
-    setThemeHistory((prev) => prev.slice(0, -1));
-    setThemeState(previousSnapshot.theme);
-    setGeneratedThemeBanner(previousSnapshot.banner);
-    setThemeGenError(null);
-    setThemeSavedToast(false);
-    setThemeWarnings(validateThemeAccessibility(previousSnapshot.theme).warnings);
-  };
-
-  // Save / Publish Theme
-  const handleSaveTheme = async (isPublishing: boolean) => {
-    if (!restaurant?.id || savingThemeAction) return;
-
-    const actionMode: 'draft' | 'publish' = isPublishing ? 'publish' : 'draft';
-    const access = validateThemeAccessibility(themeState);
-    setThemeWarnings(access.warnings);
-    setThemeSaveError(null);
-    setThemeSavedToast(false);
-
-    if (themeSavedTimerRef.current) {
-      clearTimeout(themeSavedTimerRef.current);
-    }
-
-    if (!access.isValid && isPublishing) {
-      setThemeSaveError(
-        'Cannot publish theme: Low text/background contrast fails accessibility standards. Adjust colors or generate a balanced theme.'
-      );
-      return;
-    }
-
-    setSavingThemeAction(actionMode);
-    try {
-      const res = await fetch('/api/themes/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          restaurantId: restaurant.id,
-          isPublishing,
-          ...themeState,
-        }),
-      });
-
-      const payload = await res.json().catch(() => ({}));
-      if (res.status === 402) {
-        handleSubscriptionExpired(payload);
-        return;
-      }
-
-      if (!res.ok) {
-        throw new Error(
-          payload?.message || payload?.error || 'Could not save theme changes. Please try again.'
-        );
-      }
-
-      setGeneratedThemeBanner((prev) =>
-        prev ? { ...prev, savedStatus: isPublishing ? 'published' : 'draft' } : null
-      );
-      setThemeSavedToastMode(actionMode);
-      setThemeSavedToast(true);
-      themeSavedTimerRef.current = setTimeout(() => {
-        setThemeSavedToast(false);
-        setThemeSavedToastMode(null);
-      }, 3500);
-    } catch (err: any) {
-      setThemeSaveError(err?.message || 'Unable to save theme right now.');
-    } finally {
-      setSavingThemeAction(null);
-    }
-  };
-
-  // Save AI Waiter Settings
-  const handleSaveAISettings = async () => {
-    const res = await fetch('/api/restaurant/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        restaurantId: restaurant.id,
-        welcomeMessage: welcomeMsg,
-        aiTone,
-        allowDinerChat,
-        allowPairings,
-        maxDinerChatPerSession: maxDinerChat,
-      }),
-    });
-
-    if (res.status === 402) {
-      const payload = await res.json().catch(() => ({}));
-      handleSubscriptionExpired(payload);
-      return;
-    }
-
-    if (res.ok) {
-      setAiSavedToast(true);
-      setTimeout(() => setAiSavedToast(false), 3000);
-    } else {
-      alert('Failed to save AI Waiter settings');
-    }
-  };
-
-  // Run Test AI Query in Playground
-  const handleTestAiQuery = async (queryText?: string) => {
-    const text = queryText || aiTestPrompt;
-    if (!text.trim()) return;
-
-    setAiTestLoading(true);
-    setAiTestResponse(null);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-    try {
-      const res = await fetch('/api/diner/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          restaurantId: restaurant.id,
-          sessionToken: 'owner-test-session',
-          message: text.trim(),
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 402) {
-        handleSubscriptionExpired(data);
-        return;
-      }
-      if (res.ok) {
-        setAiTestResponse(data);
-      } else {
-        alert(data.error || data.message || 'AI query failed');
-      }
-    } catch (err: any) {
-      alert(err?.name === 'AbortError' ? 'AI query timed out after 15 seconds. Please try again.' : 'Error querying AI');
-    } finally {
-      clearTimeout(timeoutId);
-      setAiTestLoading(false);
-    }
-  };
-
-  // Read image natural pixel dimensions in the browser before uploading
   const readBannerDimensions = (file: File): Promise<{ width: number; height: number } | null> =>
     new Promise((resolve) => {
       const objectUrl = URL.createObjectURL(file);
@@ -1563,7 +831,6 @@ function RestaurantDashboardContent() {
       img.src = objectUrl;
     });
 
-  // Upload and immediately save QR Landing Banner Image
   const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !restaurant?.id) return;
@@ -1573,7 +840,9 @@ function RestaurantDashboardContent() {
 
     const normalizedType = file.type === 'image/jpg' ? 'image/jpeg' : file.type;
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(normalizedType)) {
-      setBannerError('Unsupported format. Please upload a JPG, PNG, or WebP image (1200 × 600 px recommended).');
+      setBannerError(
+        'Unsupported format. Please upload a JPG, PNG, or WebP image (1200 × 600 px recommended).'
+      );
       e.target.value = '';
       return;
     }
@@ -1642,7 +911,6 @@ function RestaurantDashboardContent() {
     }
   };
 
-  // Clear QR Landing Banner Image
   const handleRemoveBanner = async () => {
     if (!restaurant?.id) return;
     setIsUploadingBanner(true);
@@ -1673,78 +941,6 @@ function RestaurantDashboardContent() {
     }
   };
 
-  // Save Restaurant Profile, Table QR Timers & Guest Wi-Fi Settings
-  const handleSaveRestaurantSettings = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSettingsError(null);
-
-    if (wifiForm.enabled && !wifiForm.ssid.trim()) {
-      setSettingsError('Please enter your Wi-Fi Network Name (SSID) or disable Guest Free Wi-Fi.');
-      return;
-    }
-
-    const parsedTableSession = normalizeTableSessionConfigInput({
-      scanTimeoutMinutes: tableSessionForm.scanTimeoutMinutes.trim(),
-      orderExtensionMinutes: tableSessionForm.orderExtensionMinutes.trim(),
-    });
-    if (!parsedTableSession.ok) {
-      setSettingsError(parsedTableSession.error);
-      return;
-    }
-
-    setIsSavingSettings(true);
-    try {
-      const res = await fetch('/api/restaurant/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          restaurantId: restaurant.id,
-          ...settingsForm,
-          tableSession: parsedTableSession.tableSession,
-          wifi: {
-            enabled: wifiForm.enabled,
-            ssid: wifiForm.ssid.trim(),
-            password: wifiForm.security === 'nopass' ? '' : wifiForm.password,
-            security: wifiForm.security,
-          },
-        }),
-      });
-
-      if (res.status === 402) {
-        const payload = await res.json().catch(() => ({}));
-        handleSubscriptionExpired(payload);
-        return;
-      }
-      if (res.ok) {
-        const data = await res.json();
-        setRestaurant(data.restaurant);
-        if (data.wifi) {
-          setWifiForm({
-            enabled: Boolean(data.wifi.enabled),
-            ssid: data.wifi.ssid || '',
-            password: data.wifi.password || '',
-            security: ['WPA', 'WEP', 'nopass'].includes(data.wifi.security) ? data.wifi.security : 'WPA',
-          });
-        }
-        if (data.tableSession) {
-          setTableSessionForm({
-            scanTimeoutMinutes: String(data.tableSession.scanTimeoutMinutes),
-            orderExtensionMinutes: String(data.tableSession.orderExtensionMinutes),
-          });
-        }
-        setSettingsSavedToast(true);
-        setTimeout(() => setSettingsSavedToast(false), 3000);
-      } else {
-        const errData = await res.json().catch(() => ({}));
-        setSettingsError(errData.error || 'Failed to update restaurant settings');
-      }
-    } catch (err) {
-      setSettingsError('Error updating restaurant settings');
-    } finally {
-      setIsSavingSettings(false);
-    }
-  };
-
   if (loading || !restaurant) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-cream-100">
@@ -1756,7 +952,8 @@ function RestaurantDashboardContent() {
     );
   }
 
-  const allRestaurants = currentUser?.organizations?.flatMap((o: any) => o.restaurants) || [restaurant];
+  const allRestaurants =
+    currentUser?.organizations?.flatMap((o: any) => o.restaurants) || [restaurant];
   const effectiveAccess = billingUsage?.access ?? targetOrgAccess ?? null;
   const isSubscriptionExpired = Boolean(
     expiredGate || (effectiveAccess && effectiveAccess.allowed === false)
@@ -1778,7 +975,6 @@ function RestaurantDashboardContent() {
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-cream-100/40 w-full">
-      {/* Sidebar Nav */}
       <DashboardNav
         currentRestaurant={restaurant}
         allRestaurants={allRestaurants}
@@ -1791,7 +987,6 @@ function RestaurantDashboardContent() {
         supportEmail={supportEmail}
       />
 
-      {/* Main Content Area */}
       <main className="flex-1 w-full min-w-0 p-4 sm:p-6 lg:p-10 max-w-7xl mx-auto">
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 pb-6 border-b border-cream-300">
@@ -1866,11 +1061,15 @@ function RestaurantDashboardContent() {
               </div>
               <div>
                 <div className="font-semibold text-xs sm:text-sm text-espresso-900">
-                  14-Day Free Trial (Trial Plan) — {effectiveAccess?.daysRemaining ?? FREE_TRIAL_DAYS}{' '}
-                  {(effectiveAccess?.daysRemaining ?? FREE_TRIAL_DAYS) === 1 ? 'day' : 'days'} remaining
+                  14-Day Free Trial (Trial Plan) —{' '}
+                  {effectiveAccess?.daysRemaining ?? FREE_TRIAL_DAYS}{' '}
+                  {(effectiveAccess?.daysRemaining ?? FREE_TRIAL_DAYS) === 1 ? 'day' : 'days'}{' '}
+                  remaining
                 </div>
                 <p className="text-xs text-taupe-600 mt-0.5 leading-relaxed">
-                  No payment method or credit card required during trial. After day {FREE_TRIAL_DAYS}, workspace &amp; diner menu pause until a subscription is purchased. Setup-related queries? Email{' '}
+                  No payment method or credit card required during trial. After day{' '}
+                  {FREE_TRIAL_DAYS}, workspace &amp; diner menu pause until a subscription is
+                  purchased. Setup-related queries? Email{' '}
                   <a
                     href={supportMailHref}
                     className="font-mono font-bold text-espresso-900 underline hover:text-terracotta"
@@ -1913,7 +1112,11 @@ function RestaurantDashboardContent() {
                     : 'Active Subscription Required to Continue'}
                 </h2>
                 <p className="text-xs sm:text-sm text-taupe-600 leading-relaxed max-w-2xl">
-                  All features for <strong>{restaurant.displayName}</strong> — including your live diner QR menu, AI menu assistant, table ordering, Kitchen Display terminal, and dashboard editing — have stopped because your {isTrialEnded ? '14-day free Trial' : 'subscription'} has ended. Buy a subscription plan in the Billing panel to resume immediately.
+                  All features for <strong>{restaurant.displayName}</strong> — including your live
+                  diner QR menu, AI menu assistant, table ordering, Kitchen Display terminal, and
+                  dashboard editing — have stopped because your{' '}
+                  {isTrialEnded ? '14-day free Trial' : 'subscription'} has ended. Buy a
+                  subscription plan in the Billing panel to resume immediately.
                 </p>
               </div>
             </div>
@@ -1925,7 +1128,8 @@ function RestaurantDashboardContent() {
                     Reactivate in Billing Panel
                   </h3>
                   <p className="text-xs text-taupe-600 mt-1">
-                    Choose Starter, Growth, or Pro to unlock your menu and all tables instantaneously. All your existing dishes, 3D visuals, and table QR codes are safely preserved.
+                    Choose Starter, Growth, or Pro to unlock your menu and all tables instantaneously.
+                    All your existing dishes, 3D visuals, and table QR codes are safely preserved.
                   </p>
                 </div>
                 <button
@@ -1945,7 +1149,8 @@ function RestaurantDashboardContent() {
                     Setup &amp; Activation Assistance
                   </h3>
                   <p className="text-xs text-taupe-600 mt-1">
-                    Have setup-related queries, GST invoicing questions, or need help activating your restaurant? Reach us directly by email.
+                    Have setup-related queries, GST invoicing questions, or need help activating
+                    your restaurant? Reach us directly by email.
                   </p>
                 </div>
                 <a
@@ -1984,3804 +1189,402 @@ function RestaurantDashboardContent() {
               aria-label="Upload menu PDF"
               className="sr-only"
             />
-        {/* =========================================================================
-            TAB 1: OVERVIEW
-        ========================================================================= */}
-        {currentTab === 'overview' && (
-          <div className="space-y-8 animate-fade-in">
-            {/* Quick Metrics Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
-                <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">Total Menu Items</span>
-                <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
-                  {secondaryLoading.items && menuItems.length === 0 ? '—' : menuItems.length}
-                </div>
-                <div className="text-[11px] sm:text-xs text-sage-700 mt-1 flex items-center gap-1">
-                  {secondaryLoading.items && menuItems.length === 0 ? (
-                    <span className="text-taupe-500">Loading menu...</span>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Live &amp; searchable
-                    </>
-                  )}
-                </div>
-              </div>
 
-              <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
-                <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">QR Scans Today</span>
-                <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
-                  {analyticsLoading && !analyticsData ? '—' : (analyticsData?.scans?.today ?? 0)}
-                </div>
-                {analyticsLoading && !analyticsData ? (
-                  <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">Loading scans...</div>
-                ) : (analyticsData?.scans?.today ?? 0) > 0 ? (
-                  <div className="text-[11px] sm:text-xs text-sage-700 mt-1 flex items-center gap-1">
-                    <TrendingUp className="w-3.5 h-3.5 shrink-0" /> Active engagement
+            {currentTab === 'overview' && (
+              <div className="space-y-8 animate-fade-in">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                  <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
+                    <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">
+                      Total Menu Items
+                    </span>
+                    <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
+                      {secondaryLoading.items && menuItems.length === 0 ? '—' : menuItems.length}
+                    </div>
+                    <div className="text-[11px] sm:text-xs text-sage-700 mt-1 flex items-center gap-1">
+                      {secondaryLoading.items && menuItems.length === 0 ? (
+                        <span className="text-taupe-500">Loading menu...</span>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Live &amp; searchable
+                        </>
+                      )}
+                    </div>
                   </div>
-                ) : (
-                  <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
-                    No scans yet today
-                  </div>
-                )}
-              </div>
 
-              <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
-                <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">AI Questions</span>
-                <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
-                  {billingUsage ? billingUsage.chatQueriesThisMonth ?? 0 : '—'}
-                </div>
-                <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
-                  {billingUsage ? `of ${billingUsage.maxChatQueries} monthly allowance` : 'Loading usage...'}
-                </div>
-              </div>
-
-              <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
-                <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">3D Credits Left</span>
-                <div className="text-2xl sm:text-3xl font-bold text-terracotta mt-2 tabular-nums">
-                  {billingUsage ? billingUsage.remainingImageCredits ?? 0 : '—'}
-                </div>
-                <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
-                  {billingUsage?.plan?.name ? `${billingUsage.plan.name} plan` : 'Loading plan...'}
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Actions Bar */}
-            <div className="p-5 sm:p-6 bg-gradient-to-r from-cream-100 to-cream-50 rounded-3xl border border-cream-300 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div>
-                <h3 className="font-serif text-lg font-bold text-espresso-900">Get Diners Scanning Today</h3>
-                <p className="text-xs sm:text-sm text-taupe-600 mt-0.5">
-                  Download high-resolution QR codes and printable 4x6" table tents for your tables.
-                </p>
-              </div>
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full md:w-auto shrink-0">
-                <button
-                  type="button"
-                  onClick={() => router.push(`/dashboard/${restaurant.id}?tab=qr`)}
-                  className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-espresso-900 text-white text-xs sm:text-sm font-semibold hover:bg-espresso-800 transition-colors shadow-sm flex items-center gap-2"
-                >
-                  <QrCode className="w-4 h-4 text-terracotta" /> Download QR Studio
-                </button>
-                <button
-                  type="button"
-                  onClick={() => router.push(`/dashboard/${restaurant.id}?tab=menu`)}
-                  className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-white border border-cream-300 text-espresso-800 text-xs sm:text-sm font-semibold hover:bg-cream-100 transition-colors shadow-sm flex items-center gap-2"
-                >
-                  <Upload className="w-4 h-4 text-espresso-700" /> Import Menu (Photos / PDF)
-                </button>
-              </div>
-            </div>
-
-            {/* Recent Dishes Preview - Standard Square Aspect Ratio */}
-            <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-serif text-lg font-bold text-espresso-900">Your Menu Highlights</h3>
-                <button
-                  type="button"
-                  onClick={() => router.push(`/dashboard/${restaurant.id}?tab=menu`)}
-                  className="text-xs font-semibold text-terracotta hover:underline"
-                >
-                  Open Menu Studio &rarr;
-                </button>
-              </div>
-
-              {secondaryLoading.items && menuItems.length === 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {[0, 1, 2].map((idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-3 p-3 rounded-2xl bg-cream-50 border border-cream-200 animate-pulse motion-reduce:animate-none"
-                    >
-                      <div className="w-16 h-16 rounded-xl bg-cream-200 shrink-0" />
-                      <div className="flex-1 space-y-2">
-                        <div className="h-3.5 bg-cream-200 rounded w-3/4" />
-                        <div className="h-3 bg-cream-200 rounded w-1/3" />
-                        <div className="h-4 bg-cream-200 rounded w-16" />
+                  <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
+                    <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">
+                      QR Scans Today
+                    </span>
+                    <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
+                      {analyticsLoading && !analyticsData ? '—' : analyticsData?.scans?.today ?? 0}
+                    </div>
+                    {analyticsLoading && !analyticsData ? (
+                      <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
+                        Loading scans...
                       </div>
-                    </div>
-                  ))}
-                </div>
-              ) : menuItems.length === 0 ? (
-                <div
-                  onDragOver={handleMenuDragOver}
-                  onDragLeave={handleMenuDragLeave}
-                  onDrop={handleMenuDrop}
-                  className={`rounded-2xl border-2 border-dashed p-5 sm:p-6 transition-colors ${
-                    isDraggingMenuFiles
-                      ? 'border-terracotta bg-terracotta-50/40'
-                      : 'border-cream-300 bg-cream-50/70'
-                  }`}
-                >
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                      <h4 className="font-semibold text-sm text-espresso-900">
-                        Upload your menu photos or PDF to get started
-                      </h4>
-                      <p className="text-xs text-taupe-600 mt-1 max-w-xl">
-                        Choose multiple menu photos (JPG, PNG, WebP, HEIC) or a PDF menu — AI automatically extracts dishes, categories, prices, and Veg/Non-Veg indicators.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-                      <button
-                        type="button"
-                        disabled={isUploadingMenu}
-                        onClick={() => menuPhotoInputRef.current?.click()}
-                        className="px-3.5 py-2 rounded-xl bg-espresso-900 text-white text-xs font-semibold hover:bg-espresso-800 disabled:opacity-50 transition-colors inline-flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-                      >
-                        <Camera className="w-3.5 h-3.5 text-terracotta" />
-                        <span>Upload Menu Photos</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isUploadingMenu}
-                        onClick={() => menuPdfInputRef.current?.click()}
-                        className="px-3.5 py-2 rounded-xl bg-white border border-cream-300 text-espresso-900 text-xs font-semibold hover:bg-cream-100 disabled:opacity-50 transition-colors inline-flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-                      >
-                        <FileText className="w-3.5 h-3.5 text-terracotta" />
-                        <span>Upload Menu PDF</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {menuItems.slice(0, 3).map((item) => {
-                    const img = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
-                    return (
-                      <div key={item.id} className="flex items-center gap-3 p-3 rounded-2xl bg-cream-50 border border-cream-200">
-                        <img src={img} alt={item.customName} className="w-16 h-16 aspect-square rounded-xl object-cover bg-white shrink-0 border border-cream-200" />
-                        <div className="min-w-0 flex-1">
-                          <h4 className="font-semibold text-sm text-espresso-900 truncate">{item.customName}</h4>
-                          <span className="text-xs font-bold text-espresso-700">
-                            {formatCurrencyMinor(item.priceMinor || 0, item.currency)}
-                          </span>
-                          <div className="mt-1">
-                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${item.isAvailable ? 'bg-sage-100 text-sage-800' : 'bg-red-100 text-red-800'}`}>
-                              {item.isAvailable ? 'In Stock' : 'Sold Out'}
-                            </span>
-                          </div>
-                        </div>
+                    ) : (analyticsData?.scans?.today ?? 0) > 0 ? (
+                      <div className="text-[11px] sm:text-xs text-sage-700 mt-1 flex items-center gap-1">
+                        <TrendingUp className="w-3.5 h-3.5 shrink-0" /> Active engagement
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Setup Assistance Strip */}
-            <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-cream-100 text-terracotta flex items-center justify-center shrink-0">
-                  <Mail className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="font-semibold text-xs sm:text-sm text-espresso-900">
-                    Setup &amp; Onboarding Support
+                    ) : (
+                      <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
+                        No scans yet today
+                      </div>
+                    )}
                   </div>
-                  <p className="text-xs text-taupe-500">
-                    For menu import, QR printing, or setup-related queries, email us anytime.
-                  </p>
-                </div>
-              </div>
-              <a
-                href={supportMailHref}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cream-100 hover:bg-cream-200 border border-cream-300 text-xs font-mono font-bold text-espresso-900 shrink-0 transition-colors"
-              >
-                <Mail className="w-3.5 h-3.5 text-terracotta" />
-                <span>{supportEmail}</span>
-              </a>
-            </div>
-          </div>
-        )}
 
-        {/* =========================================================================
-            TAB 2: MENU STUDIO
-        ========================================================================= */}
-        {currentTab === 'menu' && (
-          <div className="space-y-6 animate-fade-in">
-            {/* Top Toolbar */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
-              <div>
-                <h2 className="font-serif text-xl font-bold text-espresso-900">Menu Studio</h2>
-                <p className="text-xs text-taupe-500">Edit dish names, prices, recipes, dietary tags, and 3D illustrations</p>
-              </div>
-
-              <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={() => menuPhotoInputRef.current?.click()}
-                  disabled={isUploadingMenu}
-                  className="flex-1 sm:flex-none justify-center px-3.5 py-2 rounded-xl bg-cream-200 text-espresso-900 text-xs sm:text-sm font-semibold hover:bg-cream-300 disabled:opacity-50 transition-colors flex items-center gap-2 whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-                >
-                  <Camera className="w-4 h-4 text-terracotta" />
-                  <span>Upload Photos</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => menuPdfInputRef.current?.click()}
-                  disabled={isUploadingMenu}
-                  className="flex-1 sm:flex-none justify-center px-3.5 py-2 rounded-xl bg-cream-200 text-espresso-900 text-xs sm:text-sm font-semibold hover:bg-cream-300 disabled:opacity-50 transition-colors flex items-center gap-2 whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-                >
-                  <FileText className="w-4 h-4 text-terracotta" />
-                  <span>Upload PDF</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsAddDishOpen(true)}
-                  className="flex-1 sm:flex-none justify-center px-4 py-2 rounded-xl bg-[var(--dishora-accent)] text-white text-xs sm:text-sm font-semibold hover:opacity-95 transition-opacity flex items-center gap-2 whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-                >
-                  <Plus className="w-4 h-4" /> Add Dish
-                </button>
-              </div>
-            </div>
-
-            {/* Delete Toast Notification */}
-            {deleteToast && (
-              <div className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in shadow-xs">
-                <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
-                <span>{deleteToast}</span>
-              </div>
-            )}
-
-            {/* Menu Extraction Error Notification */}
-            {extractionError && (
-              <div
-                role="alert"
-                aria-live="assertive"
-                className="p-4 sm:p-5 bg-red-50 border border-red-200 rounded-2xl flex items-start justify-between gap-3 text-xs sm:text-sm text-red-900 animate-fade-in shadow-xs"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-red-100 border border-red-200 text-red-700 flex items-center justify-center shrink-0 mt-0.5">
-                    <AlertCircle className="w-5 h-5 text-red-600" />
+                  <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
+                    <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">
+                      AI Questions
+                    </span>
+                    <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
+                      {billingUsage ? billingUsage.chatQueriesThisMonth ?? 0 : '—'}
+                    </div>
+                    <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
+                      {billingUsage
+                        ? `of ${billingUsage.maxChatQueries} monthly allowance`
+                        : 'Loading usage...'}
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="font-semibold text-red-950 text-sm">Menu Extraction Failed</h4>
-                    <p className="text-red-800 mt-1 leading-relaxed">{extractionError}</p>
-                    <p className="text-red-700/80 text-[11px] mt-1.5 font-medium">
-                      Notice: Your menu was not modified and no dummy dishes were added. For photos, ensure good lighting and crisp text; for PDFs, ensure the file is unlocked and uncorrupted.
-                    </p>
+
+                  <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
+                    <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">
+                      3D Credits Left
+                    </span>
+                    <div className="text-2xl sm:text-3xl font-bold text-terracotta mt-2 tabular-nums">
+                      {billingUsage ? billingUsage.remainingImageCredits ?? 0 : '—'}
+                    </div>
+                    <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
+                      {billingUsage?.plan?.name ? `${billingUsage.plan.name} plan` : 'Loading plan...'}
+                    </div>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setExtractionError(null)}
-                  className="p-1.5 rounded-lg text-red-500 hover:text-red-800 hover:bg-red-100 transition-colors shrink-0"
-                  title="Dismiss error"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
 
-            {/* Menu Extraction Success Notification */}
-            {extractionSuccess && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center justify-between gap-3 animate-fade-in shadow-xs"
-              >
-                <div className="flex items-center gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
-                  <span className="font-medium">{extractionSuccess}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setExtractionSuccess(null)}
-                  className="p-1 rounded-lg text-sage-600 hover:bg-sage-100 transition-colors shrink-0"
-                  title="Dismiss"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
-            {/* Upload Progress Alert */}
-            {isUploadingMenu && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3 text-xs sm:text-sm text-amber-900 animate-fade-in"
-              >
-                <RefreshCw className="w-5 h-5 animate-spin text-amber-700 shrink-0" />
-                <span>{uploadProgress}</span>
-              </div>
-            )}
-
-            {/* Drag & Drop Menu Import Area (Full Hero when Empty, Compact Strip when Dishes Exist) */}
-            <div
-              onDragOver={handleMenuDragOver}
-              onDragLeave={handleMenuDragLeave}
-              onDrop={handleMenuDrop}
-              className={`rounded-2xl border-2 border-dashed transition-all ${
-                isDraggingMenuFiles
-                  ? 'border-terracotta bg-terracotta-50/40 shadow-sm'
-                  : 'border-cream-300 bg-white/80 hover:border-cream-400'
-              } ${menuItems.length === 0 && !secondaryLoading.items ? 'p-6 sm:p-8 text-center' : 'px-4 py-3'}`}
-            >
-              {menuItems.length === 0 && !secondaryLoading.items ? (
-                <div className="max-w-xl mx-auto space-y-4">
-                  <div className="w-12 h-12 rounded-2xl bg-cream-100 border border-cream-200 text-terracotta flex items-center justify-center mx-auto">
-                    <Upload className="w-5 h-5" />
-                  </div>
+                <div className="p-5 sm:p-6 bg-gradient-to-r from-cream-100 to-cream-50 rounded-3xl border border-cream-300 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                   <div>
                     <h3 className="font-serif text-lg font-bold text-espresso-900">
-                      Import Your Menu from Photos or a PDF
+                      Get Diners Scanning Today
                     </h3>
-                    <p className="text-xs sm:text-sm text-taupe-600 mt-1">
-                      Drag &amp; drop menu files here, or pick either <strong className="text-espresso-800">menu photos</strong> (JPG, PNG, WebP, HEIC — multiple pages OK) or a <strong className="text-espresso-800">menu PDF</strong> (up to 20 MB).
+                    <p className="text-xs sm:text-sm text-taupe-600 mt-0.5">
+                      Download high-resolution QR codes and printable 4x6&quot; table tents for your tables.
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full md:w-auto shrink-0">
                     <button
                       type="button"
-                      disabled={isUploadingMenu}
-                      onClick={() => menuPhotoInputRef.current?.click()}
-                      className="px-4 py-2.5 rounded-xl bg-espresso-900 text-white text-xs sm:text-sm font-semibold hover:bg-espresso-800 disabled:opacity-50 transition-colors inline-flex items-center gap-2 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                      onClick={() => router.push(`/dashboard/${restaurant.id}?tab=qr`)}
+                      className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-espresso-900 text-white text-xs sm:text-sm font-semibold hover:bg-espresso-800 transition-colors shadow-sm flex items-center gap-2"
                     >
-                      <Camera className="w-4 h-4 text-terracotta" />
-                      <span>Upload Menu Photos</span>
+                      <QrCode className="w-4 h-4 text-terracotta" /> Download QR Studio
                     </button>
                     <button
                       type="button"
-                      disabled={isUploadingMenu}
-                      onClick={() => menuPdfInputRef.current?.click()}
-                      className="px-4 py-2.5 rounded-xl bg-cream-100 border border-cream-300 text-espresso-900 text-xs sm:text-sm font-semibold hover:bg-cream-200 disabled:opacity-50 transition-colors inline-flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                      onClick={() => router.push(`/dashboard/${restaurant.id}?tab=menu`)}
+                      className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-white border border-cream-300 text-espresso-800 text-xs sm:text-sm font-semibold hover:bg-cream-100 transition-colors shadow-sm flex items-center gap-2"
                     >
-                      <FileText className="w-4 h-4 text-terracotta" />
-                      <span>Upload Menu PDF</span>
+                      <Upload className="w-4 h-4 text-espresso-700" /> Import Menu (Photos / PDF)
                     </button>
                   </div>
                 </div>
-              ) : (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-taupe-600">
-                  <div className="flex items-center gap-2">
-                    <Upload className="w-4 h-4 text-terracotta shrink-0" />
-                    <span>
-                      Drag &amp; drop more <strong className="text-espresso-800">menu photos</strong> or a <strong className="text-espresso-800">PDF</strong> here to append additional pages (existing dishes won&apos;t be duplicated).
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      disabled={isUploadingMenu}
-                      onClick={() => menuPhotoInputRef.current?.click()}
-                      className="font-semibold text-espresso-800 hover:text-terracotta underline-offset-2 hover:underline disabled:opacity-50"
-                    >
-                      Browse Photos
-                    </button>
-                    <span className="text-cream-400">|</span>
-                    <button
-                      type="button"
-                      disabled={isUploadingMenu}
-                      onClick={() => menuPdfInputRef.current?.click()}
-                      className="font-semibold text-espresso-800 hover:text-terracotta underline-offset-2 hover:underline disabled:opacity-50"
-                    >
-                      Browse PDF
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
 
-            {/* Dishes Data Table */}
-            <div className="bg-white rounded-3xl border border-cream-200 shadow-soft overflow-hidden">
-              {/* Quick Filter Bar */}
-              <div className="p-3.5 border-b border-cream-200 bg-cream-50/50 flex items-center gap-2 overflow-x-auto no-scrollbar">
-                <button
-                  onClick={() => setMenuFilter('ALL')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-                    menuFilter === 'ALL'
-                      ? 'bg-espresso-900 text-white shadow-sm'
-                      : 'bg-white border border-cream-200 text-taupe-600 hover:bg-cream-100'
-                  }`}
-                >
-                  All Dishes ({menuItems.length})
-                </button>
-
-                <button
-                  onClick={() => setMenuFilter('POPULAR')}
-                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-                    menuFilter === 'POPULAR'
-                      ? 'bg-rose-700 text-white shadow-sm'
-                      : 'bg-white border border-cream-200 text-rose-700 hover:bg-rose-50'
-                  }`}
-                >
-                  <Flame className="w-3.5 h-3.5" /> Popular & Bestsellers ({menuItems.filter((i) => i.isPopular || i.chefRecommended).length})
-                </button>
-
-                {isIndianRestaurant ? (
-                  <>
-                    <button
-                      onClick={() => setMenuFilter('VEG')}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-                        menuFilter === 'VEG'
-                          ? 'bg-green-700 text-white shadow-sm'
-                          : 'bg-white border border-cream-200 text-green-800 hover:bg-green-50'
-                      }`}
-                    >
-                      <FssaiMarker type="VEG" /> Pure Veg
-                    </button>
-                    <button
-                      onClick={() => setMenuFilter('NON_VEG')}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-                        menuFilter === 'NON_VEG'
-                          ? 'bg-[#7B3F00] text-white shadow-sm'
-                          : 'bg-white border border-cream-200 text-[#7B3F00] hover:bg-amber-50'
-                      }`}
-                    >
-                      <FssaiMarker type="NON_VEG" /> Non-Veg
-                    </button>
-                    <button
-                      onClick={() => setMenuFilter('EGG')}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-                        menuFilter === 'EGG'
-                          ? 'bg-amber-600 text-white shadow-sm'
-                          : 'bg-white border border-cream-200 text-amber-800 hover:bg-yellow-50'
-                      }`}
-                    >
-                      <FssaiMarker type="EGG" /> Contains Egg
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => setMenuFilter('VEGAN')}
-                      className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-                        menuFilter === 'VEGAN'
-                          ? 'bg-emerald-700 text-white shadow-sm'
-                          : 'bg-white border border-cream-200 text-emerald-800 hover:bg-emerald-50'
-                      }`}
-                    >
-                      Vegan
-                    </button>
-                    <button
-                      onClick={() => setMenuFilter('GLUTEN_FREE')}
-                      className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-                        menuFilter === 'GLUTEN_FREE'
-                          ? 'bg-amber-700 text-white shadow-sm'
-                          : 'bg-white border border-cream-200 text-amber-800 hover:bg-amber-50'
-                      }`}
-                    >
-                      Gluten-Free
-                    </button>
-                  </>
-                )}
-              </div>
-
-              <div className="overflow-x-auto w-full">
-                <table className="w-full min-w-[700px] text-left text-xs sm:text-sm">
-                  <thead className="bg-cream-50 text-taupe-500 border-b border-cream-200 uppercase font-semibold text-[11px] tracking-wider">
-                    <tr>
-                      <th className="py-3.5 px-4">Dish Details</th>
-                      <th className="py-3.5 px-4">Category</th>
-                      <th className="py-3.5 px-4">Price</th>
-                      <th className="py-3.5 px-4 text-center">Spotlight Tags</th>
-                      <th className="py-3.5 px-4 text-center">Availability</th>
-                      <th className="py-3.5 px-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-cream-100">
-                    {secondaryLoading.items && menuItems.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="py-10 px-4 text-center text-xs text-taupe-500">
-                          <span className="inline-flex items-center gap-2">
-                            <RefreshCw className="w-4 h-4 animate-spin motion-reduce:animate-none text-terracotta" />
-                            Loading menu dishes...
-                          </span>
-                        </td>
-                      </tr>
-                    )}
-                    {menuItems
-                      .filter((item) => {
-                        if (menuFilter === 'POPULAR') return Boolean(item.isPopular || item.chefRecommended);
-                        if (menuFilter === 'VEG') {
-                          const labels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase());
-                          return labels.includes('VEG') || labels.includes('VEGETARIAN') || labels.includes('PURE_VEG');
-                        }
-                        if (menuFilter === 'NON_VEG') {
-                          const labels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase());
-                          return labels.includes('NON_VEG') || labels.includes('NON-VEG') || labels.includes('NONVEG');
-                        }
-                        if (menuFilter === 'EGG') {
-                          const labels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase());
-                          return labels.includes('EGG') || labels.includes('CONTAINS_EGG') || labels.includes('EGGETARIAN');
-                        }
-                        if (menuFilter === 'VEGAN') {
-                          const labels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase());
-                          return labels.includes('VEGAN');
-                        }
-                        if (menuFilter === 'GLUTEN_FREE') {
-                          const labels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase());
-                          return labels.includes('GLUTEN_FREE') || labels.includes('GF');
-                        }
-                        return true;
-                      })
-                      .map((item) => {
-                        const img = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
-                        const dietaryLabels = ((item.dietaryStatus as string[]) || []).map((l: string) => l.toUpperCase());
-                        const isVeg = dietaryLabels.some((l) => ['VEG', 'VEGETARIAN', 'PURE_VEG'].includes(l));
-                        const isNonVeg = dietaryLabels.some((l) => ['NON_VEG', 'NON-VEG', 'NONVEG'].includes(l));
-                        const isEgg = dietaryLabels.some((l) => ['EGG', 'CONTAINS_EGG', 'EGGETARIAN'].includes(l));
-                        const indianMarker = isVeg ? 'VEG' : isNonVeg ? 'NON_VEG' : isEgg ? 'EGG' : null;
-
-                        return (
-                          <tr key={item.id} className="hover:bg-cream-50/50 transition-colors">
-                            <td className="py-3.5 px-4">
-                              <div className="flex items-center gap-3">
-                                <img src={img} alt={item.customName} className="w-12 h-12 aspect-square rounded-xl object-cover bg-cream-100 border border-cream-200 shrink-0" />
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-1.5">
-                                    {indianMarker && <FssaiMarker type={indianMarker} size="sm" />}
-                                    <span className="font-semibold text-espresso-900 truncate">{item.customName}</span>
-                                  </div>
-                                  {item.restaurantDescription && (
-                                    <p className="text-[11px] text-taupe-500 line-clamp-1 max-w-xs">{item.restaurantDescription}</p>
-                                  )}
-                                </div>
-                              </div>
-                            </td>
-                            <td className="py-3.5 px-4 text-taupe-600 font-medium">
-                              {item.category?.name || 'General'}
-                            </td>
-                            <td className="py-3.5 px-4 font-bold text-espresso-900">
-                              {formatCurrencyMinor(item.priceMinor || 0, item.currency)}
-                            </td>
-                            <td className="py-3.5 px-4 text-center">
-                              <div className="inline-flex items-center gap-1.5 justify-center">
-                                <button
-                                  type="button"
-                                  onClick={() => handleTogglePopular(item)}
-                                  title={item.isPopular ? "Remove from Bestsellers" : "Mark as Popular / Bestseller"}
-                                  className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
-                                    item.isPopular
-                                      ? 'bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs'
-                                      : 'bg-cream-100 text-taupe-400 border border-cream-200 hover:text-rose-700 hover:bg-rose-50'
-                                  }`}
-                                >
-                                  <Flame className={`w-3.5 h-3.5 ${item.isPopular ? 'text-rose-600' : 'text-taupe-400'}`} />
-                                  <span className="hidden sm:inline">Popular</span>
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleChefPick(item)}
-                                  title={item.chefRecommended ? "Remove Chef Pick" : "Mark as Chef's Recommendation"}
-                                  className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
-                                    item.chefRecommended
-                                      ? 'bg-terracotta-100 text-terracotta-800 border border-terracotta-300 shadow-2xs'
-                                      : 'bg-cream-100 text-taupe-400 border border-cream-200 hover:text-terracotta hover:bg-terracotta-50'
-                                  }`}
-                                >
-                                  <Sparkles className={`w-3.5 h-3.5 ${item.chefRecommended ? 'text-terracotta-600' : 'text-taupe-400'}`} />
-                                  <span className="hidden sm:inline">Chef Pick</span>
-                                </button>
-                              </div>
-                            </td>
-                            <td className="py-3.5 px-4 text-center">
-                              <button
-                                onClick={() => handleToggleAvailability(item)}
-                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                                  item.isAvailable
-                                    ? 'bg-sage-100 text-sage-800 hover:bg-sage-200'
-                                    : 'bg-red-100 text-red-800 hover:bg-red-200'
-                                }`}
-                              >
-                                {item.isAvailable ? 'Available' : 'Sold Out'}
-                              </button>
-                            </td>
-                            <td className="py-3.5 px-4 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                {/* Generate 3D Illustration preview button */}
-                                <button
-                                  onClick={() => handleGenerateIllustration(item)}
-                                  disabled={isGeneratingImg === item.id}
-                                  className="p-1.5 text-terracotta hover:bg-terracotta-50 transition-colors rounded-lg"
-                                  title="Generate / Regenerate 3D Illustration (Accept/Reject Preview)"
-                                >
-                                  {isGeneratingImg === item.id ? (
-                                    <RefreshCw className="w-4 h-4 animate-spin text-terracotta" />
-                                  ) : (
-                                    <Sparkles className="w-4 h-4" />
-                                  )}
-                                </button>
-                                {/* Edit Dish Name, Price, Recipe button */}
-                                <button
-                                  onClick={() => handleOpenEditDish(item)}
-                                  className="p-1.5 text-taupe-600 hover:text-espresso-900 transition-colors rounded-lg hover:bg-cream-100"
-                                  title="Edit dish name, price & description"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </button>
-                                {/* Delete Dish */}
-                                <button
-                                  onClick={() => handlePromptDeleteDish(item)}
-                                  className="p-1.5 text-taupe-400 hover:text-red-600 transition-colors rounded-lg hover:bg-cream-100"
-                                  title="Delete dish"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* =========================================================================
-                MODAL A: EDIT DISH DETAILS (NAME, PRICE, RECIPE, SPOTLIGHTS)
-            ========================================================================= */}
-            <Modal
-              isOpen={Boolean(isEditDishOpen && editingDish)}
-              onClose={() => setIsEditDishOpen(false)}
-              title="Edit Dish Details"
-              subtitle={
-                editingDish
-                  ? `Update name, pricing, dietary tags, and description for ${editingDish.customName}`
-                  : undefined
-              }
-              maxWidth="xl"
-              footer={
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditDishOpen(false)}
-                    className="px-4 py-2 text-xs font-semibold text-taupe-600 hover:bg-cream-100 rounded-xl"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    form="edit-dish-form"
-                    disabled={isSavingEdit}
-                    className="px-5 py-2 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 disabled:opacity-50 shadow-sm"
-                  >
-                    {isSavingEdit ? 'Saving...' : 'Save Changes'}
-                  </button>
-                </>
-              }
-            >
-              {editingDish && (
-                <form id="edit-dish-form" onSubmit={handleSaveEditedDish} className="space-y-4">
-                  {/* Dish Name & Category */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-taupe-600 mb-1">Dish Name *</label>
-                      <input
-                        type="text"
-                        required
-                        value={editDishName}
-                        onChange={(e) => setEditDishName(e.target.value)}
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-taupe-600 mb-1">Category</label>
-                      <select
-                        value={editDishCategory}
-                        onChange={(e) => setEditDishCategory(e.target.value)}
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
-                      >
-                        <option value="">Default / General</option>
-                        {existingCategories.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Price */}
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                      Price ({restaurant.currency}) *
-                    </label>
-                    <input
-                      type="number"
-                      required
-                      step="0.01"
-                      value={editDishPrice}
-                      onChange={(e) => setEditDishPrice(e.target.value)}
-                      className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                  </div>
-
-                  {/* Description */}
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">Description / Recipe</label>
-                    <textarea
-                      rows={2}
-                      value={editDishDescription}
-                      onChange={(e) => setEditDishDescription(e.target.value)}
-                      placeholder="Key spices, preparation technique, portion size..."
-                      className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                  </div>
-
-                  {/* Spotlight: Popular & Chef Recommendation */}
-                  <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
-                    <span className="block text-xs font-semibold text-espresso-900">
-                      Menu Spotlight Options
-                    </span>
-                    <div className="flex flex-wrap gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
-                        <input
-                          type="checkbox"
-                          checked={editDishIsPopular}
-                          onChange={(e) => setEditDishIsPopular(e.target.checked)}
-                          className="rounded border-cream-300 text-rose-600 focus:ring-rose-500 w-4 h-4"
-                        />
-                        <span className="flex items-center gap-1">
-                          <Flame className="w-3.5 h-3.5 text-rose-600" />
-                          <strong>Popular / Bestseller</strong>
-                        </span>
-                      </label>
-
-                      <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
-                        <input
-                          type="checkbox"
-                          checked={editDishChefRecommended}
-                          onChange={(e) => setEditDishChefRecommended(e.target.checked)}
-                          className="rounded border-cream-300 text-terracotta focus:ring-terracotta w-4 h-4"
-                        />
-                        <span className="flex items-center gap-1">
-                          <Sparkles className="w-3.5 h-3.5 text-terracotta-500" />
-                          <strong>Chef's Pick</strong>
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Dietary Classification: Indian FSSAI vs Western */}
-                  {isIndianRestaurant ? (
-                    <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-espresso-900 mb-2">
-                          Indian Food Classification (FSSAI) *
-                        </label>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setEditDishFoodType('VEG')}
-                            className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                              editDishFoodType === 'VEG'
-                                ? 'bg-green-100 border-green-600 text-green-900 ring-2 ring-green-500/20'
-                                : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
-                            }`}
-                          >
-                            <FssaiMarker type="VEG" /> Pure Veg
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setEditDishFoodType('NON_VEG')}
-                            className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                              editDishFoodType === 'NON_VEG'
-                                ? 'bg-amber-100 border-[#7B3F00] text-[#7B3F00] ring-2 ring-amber-500/20'
-                                : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
-                            }`}
-                          >
-                            <FssaiMarker type="NON_VEG" /> Non-Veg
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setEditDishFoodType('EGG')}
-                            className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                              editDishFoodType === 'EGG'
-                                ? 'bg-yellow-100 border-amber-500 text-amber-900 ring-2 ring-yellow-500/20'
-                                : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
-                            }`}
-                          >
-                            <FssaiMarker type="EGG" /> Contains Egg
-                          </button>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                          Additional Options
-                        </label>
-                        <div className="flex flex-wrap gap-2">
-                          {[
-                            { key: 'JAIN', label: 'Jain Safe (No Onion/Garlic)' },
-                            { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
-                            { key: 'VEGAN', label: 'Vegan' },
-                          ].map((tag) => {
-                            const checked = editDishDietaryTags.includes(tag.key);
-                            return (
-                              <button
-                                type="button"
-                                key={tag.key}
-                                onClick={() => {
-                                  setEditDishDietaryTags((prev) =>
-                                    checked ? prev.filter((t) => t !== tag.key) : [...prev, tag.key]
-                                  );
-                                }}
-                                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                                  checked
-                                    ? 'bg-espresso-900 text-white border-espresso-900'
-                                    : 'bg-white border-cream-300 text-taupe-600 hover:bg-cream-100'
-                                }`}
-                              >
-                                {checked ? '✓ ' : '+ '} {tag.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Western / Abroad Dietary Classification */
-                    <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
-                      <label className="block text-xs font-semibold text-espresso-900 mb-1">
-                        Dietary Suitability & Allergens (Abroad)
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        {[
-                          { key: 'VEGETARIAN', label: 'Vegetarian' },
-                          { key: 'VEGAN', label: 'Vegan' },
-                          { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
-                          { key: 'DAIRY_FREE', label: 'Dairy-Free' },
-                          { key: 'NUT_FREE', label: 'Nut-Free' },
-                          { key: 'HALAL', label: 'Halal' },
-                          { key: 'KOSHER', label: 'Kosher' },
-                        ].map((tag) => {
-                          const checked = editDishDietaryTags.includes(tag.key);
-                          return (
-                            <button
-                              type="button"
-                              key={tag.key}
-                              onClick={() => {
-                                setEditDishDietaryTags((prev) =>
-                                  checked ? prev.filter((t) => t !== tag.key) : [...prev, tag.key]
-                                );
-                              }}
-                              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                                checked
-                                  ? 'bg-espresso-900 text-white border-espresso-900'
-                                  : 'bg-white border-cream-300 text-taupe-600 hover:bg-cream-100'
-                              }`}
-                            >
-                              {checked ? '✓ ' : '+ '} {tag.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </form>
-              )}
-            </Modal>
-
-            {/* =========================================================================
-                MODAL B: ADD NEW DISH
-            ========================================================================= */}
-            <Modal
-              isOpen={isAddDishOpen}
-              onClose={() => setIsAddDishOpen(false)}
-              title="Add New Dish"
-              subtitle={isIndianRestaurant ? 'Indian Restaurant Menu Item' : 'Hospitality Menu Item'}
-              maxWidth="xl"
-              footer={
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setIsAddDishOpen(false)}
-                    className="px-4 py-2 text-xs font-semibold text-taupe-600 hover:bg-cream-100 rounded-xl"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    form="add-dish-form"
-                    className="px-5 py-2 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 shadow-sm"
-                  >
-                    Save Dish to Menu
-                  </button>
-                </>
-              }
-            >
-              <form id="add-dish-form" onSubmit={handleAddDish} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">Dish Name *</label>
-                    <input
-                      type="text"
-                      required
-                      value={newDishName}
-                      onChange={(e) => setNewDishName(e.target.value)}
-                      placeholder={isIndianRestaurant ? "e.g. Paneer Butter Masala" : "e.g. Truffle Pappardelle"}
-                      className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">Category</label>
-                    <select
-                      value={newDishCategory}
-                      onChange={(e) => setNewDishCategory(e.target.value)}
-                      className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    >
-                      <option value="">Default / Chef Specials</option>
-                      {existingCategories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                    Price ({restaurant.currency}) *
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    step="0.01"
-                    value={newDishPrice}
-                    onChange={(e) => setNewDishPrice(e.target.value)}
-                    className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-taupe-600 mb-1">Description / Recipe</label>
-                  <textarea
-                    rows={2}
-                    value={newDishDescription}
-                    onChange={(e) => setNewDishDescription(e.target.value)}
-                    placeholder="Key spices, preparation technique, portion size..."
-                    className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                  />
-                </div>
-
-                <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
-                  <span className="block text-xs font-semibold text-espresso-900">
-                    Menu Spotlight Options
-                  </span>
-                  <div className="flex flex-wrap gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
-                      <input
-                        type="checkbox"
-                        checked={newDishIsPopular}
-                        onChange={(e) => setNewDishIsPopular(e.target.checked)}
-                        className="rounded border-cream-300 text-rose-600 focus:ring-rose-500 w-4 h-4"
-                      />
-                      <span className="flex items-center gap-1">
-                        <Flame className="w-3.5 h-3.5 text-rose-600" />
-                        <strong>Popular / Bestseller</strong>
-                      </span>
-                    </label>
-
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-espresso-800">
-                      <input
-                        type="checkbox"
-                        checked={newDishChefRecommended}
-                        onChange={(e) => setNewDishChefRecommended(e.target.checked)}
-                        className="rounded border-cream-300 text-terracotta focus:ring-terracotta w-4 h-4"
-                      />
-                      <span className="flex items-center gap-1">
-                        <Sparkles className="w-3.5 h-3.5 text-terracotta-500" />
-                        <strong>Chef's Pick</strong>
-                      </span>
-                    </label>
-                  </div>
-                </div>
-
-                {isIndianRestaurant ? (
-                  <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-espresso-900 mb-2">
-                        Indian Food Classification (FSSAI) *
-                      </label>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setNewDishFoodType('VEG')}
-                          className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                            newDishFoodType === 'VEG'
-                              ? 'bg-green-100 border-green-600 text-green-900 ring-2 ring-green-500/20'
-                              : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
-                          }`}
-                        >
-                          <FssaiMarker type="VEG" /> Pure Veg
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setNewDishFoodType('NON_VEG')}
-                          className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                            newDishFoodType === 'NON_VEG'
-                              ? 'bg-amber-100 border-[#7B3F00] text-[#7B3F00] ring-2 ring-amber-500/20'
-                              : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
-                          }`}
-                        >
-                          <FssaiMarker type="NON_VEG" /> Non-Veg
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setNewDishFoodType('EGG')}
-                          className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                            newDishFoodType === 'EGG'
-                              ? 'bg-yellow-100 border-amber-500 text-amber-900 ring-2 ring-yellow-500/20'
-                              : 'bg-white border-cream-300 text-taupe-700 hover:bg-cream-100'
-                          }`}
-                        >
-                          <FssaiMarker type="EGG" /> Contains Egg
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                        Additional Options
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        {[
-                          { key: 'JAIN', label: 'Jain Safe (No Onion/Garlic)' },
-                          { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
-                          { key: 'VEGAN', label: 'Vegan' },
-                        ].map((tag) => {
-                          const checked = newDishDietaryTags.includes(tag.key);
-                          return (
-                            <button
-                              type="button"
-                              key={tag.key}
-                              onClick={() => {
-                                setNewDishDietaryTags((prev) =>
-                                  checked ? prev.filter((t) => t !== tag.key) : [...prev, tag.key]
-                                );
-                              }}
-                              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                                checked
-                                  ? 'bg-espresso-900 text-white border-espresso-900'
-                                  : 'bg-white border-cream-300 text-taupe-600 hover:bg-cream-100'
-                              }`}
-                            >
-                              {checked ? '✓ ' : '+ '} {tag.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
-                    <label className="block text-xs font-semibold text-espresso-900 mb-1">
-                      Dietary Suitability & Allergens (Abroad)
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        { key: 'VEGETARIAN', label: 'Vegetarian' },
-                        { key: 'VEGAN', label: 'Vegan' },
-                        { key: 'GLUTEN_FREE', label: 'Gluten-Free' },
-                        { key: 'DAIRY_FREE', label: 'Dairy-Free' },
-                        { key: 'NUT_FREE', label: 'Nut-Free' },
-                        { key: 'HALAL', label: 'Halal' },
-                        { key: 'KOSHER', label: 'Kosher' },
-                      ].map((tag) => {
-                        const checked = newDishDietaryTags.includes(tag.key);
-                        return (
-                          <button
-                            type="button"
-                            key={tag.key}
-                            onClick={() => {
-                              setNewDishDietaryTags((prev) =>
-                                checked ? prev.filter((t) => t !== tag.key) : [...prev, tag.key]
-                              );
-                            }}
-                            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                              checked
-                                ? 'bg-espresso-900 text-white border-espresso-900'
-                                : 'bg-white border-cream-300 text-taupe-600 hover:bg-cream-100'
-                            }`}
-                          >
-                            {checked ? '✓ ' : '+ '} {tag.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </form>
-            </Modal>
-
-            {/* =========================================================================
-                MODAL: ON-SCREEN DELETE DISH CONFIRMATION
-            ========================================================================= */}
-            <Modal
-              isOpen={Boolean(isDeleteDialogOpen && dishToDelete)}
-              onClose={() => {
-                setIsDeleteDialogOpen(false);
-                setDishToDelete(null);
-              }}
-              ariaLabel="Remove Dish from Menu?"
-              showCloseButton={false}
-              maxWidth="md"
-              bodyClassName="text-center space-y-4"
-            >
-              {dishToDelete && (
-                <>
-                  <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto border border-red-200">
-                    <Trash2 className="w-7 h-7" />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <h3 className="font-serif text-xl font-bold text-espresso-900">
-                      Remove Dish from Menu?
+                <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-serif text-lg font-bold text-espresso-900">
+                      Your Menu Highlights
                     </h3>
-                    <p className="text-xs sm:text-sm text-taupe-600 leading-relaxed">
-                      Are you sure you want to remove <strong className="text-espresso-900 font-semibold">"{dishToDelete.customName}"</strong>? This will instantly remove it from your live visual menu and diner QR experience.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-center gap-3 pt-2">
                     <button
                       type="button"
-                      autoFocus
-                      onClick={() => {
-                        setIsDeleteDialogOpen(false);
-                        setDishToDelete(null);
-                      }}
-                      disabled={isDeletingDish}
-                      className="flex-1 py-2.5 px-4 text-xs sm:text-sm font-semibold text-taupe-700 bg-cream-100 hover:bg-cream-200 rounded-xl transition-colors"
+                      onClick={() => router.push(`/dashboard/${restaurant.id}?tab=menu`)}
+                      className="text-xs font-semibold text-terracotta hover:underline"
                     >
-                      Cancel
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleConfirmDeleteDish}
-                      disabled={isDeletingDish}
-                      className="flex-1 py-2.5 px-4 text-xs sm:text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
-                    >
-                      {isDeletingDish ? (
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
-                      {isDeletingDish ? 'Removing...' : 'Yes, Remove Dish'}
-                    </button>
-                  </div>
-                </>
-              )}
-            </Modal>
-          </div>
-        )}
-
-        {/* =========================================================================
-            TAB 3: ILLUSTRATION LAB (VECTOR / 3D FOOD STUDIO)
-        ========================================================================= */}
-        {currentTab === 'illustrations' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="font-serif text-xl font-bold text-espresso-900">Illustration Lab</h2>
-                <p className="text-xs sm:text-sm text-taupe-500 mt-1">
-                  Manage 3D-clay-styled illustrations. Reuse curated Canonical Gallery art at zero credit cost or generate custom visuals.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={handleBatchIllustrateMenu}
-                  disabled={isGeneratingBatch}
-                  className="px-3.5 py-1.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-60"
-                  title="Links closest canonical gallery artwork first (0 credits), then generates up to 5 custom visuals"
-                >
-                  {isGeneratingBatch ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-terracotta" />
-                  ) : (
-                    <Sparkles className="w-3.5 h-3.5 text-terracotta" />
-                  )}
-                  {isGeneratingBatch ? 'Matching & Generating...' : 'Auto-Match & Generate (Up to 5)'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleOpenCanonicalGallery()}
-                  className="px-3.5 py-1.5 rounded-xl bg-sage-50 hover:bg-sage-100 text-sage-800 border border-sage-200 font-semibold text-xs flex items-center gap-1.5 transition-colors"
-                >
-                  <ImageIcon className="w-3.5 h-3.5 text-sage-700" />
-                  Browse Canonical Gallery
-                </button>
-                <span className="px-3 py-1.5 rounded-xl bg-terracotta-50 text-terracotta-700 font-bold text-xs border border-terracotta-200">
-                  {billingUsage?.remainingImageCredits ?? 15} Generation Credits Remaining
-                </span>
-              </div>
-            </div>
-
-            {batchStatusMsg && (
-              <div className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in">
-                <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
-                <span>{batchStatusMsg}</span>
-              </div>
-            )}
-
-            {/* Gallery of Dishes & Visuals - Uniform Square Aspect Ratio */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {menuItems.map((item) => {
-                const img = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
-                const isReused = Boolean(item.canonicalId && !item.imageOverrideAssetId);
-
-                return (
-                  <div key={item.id} className="bg-white rounded-3xl border border-cream-200 overflow-hidden shadow-soft flex flex-col justify-between">
-                    <div className="relative aspect-square w-full bg-cream-100 overflow-hidden">
-                      <img src={img} alt={item.customName} className="w-full h-full object-cover" />
-                      <div className="absolute top-2.5 right-2.5">
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold shadow-xs ${isReused ? 'bg-sage-100 text-sage-800' : 'bg-terracotta-100 text-terracotta-800'}`}>
-                          {isReused ? 'Canonical Library' : 'Custom Generated'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="p-4 sm:p-5 space-y-3">
-                      <div>
-                        <h4 className="font-semibold text-base text-espresso-900">{item.customName}</h4>
-                        <p className="text-xs text-taupe-500 line-clamp-2 mt-0.5">{item.restaurantDescription || 'No culinary description provided'}</p>
-                      </div>
-
-                      <div className="flex items-center gap-2 pt-2 border-t border-cream-100">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenCanonicalGallery(item)}
-                          className="py-2 px-3 rounded-xl bg-cream-100 hover:bg-cream-200 text-espresso-800 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 border border-cream-200 shrink-0"
-                          title="Choose free image from Canonical Gallery"
-                        >
-                          <ImageIcon className="w-3.5 h-3.5 text-sage-700" />
-                          Gallery
-                        </button>
-                        <button
-                          onClick={() => handleGenerateIllustration(item)}
-                          disabled={isGeneratingImg === item.id}
-                          className="flex-1 py-2 px-3 rounded-xl bg-espresso-900 text-white text-xs font-semibold hover:bg-espresso-800 disabled:opacity-50 transition-all flex items-center justify-center gap-1.5 shadow-sm"
-                        >
-                          {isGeneratingImg === item.id ? (
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-terracotta" />
-                          ) : (
-                            <Sparkles className="w-3.5 h-3.5 text-terracotta" />
-                          )}
-                          {isGeneratingImg === item.id ? 'Generating...' : 'Regenerate 3D'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Canonical Gallery Modal */}
-            <Modal
-              isOpen={isCanonicalGalleryOpen}
-              onClose={() => setIsCanonicalGalleryOpen(false)}
-              title="Canonical 3D Culinary Gallery"
-              subtitle="Browse curated 3D-clay dish artwork. Apply any illustration to a dish on your menu at zero credit cost."
-              maxWidth="4xl"
-              bodyClassName="space-y-4"
-            >
-              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between bg-cream-50 p-3 rounded-2xl border border-cream-200">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-taupe-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={canonicalGallerySearch}
-                    onChange={(e) => setCanonicalGallerySearch(e.target.value)}
-                    placeholder="Search dishes, beverages, pastries..."
-                    className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-cream-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-terracotta"
-                  />
-                </div>
-                {menuItems.length > 0 && (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[11px] font-semibold text-taupe-600 whitespace-nowrap">Apply to:</span>
-                    <select
-                      value={galleryTargetDishId}
-                      onChange={(e) => setGalleryTargetDishId(e.target.value)}
-                      className="px-3 py-2 text-xs font-semibold bg-white border border-cream-300 rounded-xl text-espresso-900 focus:outline-none focus:ring-1 focus:ring-terracotta max-w-[200px]"
-                    >
-                      {menuItems.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.customName}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-
-              {canonicalGalleryItems.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {['ALL', ...sortCanonicalCategories(Array.from(new Set(canonicalGalleryItems.map((i) => i.category).filter(Boolean))))].map((cat) => {
-                    const count =
-                      cat === 'ALL'
-                        ? canonicalGalleryItems.length
-                        : canonicalGalleryItems.filter((i) => i.category === cat).length;
-                    return (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => setCanonicalGalleryCategory(cat)}
-                        className={`px-3 py-1 rounded-full text-[11px] font-semibold transition-all ${
-                          canonicalGalleryCategory === cat
-                            ? 'bg-espresso-900 text-white'
-                            : 'bg-cream-100 text-taupe-700 hover:bg-cream-200'
-                        }`}
-                      >
-                        {cat === 'ALL' ? `All (${count})` : `${cat} (${count})`}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {canonicalGalleryLoading ? (
-                <div className="py-12 flex flex-col items-center justify-center text-taupe-500 text-xs gap-2">
-                  <RefreshCw className="w-6 h-6 animate-spin text-terracotta" />
-                  <span>Loading Canonical Gallery...</span>
-                </div>
-              ) : (() => {
-                const filteredGalleryItems = canonicalGalleryItems.filter((entry) => {
-                  if (canonicalGalleryCategory !== 'ALL' && entry.category !== canonicalGalleryCategory) {
-                    return false;
-                  }
-                  const q = canonicalGallerySearch.toLowerCase().trim();
-                  if (!q) return true;
-                  return (
-                    entry.dishName?.toLowerCase().includes(q) ||
-                    entry.normalizedName?.toLowerCase().includes(q) ||
-                    entry.description?.toLowerCase().includes(q) ||
-                    entry.cuisine?.toLowerCase().includes(q) ||
-                    (Array.isArray(entry.aliases) &&
-                      entry.aliases.some((a: string) => a.toLowerCase().includes(q)))
-                  );
-                });
-
-                if (filteredGalleryItems.length === 0) {
-                  return (
-                    <div className="py-12 text-center text-taupe-500 text-xs">
-                      No canonical dishes match your current filter or search query.
-                    </div>
-                  );
-                }
-
-                return (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5">
-                    {filteredGalleryItems.map((entry) => (
-                      <div
-                        key={entry.canonicalId}
-                        className="rounded-2xl border border-cream-200 bg-white overflow-hidden flex flex-col justify-between shadow-xs hover:border-terracotta/50 transition-all"
-                      >
-                        <div>
-                          <div className="relative aspect-square bg-cream-100 overflow-hidden">
-                            <img
-                              src={entry.asset?.publicUrl || '/placeholder-dish.svg'}
-                              alt={entry.dishName}
-                              className="w-full h-full object-cover"
-                              loading="lazy"
-                            />
-                            {entry.category && (
-                              <span className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-black/65 text-white backdrop-blur-xs max-w-[90%] truncate">
-                                {entry.category}
-                              </span>
-                            )}
-                          </div>
-                          <div className="p-2.5 space-y-1">
-                            <h5 className="font-semibold text-xs text-espresso-900 line-clamp-1">
-                              {entry.dishName}
-                            </h5>
-                            <p className="text-[10px] text-taupe-500 line-clamp-2 leading-snug">
-                              {entry.description}
-                            </p>
-                          </div>
-                        </div>
-                        {galleryTargetDishId && (
-                          <div className="px-2.5 pb-2.5">
-                            <button
-                              type="button"
-                              onClick={() => handleApplyCanonicalFromGallery(entry)}
-                              disabled={isApplyingGalleryAsset === entry.canonicalId}
-                              className="w-full py-1.5 px-2.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-[11px] font-semibold transition-colors disabled:opacity-50"
-                            >
-                              {isApplyingGalleryAsset === entry.canonicalId ? 'Applying...' : 'Use This Image'}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
-            </Modal>
-          </div>
-        )}
-
-        {/* =========================================================================
-            MODAL C: CANDIDATE 3D IMAGE REVIEW (ACCEPT OR REJECT WORKFLOW)
-        ========================================================================= */}
-        <Modal
-          isOpen={Boolean(candidateReview)}
-          onClose={() => setCandidateReview(null)}
-          title="Review 3D Clay Illustration"
-          subtitle={
-            candidateReview
-              ? `Preview newly generated visual for "${candidateReview.item.customName}". You can accept or reject this generation.`
-              : undefined
-          }
-          maxWidth="2xl"
-          bodyClassName="space-y-4"
-          footerClassName="flex-col-reverse sm:flex-row sm:justify-end"
-          footer={
-            candidateReview ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setCandidateReview(null)}
-                  className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-taupe-700 bg-cream-100 hover:bg-cream-200 rounded-xl transition-colors"
-                >
-                  Reject & Keep Current
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAcceptCandidateImage}
-                  disabled={isApplyingCandidate}
-                  className="w-full sm:w-auto px-5 py-2.5 text-xs font-semibold bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 transition-colors shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
-                >
-                  <Check className="w-4 h-4 text-emerald-400" />
-                  {isApplyingCandidate ? 'Applying...' : 'Accept & Apply to Menu'}
-                </button>
-              </>
-            ) : undefined
-          }
-        >
-          {candidateReview && (
-            <>
-              {/* Side-by-Side Comparison (Exact Uniform Square Aspect Ratio) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Current Image */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-taupe-600 uppercase tracking-wider">
-                      Current Dish Image
-                    </span>
-                    <span className="text-[10px] text-taupe-400 font-medium">Active Menu</span>
-                  </div>
-                  <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-cream-100 border border-cream-300 shadow-inner">
-                    <img
-                      src={
-                        candidateReview.item.imageOverride?.publicUrl ||
-                        candidateReview.item.canonical?.imageAsset?.publicUrl ||
-                        '/placeholder-dish.svg'
-                      }
-                      alt="Current dish artwork"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </div>
-
-                {/* Newly Generated Candidate */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-terracotta uppercase tracking-wider flex items-center gap-1">
-                      <Sparkles className="w-3.5 h-3.5" /> Generated 3D Art
-                    </span>
-                    <span className="text-[10px] bg-terracotta-100 text-terracotta-800 font-semibold px-2 py-0.5 rounded-full">
-                      Candidate
-                    </span>
-                  </div>
-                  <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-cream-100 border-2 border-terracotta shadow-md">
-                    <img
-                      src={candidateReview.asset.publicUrl}
-                      alt="Candidate generation"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Fine-Tuning Re-prompt */}
-              <div className="p-3.5 bg-cream-50 rounded-2xl border border-cream-200 space-y-2">
-                <span className="text-xs font-semibold text-espresso-900 block">
-                  Want adjustments? Add custom styling tweaks
-                </span>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <input
-                    type="text"
-                    value={candidatePromptTweak}
-                    onChange={(e) => setCandidatePromptTweak(e.target.value)}
-                    placeholder="e.g. Add extra fresh herbs, make the gravy darker, rustic ceramic bowl..."
-                    className="flex-1 min-w-0 px-3 py-2 text-xs bg-white border border-cream-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-terracotta"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleGenerateIllustration(candidateReview.item, candidatePromptTweak)}
-                    disabled={isGeneratingImg === candidateReview.item.id}
-                    className="px-3.5 py-2 text-xs font-semibold bg-cream-200 text-espresso-800 rounded-xl hover:bg-cream-300 transition-colors shrink-0 flex items-center justify-center gap-1"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingImg === candidateReview.item.id ? 'animate-spin' : ''}`} />
-                    Retry
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </Modal>
-
-        {/* =========================================================================
-            TAB 4: THEME STUDIO (REACTIVE PHONE PREVIEW + GRID/LIST CARD MODES)
-        ========================================================================= */}
-        {currentTab === 'theme' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="p-4 sm:p-6 bg-white rounded-3xl border border-cream-200 shadow-soft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="font-serif text-xl font-bold text-espresso-900">Restaurant Theme Studio</h2>
-                <p className="text-xs sm:text-sm text-taupe-500 mt-1">
-                  Customize colors, typography, card layout (Grid vs List), and inspect live updates in the diner phone view.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <button
-                  type="button"
-                  disabled={savingThemeAction !== null || isGeneratingTheme}
-                  aria-busy={savingThemeAction === 'draft'}
-                  onClick={() => handleSaveTheme(false)}
-                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-cream-200 text-espresso-800 font-semibold text-xs sm:text-sm hover:bg-cream-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {savingThemeAction === 'draft' && (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  )}
-                  <span>{savingThemeAction === 'draft' ? 'Saving Draft...' : 'Save Draft'}</span>
-                </button>
-                <button
-                  type="button"
-                  disabled={savingThemeAction !== null || isGeneratingTheme}
-                  aria-busy={savingThemeAction === 'publish'}
-                  onClick={() => handleSaveTheme(true)}
-                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-espresso-900 text-white font-semibold text-xs sm:text-sm hover:bg-espresso-800 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {savingThemeAction === 'publish' && (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  )}
-                  <span>{savingThemeAction === 'publish' ? 'Publishing...' : 'Publish Theme'}</span>
-                </button>
-              </div>
-            </div>
-
-            {savingThemeAction !== null && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="p-3.5 bg-cream-50 border border-cream-300 text-espresso-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2.5 animate-fade-in"
-              >
-                <RefreshCw className="w-4 h-4 text-terracotta animate-spin shrink-0" />
-                <span>
-                  {savingThemeAction === 'publish'
-                    ? 'Publishing theme and refreshing the live diner menu...'
-                    : 'Saving theme draft...'}
-                </span>
-              </div>
-            )}
-
-            {themeSaveError && (
-              <div
-                role="alert"
-                className="p-3.5 bg-red-50 border border-red-200 text-red-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in"
-              >
-                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                <span>{themeSaveError}</span>
-              </div>
-            )}
-
-            {themeSavedToast && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in"
-              >
-                <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
-                <span>
-                  {themeSavedToastMode === 'draft'
-                    ? 'Theme draft saved!'
-                    : 'Theme saved & published! Public diner menu cache updated.'}
-                </span>
-              </div>
-            )}
-
-            {/* Studio Layout: Left Controls + Right Live Phone Preview */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              {/* Left Config Controls */}
-              <div className="lg:col-span-7 space-y-6">
-                {/* AI & Random Nice Theme Studio */}
-                <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-start gap-3">
-                      <div className="w-9 h-9 rounded-2xl bg-terracotta/10 border border-terracotta/20 text-terracotta flex items-center justify-center shrink-0 mt-0.5">
-                        <Sparkles className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-espresso-900">AI Theme Designer</h3>
-                        <p className="text-xs text-taupe-500 mt-0.5">
-                          Describe a vibe or click Surprise Me to craft and preview a fresh look instantly.
-                        </p>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={isGeneratingTheme}
-                      onClick={() => handleGenerateTheme('random')}
-                      className="shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold shadow-sm transition-all disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-                    >
-                      {isGeneratingTheme ? (
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Wand2 className="w-3.5 h-3.5 text-amber-300" />
-                      )}
-                      <span>{isGeneratingTheme ? 'Crafting Theme...' : 'Surprise Me'}</span>
+                      Open Menu Studio &rarr;
                     </button>
                   </div>
 
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      handleGenerateTheme('prompt');
-                    }}
-                    className="space-y-2"
-                  >
-                    <label
-                      htmlFor="theme-ai-prompt"
-                      className="block text-xs font-semibold text-taupe-600 uppercase tracking-wider"
-                    >
-                      Describe your restaurant vibe
-                    </label>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <input
-                        id="theme-ai-prompt"
-                        type="text"
-                        maxLength={240}
-                        disabled={isGeneratingTheme}
-                        value={themePrompt}
-                        onChange={(e) => {
-                          setThemePrompt(e.target.value);
-                          if (themeGenError) setThemeGenError(null);
-                        }}
-                        placeholder="e.g. Candlelit Tuscan wine bar, Kyoto matcha café, coastal bistro..."
-                        className="flex-1 px-3.5 py-2.5 rounded-xl border border-cream-300 bg-cream-50/40 text-xs sm:text-sm text-espresso-900 placeholder:text-taupe-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta transition-all"
-                      />
-                      <button
-                        type="submit"
-                        disabled={isGeneratingTheme || !themePrompt.trim()}
-                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-terracotta hover:bg-terracotta/90 text-white text-xs font-semibold shadow-2xs transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-                      >
-                        {isGeneratingTheme ? (
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Palette className="w-3.5 h-3.5" />
-                        )}
-                        <span>Style from Prompt</span>
-                      </button>
-                    </div>
-                  </form>
-
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[11px] text-taupe-500 font-medium mr-1">Try:</span>
-                    {[
-                      'Candlelit Italian wine bar',
-                      'Kyoto matcha café',
-                      'Sunlit coastal bistro',
-                      'Minimal Nordic bakery',
-                    ].map((idea) => (
-                      <button
-                        key={idea}
-                        type="button"
-                        disabled={isGeneratingTheme}
-                        onClick={() => handleGenerateTheme('prompt', idea)}
-                        className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-cream-100 hover:bg-cream-200 text-espresso-800 border border-cream-200 transition-colors disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-terracotta"
-                      >
-                        {idea}
-                      </button>
-                    ))}
-                  </div>
-
-                  {themeGenError && (
-                    <div
-                      role="alert"
-                      className="p-3 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-800 flex items-center gap-2"
-                    >
-                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                      <span>{themeGenError}</span>
-                    </div>
-                  )}
-
-                  {(generatedThemeBanner || themeHistory.length > 0) && (
-                    <div
-                      role="status"
-                      aria-live="polite"
-                      className="p-3.5 rounded-2xl bg-cream-50 border border-cream-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in"
-                    >
-                      <div className="min-w-0 space-y-0.5">
-                        {generatedThemeBanner ? (
-                          <>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs font-bold text-espresso-900">
-                                {generatedThemeBanner.name}
-                              </span>
-                              <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-terracotta/15 text-terracotta">
-                                {generatedThemeBanner.savedStatus === 'published'
-                                  ? 'Applied & Published'
-                                  : generatedThemeBanner.savedStatus === 'draft'
-                                  ? 'Applied • Draft Saved'
-                                  : 'Applied to Preview • Unsaved'}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-taupe-600 leading-relaxed">
-                              {generatedThemeBanner.rationale}
-                            </p>
-                          </>
-                        ) : (
-                          <div className="text-xs text-taupe-600">
-                            Showing previous look • <span className="font-semibold text-espresso-900">{themeHistory.length}</span> earlier {themeHistory.length === 1 ? 'version' : 'versions'} in history
-                          </div>
-                        )}
-                      </div>
-
-                      {themeHistory.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleReturnToPreviousTheme}
-                          className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-cream-100 text-espresso-900 border border-cream-300 text-xs font-semibold shadow-2xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5 text-terracotta" />
-                          <span>Return to Previous</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* 4 Curated Hospitality Presets */}
-                <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-3">
-                  <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
-                    Curated Hospitality Presets
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {Object.entries(THEME_PRESETS).map(([key, preset]) => (
-                      <button
-                        type="button"
-                        key={key}
-                        onClick={() => {
-                          if (themeState.presetKey !== key || generatedThemeBanner !== null) {
-                            applyThemeWithHistory(preset, null);
-                          }
-                        }}
-                        className={`p-3.5 rounded-2xl border text-left transition-all ${
-                          themeState.presetKey === key
-                            ? 'border-terracotta ring-2 ring-terracotta/20 bg-cream-50'
-                            : 'border-cream-200 hover:border-cream-300 bg-white'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className="w-4 h-4 rounded-full border border-black/10 shrink-0" style={{ backgroundColor: preset.backgroundColor }} />
-                          <span className="w-4 h-4 rounded-full border border-black/10 shrink-0" style={{ backgroundColor: preset.accentColor }} />
-                          <span className="font-semibold text-xs text-espresso-900">{preset.presetKey.replace(/_/g, ' ')}</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Card Layout Switcher (Grid vs List) */}
-                <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-3">
-                  <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
-                    Menu Card Layout Mode
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setThemeState({ ...themeState, layoutMode: 'GRID' })}
-                      className={`p-4 rounded-2xl border text-left transition-all ${
-                        themeState.layoutMode === 'GRID'
-                          ? 'border-espresso-900 bg-espresso-900 text-white shadow-sm'
-                          : 'border-cream-300 bg-white text-espresso-800 hover:bg-cream-50'
-                      }`}
-                    >
-                      <div className="font-bold text-sm mb-1 flex items-center justify-between">
-                        <span>Grid Cards</span>
-                        {themeState.layoutMode === 'GRID' && <Check className="w-4 h-4 text-terracotta" />}
-                      </div>
-                      <p className={`text-xs ${themeState.layoutMode === 'GRID' ? 'text-cream-200' : 'text-taupe-500'}`}>
-                        Visual-forward two-column cards showcasing food photography
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setThemeState({ ...themeState, layoutMode: 'LIST' })}
-                      className={`p-4 rounded-2xl border text-left transition-all ${
-                        themeState.layoutMode === 'LIST'
-                          ? 'border-espresso-900 bg-espresso-900 text-white shadow-sm'
-                          : 'border-cream-300 bg-white text-espresso-800 hover:bg-cream-50'
-                      }`}
-                    >
-                      <div className="font-bold text-sm mb-1 flex items-center justify-between">
-                        <span>Editorial List</span>
-                        {themeState.layoutMode === 'LIST' && <Check className="w-4 h-4 text-terracotta" />}
-                      </div>
-                      <p className={`text-xs ${themeState.layoutMode === 'LIST' ? 'text-cream-200' : 'text-taupe-500'}`}>
-                        Classic bistro rows focusing on culinary descriptions and prices
-                      </p>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Color Palette Customization */}
-                <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                  <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
-                    Color Palette (Interactive)
-                  </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div>
-                      <span className="block text-[11px] font-medium text-taupe-600 mb-1">Background</span>
-                      <input
-                        type="color"
-                        value={themeState.backgroundColor}
-                        onChange={(e) => setThemeState({ ...themeState, backgroundColor: e.target.value })}
-                        className="w-full h-11 rounded-xl cursor-pointer border border-cream-300 bg-white"
-                      />
-                    </div>
-                    <div>
-                      <span className="block text-[11px] font-medium text-taupe-600 mb-1">Surface Cards</span>
-                      <input
-                        type="color"
-                        value={themeState.surfaceColor}
-                        onChange={(e) => setThemeState({ ...themeState, surfaceColor: e.target.value })}
-                        className="w-full h-11 rounded-xl cursor-pointer border border-cream-300 bg-white"
-                      />
-                    </div>
-                    <div>
-                      <span className="block text-[11px] font-medium text-taupe-600 mb-1">Primary Text</span>
-                      <input
-                        type="color"
-                        value={themeState.primaryTextColor}
-                        onChange={(e) => setThemeState({ ...themeState, primaryTextColor: e.target.value })}
-                        className="w-full h-11 rounded-xl cursor-pointer border border-cream-300 bg-white"
-                      />
-                    </div>
-                    <div>
-                      <span className="block text-[11px] font-medium text-taupe-600 mb-1">Brand Accent</span>
-                      <input
-                        type="color"
-                        value={themeState.accentColor}
-                        onChange={(e) => setThemeState({ ...themeState, accentColor: e.target.value })}
-                        className="w-full h-11 rounded-xl cursor-pointer border border-cream-300 bg-white"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Typography & Styling */}
-                <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                  <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
-                    Typography & Corners
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <span className="block text-xs font-medium text-taupe-600 mb-1">Heading Font</span>
-                      <select
-                        value={themeState.headingFont}
-                        onChange={(e) => setThemeState({ ...themeState, headingFont: e.target.value })}
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
-                      >
-                        {HEADING_FONT_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <span className="block text-xs font-medium text-taupe-600 mb-1">Body Text Font</span>
-                      <select
-                        value={themeState.bodyFont}
-                        onChange={(e) => setThemeState({ ...themeState, bodyFont: e.target.value })}
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
-                      >
-                        {BODY_FONT_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <span className="block text-xs font-medium text-taupe-600 mb-1">Button Corners</span>
-                      <select
-                        value={themeState.buttonStyle}
-                        onChange={(e) => setThemeState({ ...themeState, buttonStyle: e.target.value as any })}
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
-                      >
-                        <option value="rounded">Rounded Corners (14px)</option>
-                        <option value="pill">Pill Shape (Full Rounded)</option>
-                        <option value="sharp">Sharp Architectural (4px)</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* QR Landing Hero Banner */}
-                <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
-                        QR Landing Banner Image
-                      </label>
-                      <p className="text-[11px] text-taupe-600 mt-1">
-                        Required size: <strong className="text-espresso-900">1200 × 600 px (2:1 landscape)</strong> • Min 800 × 400 px • JPG, PNG, WebP (max 5 MB)
-                      </p>
-                    </div>
-                  </div>
-
-                  {bannerError && (
-                    <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{bannerError}</span>
-                    </div>
-                  )}
-                  {bannerToast && (
-                    <div className="p-2.5 rounded-xl bg-sage-50 border border-sage-200 text-xs text-sage-800 flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 shrink-0 text-sage-600" />
-                      <span>{bannerToast}</span>
-                    </div>
-                  )}
-
-                  {settingsForm.coverUrl ? (
-                    <div className="space-y-2.5">
-                      <div className="rounded-2xl overflow-hidden border border-cream-300 bg-cream-100">
-                        <img
-                          src={settingsForm.coverUrl}
-                          alt="QR Landing Banner"
-                          className="w-full aspect-[2/1] object-cover block"
-                        />
-                      </div>
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-[11px] text-taupe-500 font-mono">
-                          {bannerDimensions
-                            ? `Uploaded: ${bannerDimensions.width} × ${bannerDimensions.height} px`
-                            : 'Ideal ratio: 1200 × 600 px (2:1)'}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <label className="cursor-pointer px-3 py-1.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors">
-                            {isUploadingBanner ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                            <span>{isUploadingBanner ? 'Uploading...' : 'Replace Banner'}</span>
-                            <input
-                              type="file"
-                              accept="image/jpeg,image/png,image/webp"
-                              disabled={isUploadingBanner}
-                              onChange={handleBannerUpload}
-                              className="hidden"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            disabled={isUploadingBanner}
-                            onClick={handleRemoveBanner}
-                            className="px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-semibold transition-colors disabled:opacity-50"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <label className="cursor-pointer flex flex-col items-center justify-center p-5 rounded-2xl border-2 border-dashed border-cream-300 hover:border-terracotta bg-cream-50/70 hover:bg-cream-50 transition-colors text-center gap-1.5">
-                      <div className="w-9 h-9 rounded-xl bg-white border border-cream-200 flex items-center justify-center text-terracotta shadow-2xs">
-                        {isUploadingBanner ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
-                      </div>
-                      <span className="text-xs font-semibold text-espresso-900">
-                        {isUploadingBanner ? 'Uploading Banner...' : 'Upload Hero Banner Image'}
-                      </span>
-                      <span className="text-[11px] text-taupe-500">
-                        Recommended 1200 × 600 px (2:1 wide) • Max 5 MB
-                      </span>
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        disabled={isUploadingBanner}
-                        onChange={handleBannerUpload}
-                        className="hidden"
-                      />
-                    </label>
-                  )}
-                </div>
-              </div>
-
-              {/* Right Live Phone Preview (Fully Reactive) */}
-              <div className="lg:col-span-5 flex flex-col items-center gap-3 w-full sticky top-6 self-start">
-                {(themeHistory.length > 0 || generatedThemeBanner) && (
-                  <div className="w-full max-w-[310px] sm:max-w-[340px] px-3.5 py-2.5 rounded-2xl bg-white border border-cream-200 shadow-soft flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wider text-taupe-500">
-                        Live Preview
-                      </div>
-                      <div className="text-xs font-bold text-espresso-900 truncate">
-                        {generatedThemeBanner?.name || themeState.presetKey.replace(/_/g, ' ')}
-                      </div>
-                    </div>
-                    {themeHistory.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={handleReturnToPreviousTheme}
-                        className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cream-100 hover:bg-cream-200 text-espresso-900 border border-cream-300 text-[11px] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-terracotta"
-                      >
-                        <RotateCcw className="w-3 h-3 text-terracotta" />
-                        <span>Return to Previous</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                <div
-                  className="w-full max-w-[310px] sm:max-w-[340px] rounded-[36px] sm:rounded-[44px] border-[8px] sm:border-[10px] border-espresso-900 shadow-lifted overflow-hidden flex flex-col h-[580px] sm:h-[640px] relative mx-auto transition-colors duration-300"
-                  style={{
-                    backgroundColor: themeState.backgroundColor,
-                    backgroundImage:
-                      themeState.texture === 'gradient'
-                        ? `radial-gradient(circle at top right, ${themeState.accentColor}1F, transparent 60%)`
-                        : undefined,
-                    fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
-                    ...generateThemeVariables(themeState),
-                  }}
-                >
-                  {/* Phone Notch */}
-                  <div className="w-32 h-5 bg-espresso-900 rounded-b-xl mx-auto shrink-0" />
-
-                  {/* Diner Header */}
-                  <div
-                    className="border-b transition-colors duration-200 overflow-hidden"
-                    style={{
-                      backgroundColor: themeState.surfaceColor,
-                      borderColor: 'var(--dishora-border)',
-                    }}
-                  >
-                    {settingsForm.coverUrl && (
-                      <img
-                        src={settingsForm.coverUrl}
-                        alt=""
-                        className="w-full aspect-[2/1] object-cover block"
-                      />
-                    )}
-                    <div className="p-4">
-                      <h3
-                        className="text-lg font-bold truncate"
-                        style={{
-                          fontFamily: `var(--font-serif)`,
-                          color: themeState.primaryTextColor,
-                        }}
-                      >
-                        {restaurant.displayName}
-                      </h3>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span
-                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                        style={{
-                          backgroundColor: `${themeState.accentColor}20`,
-                          color: themeState.accentColor,
-                          fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
-                        }}
-                      >
-                        {themeState.layoutMode === 'GRID' ? 'Grid Mode' : 'List Mode'}
-                      </span>
-                      <span
-                        className="text-[10px]"
-                        style={{
-                          color: themeState.secondaryTextColor,
-                          fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
-                        }}
-                      >
-                        {themeState.headingFont} • {themeState.bodyFont}
-                      </span>
-                    </div>
-                    </div>
-                  </div>
-
-                  {/* Category Filter Pills */}
-                  <div className="px-3 pt-3 flex gap-1.5 overflow-hidden">
-                    {['All', 'Popular', 'Chef Picks'].map((cat, idx) => (
-                      <span
-                        key={cat}
-                        className="px-2.5 py-1 text-[10px] font-medium whitespace-nowrap transition-all"
-                        style={{
-                          borderRadius: themeState.buttonStyle === 'pill' ? '9999px' : themeState.buttonStyle === 'sharp' ? '4px' : '10px',
-                          backgroundColor: idx === 0 ? themeState.accentColor : themeState.surfaceColor,
-                          color: idx === 0 ? pickContrastForeground(themeState.accentColor) : themeState.primaryTextColor,
-                          border: `1px solid ${idx === 0 ? themeState.accentColor : 'var(--dishora-border)'}`,
-                          fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
-                        }}
-                      >
-                        {cat}
-                      </span>
-                    ))}
-                  </div>
-
-                  {/* Dishes Preview (Toggles between Grid Cards & Editorial List) */}
-                  <div className="p-3 overflow-y-auto space-y-2.5 flex-1">
-                    {themeState.layoutMode === 'GRID' ? (
-                      /* 2-Column Visual Food Cards */
-                      <div className="grid grid-cols-2 gap-2.5">
-                        {menuItems.slice(0, 4).map((item) => {
-                          const img = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
-                          return (
-                            <div
-                              key={item.id}
-                              className="overflow-hidden transition-all shadow-xs flex flex-col justify-between"
-                              style={{
-                                backgroundColor: themeState.surfaceColor,
-                                border: `1px solid var(--dishora-border)`,
-                                borderRadius: themeState.cardRadius,
-                              }}
-                            >
-                              <div className="relative aspect-square w-full overflow-hidden bg-black/5">
-                                <img src={img} alt="" className="w-full h-full object-cover" />
-                                {item.isPopular && (
-                                  <span
-                                    className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-xs"
-                                    style={{
-                                      backgroundColor: themeState.accentColor,
-                                      color: pickContrastForeground(themeState.accentColor),
-                                      fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
-                                    }}
-                                  >
-                                    Popular
-                                  </span>
-                                )}
-                              </div>
-                              <div className="p-2 space-y-1">
-                                <div
-                                  className="font-semibold text-[11px] truncate"
-                                  style={{
-                                    fontFamily: `'${themeState.headingFont}', Georgia, serif`,
-                                    color: themeState.primaryTextColor,
-                                  }}
-                                >
-                                  {item.customName}
-                                </div>
-                                <div
-                                  className="text-[9px] line-clamp-1"
-                                  style={{
-                                    fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
-                                    color: themeState.secondaryTextColor,
-                                  }}
-                                >
-                                  {item.restaurantDescription || 'Chef recipe'}
-                                </div>
-                                <div
-                                  className="font-bold text-xs pt-0.5"
-                                  style={{
-                                    color: themeState.accentColor,
-                                    fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
-                                  }}
-                                >
-                                  {formatCurrencyMinor(item.priceMinor || 0, item.currency)}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      /* Editorial Typography Rows */
-                      <div className="space-y-2">
-                        {menuItems.slice(0, 4).map((item) => {
-                          const img = item.imageOverride?.publicUrl || item.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg';
-                          return (
-                            <div
-                              key={item.id}
-                              className="p-2.5 transition-all shadow-xs flex items-center gap-2.5"
-                              style={{
-                                backgroundColor: themeState.surfaceColor,
-                                border: `1px solid var(--dishora-border)`,
-                                borderRadius: themeState.cardRadius,
-                              }}
-                            >
-                              <img
-                                src={img}
-                                alt=""
-                                className="w-11 h-11 aspect-square rounded-lg object-cover shrink-0"
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center justify-between gap-1">
-                                  <span
-                                    className="font-semibold text-xs truncate"
-                                    style={{
-                                      fontFamily: `'${themeState.headingFont}', Georgia, serif`,
-                                      color: themeState.primaryTextColor,
-                                    }}
-                                  >
-                                    {item.customName}
-                                  </span>
-                                  <span
-                                    className="font-bold text-xs shrink-0"
-                                    style={{
-                                      color: themeState.accentColor,
-                                      fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
-                                    }}
-                                  >
-                                    {formatCurrencyMinor(item.priceMinor || 0, item.currency)}
-                                  </span>
-                                </div>
-                                <p
-                                  className="text-[10px] line-clamp-1 mt-0.5"
-                                  style={{
-                                    color: themeState.secondaryTextColor,
-                                    fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
-                                  }}
-                                >
-                                  {item.restaurantDescription || 'Culinary recipe'}
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Ask AI Pill Button */}
-                  <div
-                    className="p-3 border-t"
-                    style={{
-                      backgroundColor: themeState.surfaceColor,
-                      borderColor: 'var(--dishora-border)',
-                    }}
-                  >
-                    <div
-                      className="w-full py-2.5 text-[11px] font-semibold text-center flex items-center justify-center gap-1.5 shadow-sm transition-all"
-                      style={{
-                        borderRadius: themeState.buttonStyle === 'pill' ? '9999px' : themeState.buttonStyle === 'sharp' ? '4px' : '12px',
-                        backgroundColor: themeState.primaryTextColor,
-                        color: themeState.surfaceColor,
-                      }}
-                    >
-                      <Sparkles className="w-3.5 h-3.5" style={{ color: themeState.accentColor }} />
-                      Ask our AI waiter
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* =========================================================================
-            TAB 5: AI WAITER (PERSONA, WELCOME GREETING & INTERACTIVE TESTER)
-        ========================================================================= */}
-        {currentTab === 'ai' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="font-serif text-xl font-bold text-espresso-900">AI Waiter Studio</h2>
-                <p className="text-xs sm:text-sm text-taupe-500 mt-1">
-                  Configure your grounded AI conversational assistant, set tone and greetings, and test diner questions live.
-                </p>
-              </div>
-
-              <button
-                onClick={handleSaveAISettings}
-                className="px-4 py-2 rounded-xl bg-espresso-900 text-white font-semibold text-xs sm:text-sm hover:bg-espresso-800 transition-colors shadow-sm flex items-center gap-2"
-              >
-                <Save className="w-4 h-4 text-terracotta" /> Save AI Waiter
-              </button>
-            </div>
-
-            {aiSavedToast && (
-              <div className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in">
-                <CheckCircle2 className="w-4 h-4 text-sage-600" />
-                AI Waiter personality settings saved and synced!
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              {/* Left Controls */}
-              <div className="lg:col-span-7 space-y-6">
-                {/* Voice & Tone Persona */}
-                <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-3">
-                  <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
-                    AI Waiter Persona & Tone
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {[
-                      { key: 'Warm Editorial & Helpful', desc: 'Warm hospitality, concise descriptions, culinary elegance' },
-                      { key: 'Fine Dining Sommelier', desc: 'Sophisticated wine/pairing knowledge, detailed tasting notes' },
-                      { key: 'Modern Casual & Swift', desc: 'Direct, friendly, rapid answers for fast-paced dining' },
-                      { key: 'Playful Bistro Guide', desc: 'Enthusiastic food lover, colorful dish recommendations' },
-                    ].map((tone) => (
-                      <button
-                        key={tone.key}
-                        type="button"
-                        onClick={() => setAiTone(tone.key)}
-                        className={`p-4 rounded-2xl border text-left transition-all ${
-                          aiTone === tone.key
-                            ? 'border-terracotta ring-2 ring-terracotta/20 bg-cream-50'
-                            : 'border-cream-200 hover:border-cream-300 bg-white'
-                        }`}
-                      >
-                        <div className="font-semibold text-xs sm:text-sm text-espresso-900 mb-1">{tone.key}</div>
-                        <p className="text-[11px] text-taupe-500 leading-relaxed">{tone.desc}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Diner Welcome Greeting */}
-                <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-2">
-                  <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
-                    Diner Welcome Greeting
-                  </label>
-                  <p className="text-xs text-taupe-500">
-                    The initial greeting displayed when a diner scans the QR code and opens the AI concierge.
-                  </p>
-                  <textarea
-                    rows={3}
-                    value={welcomeMsg}
-                    onChange={(e) => setWelcomeMsg(e.target.value)}
-                    className="w-full px-3.5 py-2.5 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                  />
-                </div>
-
-                {/* Capabilities & Guardrails */}
-                <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-3">
-                  <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
-                    Capabilities & Limits
-                  </label>
-                  <div className="space-y-3">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={allowDinerChat}
-                        onChange={(e) => setAllowDinerChat(e.target.checked)}
-                        className="rounded border-cream-300 text-terracotta focus:ring-terracotta w-4 h-4"
-                      />
-                      <div>
-                        <span className="text-xs sm:text-sm font-semibold text-espresso-900 block">Allow Diner Conversational Inquiries</span>
-                        <span className="text-[11px] text-taupe-500 block">Diners can ask about spices, cooking methods, and dietary safety</span>
-                      </div>
-                    </label>
-
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={allowPairings}
-                        onChange={(e) => setAllowPairings(e.target.checked)}
-                        className="rounded border-cream-300 text-terracotta focus:ring-terracotta w-4 h-4"
-                      />
-                      <div>
-                        <span className="text-xs sm:text-sm font-semibold text-espresso-900 block">Suggest Food & Beverage Pairings</span>
-                        <span className="text-[11px] text-taupe-500 block">AI pairs mains with drinks and desserts from your actual menu</span>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Interactive AI Playground */}
-              <div className="lg:col-span-5 space-y-4 lg:sticky lg:top-6 lg:self-start">
-                <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Bot className="w-5 h-5 text-terracotta" />
-                    <h3 className="font-serif text-lg font-bold text-espresso-900">Live AI Waiter Tester</h3>
-                  </div>
-                  <p className="text-xs text-taupe-500">
-                    Test your restaurant's grounded AI assistant using your real menu items and recipes.
-                  </p>
-
-                  {/* Sample Quick Questions */}
-                  <div className="space-y-1.5">
-                    <span className="text-[11px] font-semibold text-taupe-500 uppercase">Sample Inquiries</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {[
-                        'What do you recommend for dinner?',
-                        'Which dishes are Pure Veg?',
-                        'Are there gluten-free dishes?',
-                        'What beverage pairs best?',
-                      ].map((sample) => (
-                        <button
-                          key={sample}
-                          type="button"
-                          onClick={() => {
-                            setAiTestPrompt(sample);
-                            handleTestAiQuery(sample);
-                          }}
-                          className="px-2.5 py-1 text-[11px] font-medium bg-cream-100 hover:bg-cream-200 text-espresso-800 rounded-full transition-colors border border-cream-200"
-                        >
-                          {sample}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Input Box */}
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={aiTestPrompt}
-                      onChange={(e) => setAiTestPrompt(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleTestAiQuery()}
-                      placeholder="Ask your AI waiter anything..."
-                      className="flex-1 px-3.5 py-2 text-xs sm:text-sm bg-cream-50 border border-cream-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleTestAiQuery()}
-                      disabled={aiTestLoading}
-                      className="px-4 py-2 bg-espresso-900 text-white rounded-xl hover:bg-espresso-800 disabled:opacity-50 transition-colors flex items-center justify-center shrink-0"
-                    >
-                      {aiTestLoading ? <RefreshCw className="w-4 h-4 animate-spin text-terracotta" /> : <Send className="w-4 h-4" />}
-                    </button>
-                  </div>
-
-                      {/* Test Response Display */}
-                  {aiTestResponse && (
-                    <div className="p-4 bg-cream-50 rounded-2xl border border-cream-200 space-y-3 animate-fade-in">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-terracotta uppercase tracking-wider flex items-center gap-1">
-                          <Sparkles className="w-3.5 h-3.5" /> AI Waiter Response
-                        </span>
-                        <span className="text-[10px] text-taupe-400">Grounded in Menu</span>
-                      </div>
-                      <p className="text-xs sm:text-sm text-espresso-900 leading-relaxed whitespace-pre-wrap">
-                        {aiTestResponse.message || aiTestResponse.answer}
-                      </p>
-                      {(aiTestResponse.dishIds || aiTestResponse.recommendedDishIds)?.length > 0 && (
-                        <div className="pt-2 border-t border-cream-200">
-                          <span className="text-[10px] font-semibold text-taupe-500 uppercase block mb-1.5">
-                            Recommended Dishes Attached
-                          </span>
-                          <div className="space-y-1.5">
-                            {(aiTestResponse.dishIds || aiTestResponse.recommendedDishIds).map((dishId: string) => {
-                              const dish = menuItems.find((m) => m.id === dishId);
-                              if (!dish) return null;
-                              return (
-                                <div key={dishId} className="flex items-center gap-2 p-1.5 rounded-lg bg-white border border-cream-200">
-                                  <img
-                                    src={dish.imageOverride?.publicUrl || dish.canonical?.imageAsset?.publicUrl || '/placeholder-dish.svg'}
-                                    alt=""
-                                    className="w-8 h-8 rounded-md object-cover bg-cream-100"
-                                  />
-                                  <div className="min-w-0 flex-1">
-                                    <span className="font-semibold text-xs text-espresso-900 truncate block">{dish.customName}</span>
-                                    <span className="text-[10px] text-terracotta font-bold">
-                                      {formatCurrencyMinor(dish.priceMinor || 0, dish.currency)}
-                                    </span>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* =========================================================================
-            TAB 6: QR STUDIO
-        ========================================================================= */}
-        {currentTab === 'qr' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft">
-              <h2 className="font-serif text-xl font-bold text-espresso-900">QR Studio</h2>
-              <p className="text-xs sm:text-sm text-taupe-500 mt-1">
-                Generate high-resolution printable table tent QR art for your dining tables.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
-              {/* 4x6" Table Tent Card Art */}
-              <div className="p-8 bg-white rounded-3xl border border-cream-300 shadow-lifted flex flex-col items-center text-center space-y-4">
-                <div className="w-12 h-12 rounded-2xl bg-espresso-900 text-cream-100 flex items-center justify-center font-serif text-2xl font-bold">
-                  {restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'}
-                </div>
-                <div>
-                  <h3 className="font-serif text-2xl font-bold text-espresso-900">{restaurant.displayName}</h3>
-                  <p className="text-xs text-taupe-500 mt-0.5">See it. Ask it. Crave it.</p>
-                </div>
-
-                {qrData?.qrDataUrl ? (
-                  <div className="p-4 bg-cream-50 rounded-2xl border border-cream-200 shadow-inner">
-                    <img src={qrData.qrDataUrl} alt="Table QR" className="w-56 h-56 object-contain" />
-                  </div>
-                ) : (
-                  <div className="w-56 h-56 bg-cream-100 rounded-2xl flex flex-col items-center justify-center gap-2 text-xs text-taupe-500">
-                    {qrLoading ? (
-                      <>
-                        <RefreshCw className="w-5 h-5 animate-spin motion-reduce:animate-none text-terracotta" />
-                        <span>Generating QR...</span>
-                      </>
-                    ) : (
-                      <span>Preparing QR...</span>
-                    )}
-                  </div>
-                )}
-
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-terracotta">Scan for Visual Menu & AI Sommelier</p>
-                  <p className="text-[11px] text-taupe-400">No app installation or account required</p>
-                </div>
-              </div>
-
-              {/* Download Controls */}
-              <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                <h3 className="font-serif text-lg font-bold text-espresso-900">Printable Asset Exports</h3>
-                <p className="text-xs sm:text-sm text-taupe-600 leading-relaxed">
-                  Export vector SVG for professional offset printing or high-resolution PNG for tabletop displays.
-                </p>
-
-                <div className="space-y-3 pt-2">
-                  <a
-                    href={`/api/qr/generate?slug=${restaurant.slug}&format=svg`}
-                    download
-                    className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-espresso-900 text-white font-semibold text-xs sm:text-sm hover:bg-espresso-800 transition-colors shadow-sm"
-                  >
-                    <Download className="w-4 h-4" /> Download Print-Ready SVG
-                  </a>
-                  {qrData?.qrDataUrl && (
-                    <a
-                      href={qrData.qrDataUrl}
-                      download={`${restaurant.slug}-qr.png`}
-                      className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-cream-100 border border-cream-300 text-espresso-800 font-semibold text-xs sm:text-sm hover:bg-cream-200 transition-colors"
-                    >
-                      <Download className="w-4 h-4" /> Download High-Res PNG
-                    </a>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* =========================================================================
-            TAB: TABLES & QR CODES HUB
-        ========================================================================= */}
-        {currentTab === 'tables' && restaurant && (
-          <div className="animate-fade-in">
-            <TablesManagementView
-              restaurant={restaurant}
-              onSubscriptionExpired={handleSubscriptionExpired}
-            />
-          </div>
-        )}
-
-        {/* =========================================================================
-            TAB: LIVE ORDERS & POS
-        ========================================================================= */}
-        {currentTab === 'orders' && restaurant && (
-          <div className="animate-fade-in">
-            <OrdersManagementView
-              restaurant={restaurant}
-              initialSubTab={initialOrdersSubTab}
-              onSubscriptionExpired={handleSubscriptionExpired}
-            />
-          </div>
-        )}
-
-        {/* =========================================================================
-            TAB: STAFF & ACCESS
-        ========================================================================= */}
-        {currentTab === 'staff' && restaurant && (
-          <div className="animate-fade-in">
-            <StaffManagementView
-              restaurant={restaurant}
-              onSubscriptionExpired={handleSubscriptionExpired}
-            />
-          </div>
-        )}
-
-        {/* =========================================================================
-            TAB 7: ANALYTICS & INSIGHTS (REAL POSTGRES TELEMETRY)
-        ========================================================================= */}
-        {currentTab === 'analytics' && (() => {
-          const fallbackTotalItems = menuItems.length;
-          const fallbackCounts = menuItems.reduce(
-            (acc, item) => {
-              const tags = ((item.dietaryStatus as string[]) || []).map((t: string) => String(t).toUpperCase());
-              const hasVeg = tags.some((t) => ['VEG', 'VEGETARIAN', 'PURE_VEG'].includes(t));
-              const hasNonVeg = tags.some((t) => ['NON_VEG', 'NON-VEG', 'NONVEG'].includes(t));
-              const hasEgg = tags.some((t) => ['EGG', 'CONTAINS_EGG', 'EGGETARIAN'].includes(t));
-              const hasVegan = tags.includes('VEGAN');
-              const hasGf = tags.includes('GLUTEN_FREE') || tags.includes('GF');
-              const hasDf = tags.includes('DAIRY_FREE') || tags.includes('DF');
-              if (hasVeg) acc.veg++;
-              if (hasNonVeg) acc.nonVeg++;
-              if (hasEgg) acc.egg++;
-              if (hasVegan) acc.vegan++;
-              if (hasVeg || hasVegan) acc.vegetarianOrVegan++;
-              if (hasGf) acc.glutenFree++;
-              if (hasDf) acc.dairyFree++;
-              return acc;
-            },
-            { veg: 0, nonVeg: 0, egg: 0, vegetarianOrVegan: 0, vegan: 0, glutenFree: 0, dairyFree: 0 }
-          );
-
-          const dietary = analyticsData?.dietary ?? { totalItems: fallbackTotalItems, ...fallbackCounts };
-          const dietaryTotal = dietary.totalItems || 0;
-          const pctOfMenu = (count: number) =>
-            dietaryTotal > 0 ? Math.min(100, Math.round((count / dietaryTotal) * 100)) : 0;
-
-          const totalScans = analyticsData?.scans?.total ?? 0;
-          const scansToday = analyticsData?.scans?.today ?? 0;
-          const scans30Days = analyticsData?.scans?.last30Days ?? 0;
-          const chatQueries30Days = analyticsData?.aiUsage?.chatQueries30Days ?? 0;
-          const chatQueriesTotal = analyticsData?.aiUsage?.chatQueriesTotal ?? 0;
-          const dishViews30Days = analyticsData?.dishViews?.last30Days ?? 0;
-          const viewsPerScan = analyticsData?.dishViews?.viewsPerScan30Days;
-          const orders30Days = analyticsData?.orders?.total30Days ?? 0;
-          const revenueMinor30Days = analyticsData?.orders?.revenueMinor30Days ?? 0;
-          const scanToOrderRate = analyticsData?.orders?.scanToOrderRatePercent ?? 0;
-          const bestsellerShare = analyticsData?.orders?.bestsellerSharePercent;
-          const topDishes: any[] = Array.isArray(analyticsData?.topDishes) ? analyticsData.topDishes : [];
-          const currency = analyticsData?.currency || restaurant.currency;
-
-          return (
-            <div className="space-y-6 animate-fade-in">
-              <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <h2 className="font-serif text-xl font-bold text-espresso-900">Dining &amp; Menu Analytics</h2>
-                  <p className="text-xs sm:text-sm text-taupe-500 mt-1">
-                    Live diner QR scans, AI concierge questions, dish views, and menu composition across the last 30 days.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  <span className="px-3 py-1.5 rounded-xl bg-cream-50 border border-cream-200 text-xs text-taupe-600 font-medium">
-                    Last 30 Days
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => router.push(`/dashboard/${restaurant.id}?tab=orders&subtab=analytics`)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cream-50 border border-cream-200 text-xs font-semibold text-espresso-800 hover:bg-cream-100 transition-colors"
-                  >
-                    <span>Ordering Analytics</span>
-                    <ArrowRight className="w-3.5 h-3.5 text-terracotta" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => loadAnalytics(restaurant.id)}
-                    disabled={analyticsLoading}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-espresso-900 text-white text-xs font-semibold hover:bg-espresso-800 disabled:opacity-60 transition-colors"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${analyticsLoading ? 'animate-spin' : ''}`} />
-                    <span>Refresh</span>
-                  </button>
-                </div>
-              </div>
-
-              {analyticsError && (
-                <div
-                  role="alert"
-                  className="p-4 bg-red-50 border border-red-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-red-900"
-                >
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                    <span>{analyticsError}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => loadAnalytics(restaurant.id)}
-                    className="px-3 py-1.5 rounded-lg bg-red-700 text-white font-semibold hover:bg-red-800 shrink-0"
-                  >
-                    Retry
-                  </button>
-                </div>
-              )}
-
-              {analyticsLoading && !analyticsData ? (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4" aria-label="Loading analytics metrics">
-                  {[0, 1, 2, 3].map((slot) => (
-                    <div
-                      key={slot}
-                      className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-3 animate-pulse"
-                    >
-                      <div className="h-3 w-24 bg-cream-200 rounded" />
-                      <div className="h-8 w-16 bg-cream-200 rounded" />
-                      <div className="h-3 w-32 bg-cream-100 rounded" />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <>
-                  {/* KPI Cards Grid (100% Real DB Data) */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft">
-                      <span className="text-xs font-semibold text-taupe-500 uppercase tracking-wider">Total QR Scans</span>
-                      <div className="text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
-                        {totalScans}
-                      </div>
-                      <div className={`text-xs mt-1 flex items-center gap-1 ${scansToday > 0 ? 'text-sage-700' : 'text-taupe-500'}`}>
-                        {totalScans > 0 ? (
-                          <>
-                            <TrendingUp className="w-3.5 h-3.5 shrink-0" />
-                            <span>+{scansToday} today • {scans30Days} in 30d</span>
-                          </>
-                        ) : (
-                          <span>No QR scans recorded yet</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft">
-                      <span className="text-xs font-semibold text-taupe-500 uppercase tracking-wider">AI Questions Asked</span>
-                      <div className="text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
-                        {chatQueries30Days}
-                      </div>
-                      <div className="text-xs text-taupe-500 mt-1">
-                        {chatQueriesTotal > 0
-                          ? `Last 30 days • ${chatQueriesTotal} total`
-                          : 'No AI concierge queries yet'}
-                      </div>
-                    </div>
-
-                    <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft">
-                      <span className="text-xs font-semibold text-taupe-500 uppercase tracking-wider">Dish Detail Views</span>
-                      <div className="text-3xl font-bold text-terracotta mt-2 tabular-nums">
-                        {dishViews30Days}
-                      </div>
-                      <div className="text-xs text-taupe-500 mt-1">
-                        {viewsPerScan != null
-                          ? `${viewsPerScan} views per QR scan (30d)`
-                          : dishViews30Days > 0
-                          ? 'Real dish detail clicks (30d)'
-                          : 'No dish clicks recorded yet'}
-                      </div>
-                    </div>
-
-                    <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft">
-                      <span className="text-xs font-semibold text-taupe-500 uppercase tracking-wider">Table Orders (30d)</span>
-                      <div className="text-3xl font-bold text-emerald-700 mt-2 tabular-nums">
-                        {orders30Days}
-                      </div>
-                      <div className="text-xs text-taupe-500 mt-1">
-                        {orders30Days > 0 ? (
-                          <>
-                            {formatCurrencyMinor(revenueMinor30Days, currency)}
-                            {scans30Days > 0 ? ` • ${scanToOrderRate}% scan conversion` : ''}
-                            {bestsellerShare != null ? ` • ${bestsellerShare}% featured` : ''}
-                          </>
-                        ) : (
-                          'No table orders placed yet'
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Dietary Demand Breakdown & Top Dishes */}
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                    {/* Dietary Breakdown */}
-                    <div className="lg:col-span-5 p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h3 className="font-serif text-lg font-bold text-espresso-900">Dietary Distribution</h3>
-                          <p className="text-xs text-taupe-500">
-                            Share of {dietaryTotal} active menu {dietaryTotal === 1 ? 'dish' : 'dishes'}
-                          </p>
-                        </div>
-                      </div>
-
-                      {dietaryTotal === 0 ? (
-                        <div className="py-8 text-center text-xs text-taupe-500 bg-cream-50 rounded-2xl border border-cream-200 px-4 space-y-2">
-                          <p>No menu items added yet.</p>
-                          <button
-                            type="button"
-                            onClick={() => router.push(`/dashboard/${restaurant.id}?tab=menu`)}
-                            className="font-semibold text-terracotta hover:underline"
-                          >
-                            Add dishes in Menu Studio →
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-3 pt-2">
-                          {isIndianRestaurant ? (
-                            <>
-                              {[
-                                { label: 'Pure Veg', marker: 'VEG' as const, count: dietary.veg || 0, barClass: 'bg-green-600' },
-                                { label: 'Non-Veg', marker: 'NON_VEG' as const, count: dietary.nonVeg || 0, barClass: 'bg-[#7B3F00]' },
-                                { label: 'Contains Egg', marker: 'EGG' as const, count: dietary.egg || 0, barClass: 'bg-amber-500' },
-                              ].map((row) => {
-                                const pct = pctOfMenu(row.count);
-                                return (
-                                  <div key={row.label}>
-                                    <div className="flex justify-between text-xs font-semibold text-espresso-800 mb-1">
-                                      <span className="flex items-center gap-1.5">
-                                        <FssaiMarker type={row.marker} /> {row.label}
-                                      </span>
-                                      <span className="tabular-nums">
-                                        {row.count} {row.count === 1 ? 'item' : 'items'} ({pct}%)
-                                      </span>
-                                    </div>
-                                    <div className="w-full h-2 rounded-full bg-cream-100 overflow-hidden">
-                                      <div
-                                        className={`h-full ${row.barClass} rounded-full transition-all duration-300`}
-                                        style={{ width: `${pct}%` }}
-                                      />
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </>
-                          ) : (
-                            <>
-                              {[
-                                { label: 'Vegetarian / Vegan', count: dietary.vegetarianOrVegan || 0, barClass: 'bg-emerald-600' },
-                                { label: 'Vegan', count: dietary.vegan || 0, barClass: 'bg-teal-600' },
-                                { label: 'Gluten-Free', count: dietary.glutenFree || 0, barClass: 'bg-amber-600' },
-                                { label: 'Dairy-Free', count: dietary.dairyFree || 0, barClass: 'bg-sky-600' },
-                              ].map((row) => {
-                                const pct = pctOfMenu(row.count);
-                                return (
-                                  <div key={row.label}>
-                                    <div className="flex justify-between text-xs font-semibold text-espresso-800 mb-1">
-                                      <span>{row.label}</span>
-                                      <span className="tabular-nums">
-                                        {row.count} {row.count === 1 ? 'item' : 'items'} ({pct}%)
-                                      </span>
-                                    </div>
-                                    <div className="w-full h-2 rounded-full bg-cream-100 overflow-hidden">
-                                      <div
-                                        className={`h-full ${row.barClass} rounded-full transition-all duration-300`}
-                                        style={{ width: `${pct}%` }}
-                                      />
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Top Engaged Dishes Table */}
-                    <div className="lg:col-span-7 p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                      <div>
-                        <h3 id="analytics-top-dishes-heading" className="font-serif text-lg font-bold text-espresso-900">
-                          Top Engaged Dishes
-                        </h3>
-                        <p className="text-xs text-taupe-500">
-                          Ranked by real dish card clicks, AI questions, and table orders in the last 30 days
-                        </p>
-                      </div>
-
-                      {topDishes.length === 0 ? (
-                        <div className="py-10 px-4 text-center bg-cream-50 rounded-2xl border border-cream-200 space-y-2.5">
-                          <Utensils className="w-7 h-7 text-taupe-400 mx-auto" />
-                          <p className="text-xs sm:text-sm font-medium text-espresso-900">
-                            No diner dish activity recorded yet
-                          </p>
-                          <p className="text-xs text-taupe-500 max-w-md mx-auto">
-                            When guests view dish details, ask your AI waiter, or place table orders, your most engaged dishes will appear here automatically.
-                          </p>
-                          <a
-                            href={`/m/${restaurant.slug}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-terracotta hover:underline pt-1"
-                          >
-                            <span>Open Live Diner Menu</span>
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
-                        </div>
-                      ) : (
+                  {secondaryLoading.items && menuItems.length === 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      {[0, 1, 2].map((idx) => (
                         <div
-                          tabIndex={0}
-                          role="region"
-                          aria-labelledby="analytics-top-dishes-heading"
-                          className="overflow-x-auto focus:outline-none focus:ring-2 focus:ring-terracotta/40 rounded-xl"
+                          key={idx}
+                          className="flex items-center gap-3 p-3 rounded-2xl bg-cream-50 border border-cream-200 animate-pulse motion-reduce:animate-none"
                         >
-                          <table className="w-full text-left text-xs sm:text-sm">
-                            <thead className="bg-cream-50 text-taupe-500 border-b border-cream-200 uppercase font-semibold text-[10px]">
-                              <tr>
-                                <th scope="col" className="py-2.5 px-3">Dish</th>
-                                <th scope="col" className="py-2.5 px-3 text-center">Views</th>
-                                <th scope="col" className="py-2.5 px-3 text-center">AI Queries</th>
-                                <th scope="col" className="py-2.5 px-3 text-center">Orders</th>
-                                <th scope="col" className="py-2.5 px-3 text-right">Activity</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-cream-100">
-                              {topDishes.map((item: any, idx: number) => {
-                                const total = item.totalEngagement ?? item.interactions ?? 0;
-                                const tierLabel =
-                                  total >= 10 ? 'Top Performer' : total >= 3 ? 'Trending' : 'Active';
-                                const tierClass =
-                                  total >= 10
-                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                                    : total >= 3
-                                    ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                                    : 'bg-cream-100 text-espresso-700 border border-cream-200';
-                                return (
-                                  <tr key={item.id || idx}>
-                                    <th scope="row" className="py-3 px-3 font-normal text-left">
-                                      <div className="font-semibold text-espresso-900">{item.name}</div>
-                                      {item.categoryName && (
-                                        <div className="text-[11px] text-taupe-500">{item.categoryName}</div>
-                                      )}
-                                    </th>
-                                    <td className="py-3 px-3 text-center font-semibold text-espresso-800 tabular-nums">
-                                      {item.views ?? 0}
-                                    </td>
-                                    <td className="py-3 px-3 text-center font-semibold text-terracotta tabular-nums">
-                                      {item.chatQueries ?? 0}
-                                    </td>
-                                    <td className="py-3 px-3 text-center font-semibold text-emerald-700 tabular-nums">
-                                      {item.orders ?? 0}
-                                    </td>
-                                    <td className="py-3 px-3 text-right">
-                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${tierClass}`}>
-                                        {tierLabel}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
+                          <div className="w-16 h-16 rounded-xl bg-cream-200 shrink-0" />
+                          <div className="flex-1 space-y-2">
+                            <div className="h-3.5 bg-cream-200 rounded w-3/4" />
+                            <div className="h-3 bg-cream-200 rounded w-1/3" />
+                            <div className="h-4 bg-cream-200 rounded w-16" />
+                          </div>
                         </div>
-                      )}
+                      ))}
                     </div>
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        })()}
-
-        {/* =========================================================================
-            TAB 8: RESTAURANT SETTINGS (PROFILE, CITY, CURRENCY, ADDRESS)
-        ========================================================================= */}
-        {currentTab === 'settings' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="font-serif text-xl font-bold text-espresso-900">Restaurant Settings</h2>
-                <p className="text-xs sm:text-sm text-taupe-500 mt-1">
-                  Manage restaurant profile, banner image, guest Wi-Fi credentials, address, currency, and review links.
-                </p>
-              </div>
-
-              <button
-                type="submit"
-                form="settings-form"
-                disabled={isSavingSettings}
-                className="px-4 py-2 rounded-xl bg-espresso-900 text-white font-semibold text-xs sm:text-sm hover:bg-espresso-800 transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50"
-              >
-                <Save className="w-4 h-4 text-terracotta" />
-                {isSavingSettings ? 'Saving...' : 'Save Settings'}
-              </button>
-            </div>
-
-            {settingsError && (
-              <div className="p-4 bg-red-50 border border-red-200 text-red-800 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in">
-                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                <span>{settingsError}</span>
-              </div>
-            )}
-
-            {settingsSavedToast && (
-              <div className="p-4 bg-sage-50 border border-sage-200 text-sage-900 rounded-2xl text-xs sm:text-sm flex items-center gap-2 animate-fade-in">
-                <CheckCircle2 className="w-4 h-4 text-sage-600" />
-                Restaurant settings saved and public cache updated!
-              </div>
-            )}
-
-            <form id="settings-form" onSubmit={handleSaveRestaurantSettings} className="space-y-6">
-              {/* General Restaurant Identity */}
-              <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                <h3 className="font-serif text-lg font-bold text-espresso-900">Restaurant Identity</h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">Restaurant Display Name *</label>
-                    <input
-                      type="text"
-                      required
-                      value={settingsForm.displayName}
-                      onChange={(e) => setSettingsForm({ ...settingsForm, displayName: e.target.value })}
-                      className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">Tagline / Description</label>
-                    <input
-                      type="text"
-                      value={settingsForm.description}
-                      onChange={(e) => setSettingsForm({ ...settingsForm, description: e.target.value })}
-                      placeholder="e.g. Modern Indian Craft Kitchen & Chai Bar"
-                      className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">Country</label>
-                    <select
-                      value={settingsForm.country}
-                      onChange={(e) => {
-                        const newCountry = e.target.value;
-                        const newCurrency = newCountry === 'US' ? 'USD' : 'INR';
-                        const newTz = newCountry === 'US' ? 'America/New_York' : 'Asia/Kolkata';
-                        setSettingsForm({
-                          ...settingsForm,
-                          country: newCountry,
-                          currency: newCurrency,
-                          timezone: newTz,
-                        });
-                      }}
-                      className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white"
+                  ) : menuItems.length === 0 ? (
+                    <div
+                      onDragOver={handleMenuDragOver}
+                      onDragLeave={handleMenuDragLeave}
+                      onDrop={handleMenuDrop}
+                      className={`rounded-2xl border-2 border-dashed p-5 sm:p-6 transition-colors ${
+                        isDraggingMenuFiles
+                          ? 'border-terracotta bg-terracotta-50/40'
+                          : 'border-cream-300 bg-cream-50/70'
+                      }`}
                     >
-                      <option value="IN">India (IN)</option>
-                      <option value="US">United States (US)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">Currency</label>
-                    <select
-                      value={settingsForm.currency}
-                      onChange={(e) => setSettingsForm({ ...settingsForm, currency: e.target.value })}
-                      className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white"
-                    >
-                      <option value="INR">INR (₹)</option>
-                      <option value="USD">USD ($)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">City</label>
-                    <input
-                      type="text"
-                      value={settingsForm.city}
-                      onChange={(e) => setSettingsForm({ ...settingsForm, city: e.target.value })}
-                      className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* QR Landing Banner Image */}
-              <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <h3 className="font-serif text-lg font-bold text-espresso-900">QR Landing Banner Image</h3>
-                    <p className="text-xs text-taupe-500 mt-0.5">
-                      Displayed at the top of your restaurant&apos;s diner QR landing card above your menu and quick actions.
-                    </p>
-                  </div>
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-900 shrink-0">
-                    <ImageIcon className="w-3.5 h-3.5 text-amber-700" />
-                    Recommended: 1200 × 600 px (2:1 Landscape)
-                  </span>
-                </div>
-
-                {/* Explicit Dimension & Format Requirements Box */}
-                <div className="p-3.5 rounded-2xl bg-cream-50 border border-cream-200 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-espresso-800">
-                  <span>
-                    <strong className="text-espresso-900">Ideal Size:</strong> 1200 × 600 px (2:1 wide banner)
-                  </span>
-                  <span>
-                    <strong className="text-espresso-900">Minimum:</strong> 800 × 400 px
-                  </span>
-                  <span>
-                    <strong className="text-espresso-900">Formats:</strong> JPG, PNG, WebP (Max 5 MB)
-                  </span>
-                </div>
-
-                {bannerError && (
-                  <div className="p-3 rounded-2xl bg-red-50 border border-red-200 text-xs sm:text-sm text-red-700 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span>{bannerError}</span>
-                  </div>
-                )}
-
-                {bannerToast && (
-                  <div className="p-3 rounded-2xl bg-sage-50 border border-sage-200 text-xs sm:text-sm text-sage-900 flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
-                    <span>{bannerToast}</span>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
-                  {/* Live 2:1 Aspect Preview */}
-                  <div className="md:col-span-6">
-                    <div className="rounded-2xl overflow-hidden border border-cream-300 bg-cream-100 aspect-[2/1] flex items-center justify-center relative">
-                      {settingsForm.coverUrl ? (
-                        <img
-                          src={settingsForm.coverUrl}
-                          alt="Restaurant QR landing banner preview"
-                          className="w-full h-full object-cover block"
-                        />
-                      ) : (
-                        <div className="text-center p-4 space-y-1">
-                          <ImageIcon className="w-7 h-7 text-taupe-400 mx-auto" />
-                          <p className="text-xs font-semibold text-taupe-600">No banner uploaded yet</p>
-                          <p className="text-[11px] text-taupe-400">Preview canvas • 1200 × 600 px (2:1)</p>
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                          <h4 className="font-semibold text-sm text-espresso-900">
+                            Upload your menu photos or PDF to get started
+                          </h4>
+                          <p className="text-xs text-taupe-600 mt-1 max-w-xl">
+                            Choose multiple menu photos (JPG, PNG, WebP, HEIC) or a PDF menu — AI
+                            automatically extracts dishes, categories, prices, and Veg/Non-Veg
+                            indicators.
+                          </p>
                         </div>
-                      )}
+                        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                          <button
+                            type="button"
+                            disabled={isUploadingMenu}
+                            onClick={() => menuPhotoInputRef.current?.click()}
+                            className="px-3.5 py-2 rounded-xl bg-espresso-900 text-white text-xs font-semibold hover:bg-espresso-800 disabled:opacity-50 transition-colors inline-flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                          >
+                            <Camera className="w-3.5 h-3.5 text-terracotta" />
+                            <span>Upload Menu Photos</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isUploadingMenu}
+                            onClick={() => menuPdfInputRef.current?.click()}
+                            className="px-3.5 py-2 rounded-xl bg-white border border-cream-300 text-espresso-900 text-xs font-semibold hover:bg-cream-100 disabled:opacity-50 transition-colors inline-flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-terracotta" />
+                            <span>Upload Menu PDF</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-
-                  {/* Upload Controls & Dimension Check */}
-                  <div className="md:col-span-6 space-y-3">
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <label className="cursor-pointer px-4 py-2.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors shadow-xs">
-                        {isUploadingBanner ? (
-                          <RefreshCw className="w-4 h-4 animate-spin text-terracotta" />
-                        ) : (
-                          <Upload className="w-4 h-4 text-terracotta" />
-                        )}
-                        <span>
-                          {isUploadingBanner
-                            ? 'Uploading Banner...'
-                            : settingsForm.coverUrl
-                            ? 'Upload New Banner'
-                            : 'Upload Banner Image'}
-                        </span>
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp"
-                          disabled={isUploadingBanner}
-                          onChange={handleBannerUpload}
-                          className="hidden"
-                        />
-                      </label>
-
-                      {settingsForm.coverUrl && (
-                        <button
-                          type="button"
-                          disabled={isUploadingBanner}
-                          onClick={handleRemoveBanner}
-                          className="px-3.5 py-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          Remove Banner
-                        </button>
-                      )}
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      {menuItems.slice(0, 3).map((item) => {
+                        const img =
+                          item.imageOverride?.publicUrl ||
+                          item.canonical?.imageAsset?.publicUrl ||
+                          '/placeholder-dish.svg';
+                        return (
+                          <div
+                            key={item.id}
+                            className="flex items-center gap-3 p-3 rounded-2xl bg-cream-50 border border-cream-200"
+                          >
+                            <img
+                              src={img}
+                              alt={item.customName}
+                              className="w-16 h-16 aspect-square rounded-xl object-cover bg-white shrink-0 border border-cream-200"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <h4 className="font-semibold text-sm text-espresso-900 truncate">
+                                {item.customName}
+                              </h4>
+                              <span className="text-xs font-bold text-espresso-700">
+                                {formatCurrencyMinor(item.priceMinor || 0, item.currency)}
+                              </span>
+                              <div className="mt-1">
+                                <span
+                                  className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                    item.isAvailable
+                                      ? 'bg-sage-100 text-sage-800'
+                                      : 'bg-red-100 text-red-800'
+                                  }`}
+                                >
+                                  {item.isAvailable ? 'In Stock' : 'Sold Out'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-
-                    {bannerDimensions && (
-                      <p
-                        className={`text-xs font-medium ${
-                          bannerDimensions.width < 800 ||
-                          bannerDimensions.height < 400 ||
-                          bannerDimensions.width <= bannerDimensions.height
-                            ? 'text-amber-700'
-                            : 'text-sage-700'
-                        }`}
-                      >
-                        Detected resolution: <strong>{bannerDimensions.width} × {bannerDimensions.height} px</strong>
-                        {(bannerDimensions.width < 800 ||
-                          bannerDimensions.height < 400 ||
-                          bannerDimensions.width <= bannerDimensions.height) &&
-                          ' — Tip: Use at least 800 × 400 px in wide 2:1 landscape (1200 × 600 px ideal) for best fit without cropping.'}
-                      </p>
-                    )}
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-taupe-500 mb-1">
-                        Or paste Banner Image URL (1200 × 600 px recommended)
-                      </label>
-                      <input
-                        type="text"
-                        value={settingsForm.coverUrl}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, coverUrl: e.target.value })}
-                        placeholder="/uploads/banners/... or https://..."
-                        className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-terracotta"
-                      />
-                    </div>
-                  </div>
+                  )}
                 </div>
-              </div>
 
-              {/* Table QR Session Timers & Auto-Expiry */}
-              <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
-                      <Clock className="w-4 h-4" />
+                <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-cream-100 text-terracotta flex items-center justify-center shrink-0">
+                      <Mail className="w-4 h-4" />
                     </div>
                     <div>
-                      <h3 className="font-serif text-lg font-bold text-espresso-900">
-                        Table QR Session Timers &amp; Auto-Expiry
-                      </h3>
+                      <div className="font-semibold text-xs sm:text-sm text-espresso-900">
+                        Setup &amp; Onboarding Support
+                      </div>
                       <p className="text-xs text-taupe-500">
-                        Set how long a scanned table QR link remains active before guests must rescan.
+                        For menu import, QR printing, or setup-related queries, email us anytime.
                       </p>
                     </div>
                   </div>
-                  <span className="px-3 py-1 rounded-full text-[11px] font-mono font-semibold bg-amber-50 text-amber-900 border border-amber-200 shrink-0 self-start sm:self-center">
-                    {tableSessionForm.scanTimeoutMinutes || DEFAULT_SCAN_TIMEOUT_MINUTES}m scan •{' '}
-                    +{tableSessionForm.orderExtensionMinutes || DEFAULT_ORDER_EXTENSION_MINUTES}m order
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                      Initial QR Scan Timeout (Minutes)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min={MIN_TABLE_SESSION_MINUTES}
-                        max={MAX_TABLE_SESSION_MINUTES}
-                        step={1}
-                        required
-                        value={tableSessionForm.scanTimeoutMinutes}
-                        onChange={(e) => {
-                          setSettingsError(null);
-                          setTableSessionForm({
-                            ...tableSessionForm,
-                            scanTimeoutMinutes: e.target.value,
-                          });
-                        }}
-                        className="w-full px-3.5 py-2 pr-14 border border-cream-300 rounded-xl text-xs sm:text-sm font-mono focus:outline-none focus:ring-1 focus:ring-terracotta"
-                      />
-                      <span className="text-[11px] font-mono text-taupe-500 absolute right-3.5 top-2.5">
-                        min
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-taupe-500 mt-1">
-                      After scanning a table QR, guests have this many minutes to place an order before they must rescan.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                      Post-Order Extension Time (Minutes)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min={MIN_TABLE_SESSION_MINUTES}
-                        max={MAX_TABLE_SESSION_MINUTES}
-                        step={1}
-                        required
-                        value={tableSessionForm.orderExtensionMinutes}
-                        onChange={(e) => {
-                          setSettingsError(null);
-                          setTableSessionForm({
-                            ...tableSessionForm,
-                            orderExtensionMinutes: e.target.value,
-                          });
-                        }}
-                        className="w-full px-3.5 py-2 pr-14 border border-cream-300 rounded-xl text-xs sm:text-sm font-mono focus:outline-none focus:ring-1 focus:ring-terracotta"
-                      />
-                      <span className="text-[11px] font-mono text-taupe-500 absolute right-3.5 top-2.5">
-                        min
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-taupe-500 mt-1">
-                      Whenever an order is placed, the timer extends by this many minutes so guests can order additional items before expiring.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Guest Free Wi-Fi Access */}
-              <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                      <Wifi className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h3 className="font-serif text-lg font-bold text-espresso-900">Guest Free Wi-Fi Access</h3>
-                      <p className="text-xs text-taupe-500">
-                        Share Wi-Fi on your QR landing hub with 1-tap camera QR connect &amp; password copy.
-                      </p>
-                    </div>
-                  </div>
-                  <span
-                    className={`px-3 py-1 rounded-full text-[11px] font-semibold shrink-0 self-start sm:self-center ${
-                      wifiForm.enabled && wifiForm.ssid.trim()
-                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                        : 'bg-cream-100 text-taupe-600 border border-cream-200'
-                    }`}
+                  <a
+                    href={supportMailHref}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cream-100 hover:bg-cream-200 border border-cream-300 text-xs font-mono font-bold text-espresso-900 shrink-0 transition-colors"
                   >
-                    {wifiForm.enabled && wifiForm.ssid.trim() ? 'Shown to Diners' : 'Hidden on QR Hub'}
-                  </span>
-                </div>
-
-                <label className="flex items-start gap-3 p-4 rounded-2xl border border-cream-300 bg-cream-50/60 cursor-pointer hover:border-emerald-400 transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={wifiForm.enabled}
-                    onChange={(e) => {
-                      setSettingsError(null);
-                      setWifiForm({ ...wifiForm, enabled: e.target.checked });
-                    }}
-                    className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-cream-300 focus:ring-emerald-500"
-                  />
-                  <div>
-                    <div className="font-semibold text-xs sm:text-sm text-espresso-900">
-                      Offer Free Guest Wi-Fi on QR Landing Page
-                    </div>
-                    <div className="text-[11px] text-taupe-500 mt-0.5">
-                      Displays a &ldquo;Connect to Wi-Fi&rdquo; action card when diners scan any table QR code.
-                    </div>
-                  </div>
-                </label>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                      Network Name (SSID) {wifiForm.enabled ? '*' : ''}
-                    </label>
-                    <input
-                      type="text"
-                      value={wifiForm.ssid}
-                      onChange={(e) => {
-                        setSettingsError(null);
-                        setWifiForm({ ...wifiForm, ssid: e.target.value });
-                      }}
-                      placeholder="e.g. SoilToSoul_Guest"
-                      className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm font-mono focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                      Wi-Fi Password
-                    </label>
-                    <input
-                      type="text"
-                      disabled={wifiForm.security === 'nopass'}
-                      value={wifiForm.security === 'nopass' ? '' : wifiForm.password}
-                      onChange={(e) => setWifiForm({ ...wifiForm, password: e.target.value })}
-                      placeholder={wifiForm.security === 'nopass' ? 'Open network (no password)' : 'Enter guest Wi-Fi password'}
-                      className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm font-mono focus:outline-none focus:ring-1 focus:ring-terracotta disabled:bg-cream-100 disabled:text-taupe-400"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">
-                      Security Type
-                    </label>
-                    <select
-                      value={wifiForm.security}
-                      onChange={(e) =>
-                        setWifiForm({
-                          ...wifiForm,
-                          security: (e.target.value as 'WPA' | 'WEP' | 'nopass') || 'WPA',
-                        })
-                      }
-                      className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    >
-                      <option value="WPA">WPA / WPA2 / WPA3 (Standard)</option>
-                      <option value="WEP">WEP (Legacy)</option>
-                      <option value="nopass">None (Open Network)</option>
-                    </select>
-                  </div>
+                    <Mail className="w-3.5 h-3.5 text-terracotta" />
+                    <span>{supportEmail}</span>
+                  </a>
                 </div>
               </div>
+            )}
 
-              {/* Location & Contact */}
-              <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
-                <h3 className="font-serif text-lg font-bold text-espresso-900">Location & Contact</h3>
+            {currentTab === 'menu' && (
+              <DashboardMenuTab
+                restaurant={restaurant}
+                menuItems={menuItems}
+                setMenuItems={setMenuItems}
+                secondaryLoadingItems={secondaryLoading.items}
+                isIndianRestaurant={isIndianRestaurant}
+                isUploadingMenu={isUploadingMenu}
+                uploadProgress={uploadProgress}
+                isDraggingMenuFiles={isDraggingMenuFiles}
+                extractionError={extractionError}
+                setExtractionError={setExtractionError}
+                extractionSuccess={extractionSuccess}
+                setExtractionSuccess={setExtractionSuccess}
+                menuPhotoInputRef={menuPhotoInputRef}
+                menuPdfInputRef={menuPdfInputRef}
+                handleMenuDragOver={handleMenuDragOver}
+                handleMenuDragLeave={handleMenuDragLeave}
+                handleMenuDrop={handleMenuDrop}
+                onSubscriptionExpired={handleSubscriptionExpired}
+                onBillingUpdated={setBillingUsage}
+              />
+            )}
 
-                <div>
-                  <label className="block text-xs font-semibold text-taupe-600 mb-1">Full Street Address</label>
-                  <input
-                    type="text"
-                    value={settingsForm.address}
-                    onChange={(e) => setSettingsForm({ ...settingsForm, address: e.target.value })}
-                    placeholder="e.g. 12, Indiranagar 100ft Road, Bengaluru, Karnataka 560038"
-                    className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                  />
-                </div>
+            {currentTab === 'illustrations' && (
+              <DashboardIllustrationTab
+                restaurant={restaurant}
+                menuItems={menuItems}
+                setMenuItems={setMenuItems}
+                remainingImageCredits={billingUsage?.remainingImageCredits ?? 15}
+                onBillingUpdated={setBillingUsage}
+                onSubscriptionExpired={handleSubscriptionExpired}
+              />
+            )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">Phone Number</label>
-                    <input
-                      type="text"
-                      value={settingsForm.phone}
-                      onChange={(e) => setSettingsForm({ ...settingsForm, phone: e.target.value })}
-                      placeholder="+91 98765 43210"
-                      className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                  </div>
+            {currentTab === 'theme' && (
+              <DashboardThemeTab
+                restaurant={restaurant}
+                rawInitialTheme={rawTheme}
+                onThemeSaved={setRawTheme}
+                menuItems={menuItems}
+                coverUrl={settingsForm.coverUrl}
+                bannerDimensions={bannerDimensions}
+                isUploadingBanner={isUploadingBanner}
+                bannerError={bannerError}
+                bannerToast={bannerToast}
+                onBannerUpload={handleBannerUpload}
+                onRemoveBanner={handleRemoveBanner}
+                onSubscriptionExpired={handleSubscriptionExpired}
+              />
+            )}
 
-                  <div>
-                    <label className="block text-xs font-semibold text-taupe-600 mb-1">Contact Email</label>
-                    <input
-                      type="email"
-                      value={settingsForm.email}
-                      onChange={(e) => setSettingsForm({ ...settingsForm, email: e.target.value })}
-                      placeholder="hello@restaurant.com"
-                      className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
-                    />
-                  </div>
-                </div>
+            {currentTab === 'ai' && (
+              <DashboardAiTab
+                restaurant={restaurant}
+                rawInitialSettings={rawSettings}
+                onAiSettingsSaved={setRawSettings}
+                menuItems={menuItems}
+                onSubscriptionExpired={handleSubscriptionExpired}
+              />
+            )}
 
-                <div>
-                  <label className="block text-xs font-semibold text-taupe-600 mb-1">Google Maps / Review Link</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="url"
-                      value={settingsForm.googleReviewUrl}
-                      onChange={(e) => setSettingsForm({ ...settingsForm, googleReviewUrl: e.target.value })}
-                      placeholder="https://search.google.com/local/writereview?placeid=... or g.page/..."
-                      className="flex-1 px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta font-mono"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setIsPlacesModalOpen(true)}
-                      className="px-3.5 py-2 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 shadow-xs"
-                    >
-                      <Search className="w-3.5 h-3.5" />
-                      <span>Search Maps</span>
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-taupe-500 mt-1">
-                    When diners tap "Leave a Review", this link opens directly. Search maps to auto-locate your place.
-                  </p>
-                </div>
+            {currentTab === 'qr' && (
+              <DashboardQrTab
+                restaurant={restaurant}
+                qrData={qrData}
+                setQrData={setQrData}
+                isSubscriptionExpired={isSubscriptionExpired}
+                onSubscriptionExpired={handleSubscriptionExpired}
+              />
+            )}
+
+            {currentTab === 'tables' && restaurant && (
+              <div className="animate-fade-in">
+                <TablesManagementView
+                  restaurant={restaurant}
+                  onSubscriptionExpired={handleSubscriptionExpired}
+                />
               </div>
+            )}
 
-              <div className="p-4 rounded-2xl bg-cream-50 border border-cream-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-taupe-600">
-                <span>Need help configuring your menu, tables, or QR timers? Email for setup queries:</span>
-                <a
-                  href={supportMailHref}
-                  className="inline-flex items-center gap-1.5 font-mono font-bold text-espresso-900 hover:text-terracotta shrink-0"
-                >
-                  <Mail className="w-3.5 h-3.5 text-terracotta" />
-                  <span>{supportEmail}</span>
-                </a>
+            {currentTab === 'orders' && restaurant && (
+              <div className="animate-fade-in">
+                <OrdersManagementView
+                  restaurant={restaurant}
+                  initialSubTab={initialOrdersSubTab}
+                  onSubscriptionExpired={handleSubscriptionExpired}
+                  onTaxSettingsUpdated={handleTaxSettingsUpdated}
+                />
               </div>
+            )}
 
-              <div className="flex justify-end">
-                <button
-                  type="submit"
-                  disabled={isSavingSettings}
-                  className="px-5 py-2.5 rounded-xl bg-espresso-900 text-white font-semibold text-xs sm:text-sm hover:bg-espresso-800 transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50"
-                >
-                  <Save className="w-4 h-4 text-terracotta" />
-                  {isSavingSettings ? 'Saving Settings...' : 'Save Settings'}
-                </button>
+            {currentTab === 'staff' && restaurant && (
+              <div className="animate-fade-in">
+                <StaffManagementView
+                  restaurant={restaurant}
+                  onSubscriptionExpired={handleSubscriptionExpired}
+                />
               </div>
-            </form>
+            )}
 
-            {/* Google Business Listing Search Modal */}
-            <GooglePlacesModal
-              isOpen={isPlacesModalOpen}
-              onClose={() => setIsPlacesModalOpen(false)}
-              restaurantId={restaurant.id}
-              initialQuery={`${settingsForm.displayName || restaurant.displayName} ${settingsForm.city || restaurant.city || ''}`.trim()}
-              onSelectReviewUrl={(url) => setSettingsForm({ ...settingsForm, googleReviewUrl: url })}
-            />
-          </div>
-        )}
+            {currentTab === 'analytics' && (
+              <DashboardAnalyticsTab
+                restaurant={restaurant}
+                menuItems={menuItems}
+                analyticsData={analyticsData}
+                analyticsLoading={analyticsLoading}
+                analyticsError={analyticsError}
+                isIndianRestaurant={isIndianRestaurant}
+                onRefreshAnalytics={loadAnalytics}
+                onNavigate={(url) => router.push(url)}
+              />
+            )}
+
+            {currentTab === 'settings' && (
+              <DashboardSettingsTab
+                restaurant={restaurant}
+                setRestaurant={setRestaurant}
+                settingsForm={settingsForm}
+                setSettingsForm={setSettingsForm}
+                wifiForm={wifiForm}
+                setWifiForm={setWifiForm}
+                tableSessionForm={tableSessionForm}
+                setTableSessionForm={setTableSessionForm}
+                taxForm={taxForm}
+                setTaxForm={setTaxForm}
+                bannerDimensions={bannerDimensions}
+                isUploadingBanner={isUploadingBanner}
+                bannerError={bannerError}
+                bannerToast={bannerToast}
+                onBannerUpload={handleBannerUpload}
+                onRemoveBanner={handleRemoveBanner}
+                supportEmail={supportEmail}
+                supportMailHref={supportMailHref}
+                onSubscriptionExpired={handleSubscriptionExpired}
+              />
+            )}
           </>
         )}
 
-        {/* =========================================================================
-            TAB 9: BILLING & CREDITS
-        ========================================================================= */}
         {currentTab === 'billing' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft">
-              <h2 className="font-serif text-xl font-bold text-espresso-900">Billing & Image Credits</h2>
-              <p className="text-xs sm:text-sm text-taupe-500 mt-1">
-                14-day free Trial plan, subscription tiers, and server-enforced image generation credits.
-              </p>
-            </div>
-
-            {isSubscriptionExpired && (
-              <div
-                role="alert"
-                className="p-5 rounded-3xl bg-red-50 border border-red-200 text-red-950 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xs"
-              >
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                  <div>
-                    <h3 className="font-serif text-base font-bold text-red-950">
-                      {isTrialEnded
-                        ? 'Your 14-Day Free Trial Has Ended'
-                        : 'Your Subscription Is Inactive'}
-                    </h3>
-                    <p className="text-xs sm:text-sm text-red-800 mt-0.5">
-                      Everything for <strong>{restaurant.displayName}</strong> is currently paused. Select a monthly plan below to reactivate your menu, QR ordering, and Kitchen Display terminal immediately.
-                    </p>
-                  </div>
-                </div>
-                <a
-                  href={supportMailHref}
-                  className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-red-200 text-xs font-mono font-bold text-red-900 hover:bg-red-100 transition-colors"
-                >
-                  <Mail className="w-3.5 h-3.5 text-red-600" />
-                  <span>{supportEmail}</span>
-                </a>
-              </div>
-            )}
-
-            {checkoutNotice && (
-              <div
-                role="status"
-                className={`p-4 rounded-2xl border text-xs sm:text-sm flex items-center justify-between gap-3 ${
-                  checkoutNotice.type === 'success'
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                    : 'bg-red-50 border-red-200 text-red-900'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  {checkoutNotice.type === 'success' ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                  )}
-                  <span>{checkoutNotice.message}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setCheckoutNotice(null)}
-                  aria-label="Dismiss notice"
-                  className="p-1 rounded-lg hover:bg-black/5"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
-            {/* Current Plan Overview */}
-            <div className="p-5 sm:p-6 bg-gradient-to-br from-espresso-900 to-espresso-800 text-white rounded-3xl shadow-soft flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-              <div>
-                <span
-                  className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider ${
-                    isSubscriptionExpired
-                      ? 'bg-red-500/25 text-red-200'
-                      : isTrialActive
-                      ? 'bg-amber-400/20 text-amber-200'
-                      : 'bg-white/10 text-cream-200'
-                  }`}
-                >
-                  {isSubscriptionExpired
-                    ? 'Subscription Paused'
-                    : isTrialActive
-                    ? `${FREE_TRIAL_DAYS}-Day Free Trial`
-                    : 'Active Tier'}
-                </span>
-                <h3 className="text-2xl sm:text-3xl font-serif font-bold text-cream-100 mt-2">
-                  {billingUsage?.plan?.name || effectiveAccess?.planName || 'Trial'}
-                </h3>
-                <p className="text-xs text-cream-300 mt-1">
-                  Status: {isSubscriptionExpired ? 'EXPIRED' : billingUsage?.subscription?.status || effectiveAccess?.subscriptionStatus || 'TRIAL'} • Region: {billingUsage?.billingCountry || restaurant.country}
-                </p>
-                {isTrialActive && effectiveAccess?.trialEndsAt && (
-                  <p className="text-xs text-amber-200 mt-1">
-                    Ends {new Date(effectiveAccess.trialEndsAt).toLocaleDateString()} ({effectiveAccess.daysRemaining ?? FREE_TRIAL_DAYS}d left) • No payment method required
-                  </p>
-                )}
-                {isSubscriptionExpired && (
-                  <p className="text-xs text-red-200 mt-1">
-                    Purchase a monthly plan below to reactivate your restaurant workspace.
-                  </p>
-                )}
-              </div>
-
-              <div className="flex flex-wrap gap-4 sm:gap-6 text-center w-full md:w-auto">
-                <div className="flex-1 md:flex-none p-3 bg-white/10 rounded-2xl min-w-[90px] sm:min-w-[100px]">
-                  <div className="text-2xl font-bold text-cream-100">{billingUsage?.remainingImageCredits ?? 0}</div>
-                  <div className="text-[10px] text-cream-300 uppercase">3D Credits</div>
-                </div>
-                <div className="flex-1 md:flex-none p-3 bg-white/10 rounded-2xl min-w-[90px] sm:min-w-[100px]">
-                  <div className="text-2xl font-bold text-cream-100">{billingUsage?.chatQueriesThisMonth ?? 0}</div>
-                  <div className="text-[10px] text-cream-300 uppercase">AI Queries</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Trial Plan Showcase */}
-            {(() => {
-              const trialDef: TrialPlanDefinition = billingUsage?.trialPlan || TRIAL_PLAN;
-              const onTrial =
-                billingUsage?.plan?.key === trialDef.key || effectiveAccess?.planKey === trialDef.key;
-
-              return (
-                <div className="p-5 bg-cream-50 rounded-3xl border border-cream-300 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-sage-100 text-sage-800 border border-sage-200">
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        {trialDef.name} Plan • 14 Days Free
-                      </span>
-                      <span className="text-xs font-mono font-bold text-espresso-900">
-                        {billingUsage?.billingCountry === 'US' || restaurant.country === 'US' ? '$0' : '₹0'} • No Payment Method Required
-                      </span>
-                    </div>
-                    <p className="text-xs text-taupe-600">
-                      Up to {trialDef.itemLimit} dishes, {trialDef.imageCreditsMonthly} custom 3D credits, and {trialDef.aiQuestionsMonthly.toLocaleString()} AI diner queries during your 14-day onboarding trial.
-                    </p>
-                  </div>
-                  <span
-                    className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold ${
-                      isTrialEnded
-                        ? 'bg-red-100 text-red-800 border border-red-200'
-                        : isTrialActive
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                        : onTrial
-                        ? 'bg-cream-200 text-espresso-700'
-                        : 'bg-cream-200 text-taupe-600'
-                    }`}
-                  >
-                    {isTrialEnded
-                      ? 'Free Trial Completed'
-                      : isTrialActive
-                      ? `Active Trial (${effectiveAccess?.daysRemaining ?? FREE_TRIAL_DAYS}d left)`
-                      : 'Included at Sign-Up'}
-                  </span>
-                </div>
-              );
-            })()}
-
-            {/* Available Plans Catalog */}
-            {(() => {
-              const activeBillingCountry: 'IN' | 'US' =
-                billingUsage?.billingCountry === 'US' ? 'US' : 'IN';
-              const availablePlans: PlanDefinition[] = Array.isArray(billingUsage?.availablePlans)
-                ? billingUsage.availablePlans
-                : [];
-              const upgradeButtonLabel =
-                isSubscriptionExpired || isTrialActive || billingUsage?.plan?.key === 'FREE_TRIAL'
-                  ? 'Buy Subscription'
-                  : 'Select Plan';
-
-              return (
-                <div className="space-y-4 pt-2">
-                  <div className="p-4 bg-white rounded-2xl border border-cream-200">
-                    <h3 className="font-serif text-lg font-bold text-espresso-900">
-                      Paid Subscription Tiers
-                    </h3>
-                    <p className="text-xs text-taupe-500">
-                      {activeBillingCountry === 'US'
-                        ? 'United States Dollar (USD $) monthly billing plans'
-                        : 'India Rupee (INR ₹) monthly billing plans'}
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {availablePlans.map((plan) => {
-                        const isCurrent =
-                          !isSubscriptionExpired && billingUsage?.plan?.key === plan.key;
-                        return (
-                          <div
-                            key={plan.key}
-                            className={`p-6 bg-white rounded-3xl border flex flex-col justify-between shadow-soft ${
-                              isCurrent ? 'border-terracotta ring-2 ring-terracotta/20' : 'border-cream-200'
-                            }`}
-                          >
-                            <div>
-                              <div className="flex items-center justify-between mb-2">
-                                <h4 className="font-serif text-lg font-bold text-espresso-900">{plan.name}</h4>
-                                {isCurrent && (
-                                  <span className="text-[10px] font-bold uppercase tracking-wider text-terracotta bg-terracotta-50 px-2 py-0.5 rounded-full">
-                                    Current
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-2xl font-bold text-espresso-900 mb-4">{plan.monthlyPriceFormatted}</div>
-
-                              <ul className="space-y-2 text-xs text-taupe-600 mb-6">
-                                <li>• Up to {plan.itemLimit > 1000 ? 'Unlimited' : plan.itemLimit} menu dishes</li>
-                                <li>• {plan.imageCreditsMonthly} custom 3D image credits / mo</li>
-                                <li>• {plan.aiQuestionsMonthly.toLocaleString()} AI diner queries / mo</li>
-                                <li>• Grounded Gemini conversational waiter</li>
-                              </ul>
-                            </div>
-
-                            <button
-                              disabled={isCurrent}
-                              onClick={async () => {
-                                setCheckoutNotice(null);
-                                const res = await fetch('/api/billing/create-subscription', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({
-                                    restaurantId: restaurant.id,
-                                    planKey: plan.key,
-                                  }),
-                                });
-                                const data = await res.json().catch(() => ({}));
-                                if (!res.ok) {
-                                  setCheckoutNotice({
-                                    type: 'error',
-                                    message: data.error || 'Could not start subscription checkout.',
-                                  });
-                                  return;
-                                }
-                                trackConversionEvent('subscription_started', {
-                                  planKey: plan.key,
-                                  currency: plan.currency,
-                                });
-                                setCheckoutNotice({
-                                  type: 'success',
-                                  message: `Razorpay subscription initialized for ${plan.name} (Sub ID: ${data.subscriptionId}). Need billing help? Email ${supportEmail}.`,
-                                });
-                              }}
-                              className={`w-full py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
-                                isCurrent
-                                  ? 'bg-cream-200 text-espresso-700 cursor-default'
-                                  : 'bg-espresso-900 text-white hover:bg-espresso-800'
-                              }`}
-                            >
-                              {isCurrent ? 'Current Plan' : upgradeButtonLabel}
-                            </button>
-                          </div>
-                        );
-                      })}
-                  </div>
-
-                  {/* Setup & Onboarding Support Card */}
-                  <div className="p-5 bg-white rounded-3xl border border-cream-200 shadow-soft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div>
-                      <h4 className="font-serif text-base font-bold text-espresso-900">
-                        Setup-Related Queries &amp; Assisted Activation
-                      </h4>
-                      <p className="text-xs text-taupe-600 mt-0.5">
-                        Email us for help importing your menu, setting up table QRs, or choosing a plan.
-                      </p>
-                    </div>
-                    <a
-                      href={supportMailHref}
-                      className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cream-100 hover:bg-cream-200 border border-cream-300 text-xs sm:text-sm font-mono font-bold text-espresso-900 transition-colors"
-                    >
-                      <Mail className="w-4 h-4 text-terracotta" />
-                      <span>{supportEmail}</span>
-                    </a>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
+          <DashboardBillingTab
+            restaurant={restaurant}
+            billingUsage={billingUsage}
+            effectiveAccess={effectiveAccess}
+            isSubscriptionExpired={isSubscriptionExpired}
+            isTrialActive={isTrialActive}
+            isTrialEnded={isTrialEnded}
+            supportEmail={supportEmail}
+            supportMailHref={supportMailHref}
+            checkoutNotice={checkoutNotice}
+            setCheckoutNotice={setCheckoutNotice}
+          />
         )}
       </main>
 
-      {/* =========================================================================
-          FLOATING TOAST: MENU SCANNING COMPLETION
-      ========================================================================= */}
       {extractionToast && (
         <Portal>
           <div

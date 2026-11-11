@@ -1,6 +1,7 @@
 import * as React from 'react';
 import type { Metadata } from 'next';
 import prisma from '@/lib/db/prisma';
+import { getCache } from '@/lib/cache/redis';
 import { generateSEOMetadata, SITE_NAME, SITE_URL } from '@/lib/seo';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { buildBreadcrumbSchema } from '@/lib/seo-schema';
@@ -20,6 +21,30 @@ const wrapCache =
 const fetchPublicRestaurantMeta = wrapCache(async (slug: string) => {
   if (!slug) return null;
   try {
+    // Fast path: reuse warm menu cache payload when available so layout adds 0 DB queries
+    const cached = await getCache().get(`menu:slug:${slug}`).catch(() => null);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as { restaurant?: any };
+        const cachedRest = parsed?.restaurant;
+        if (cachedRest) {
+          if (cachedRest.publicationState !== 'PUBLISHED') {
+            return null;
+          }
+          return {
+            slug: cachedRest.slug as string,
+            displayName: cachedRest.displayName as string,
+            city: (cachedRest.city as string | null) ?? null,
+            country: (cachedRest.country as string) || 'IN',
+            description: (cachedRest.description as string | null) ?? null,
+            publicationState: cachedRest.publicationState,
+          };
+        }
+      } catch {
+        // Fallback to DB lookup below
+      }
+    }
+
     const restaurant = await prisma.restaurant.findUnique({
       where: { slug },
       select: {

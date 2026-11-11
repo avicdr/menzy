@@ -11,7 +11,7 @@ import {
   normalizeCategoryKey,
   resolvePrimaryDietaryBucket,
 } from '@/lib/menu/deduplicate';
-import { resolveMenuMimeForExtraction } from '@/lib/menu/menu-file-validator';
+import { resolveMenuMimeForExtraction, type SupportedMenuMime } from '@/lib/menu/menu-file-validator';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -24,7 +24,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'restaurantId and uploadId required' }, { status: 400 });
     }
 
-    const auth = await requireRestaurantAccess(restaurantId);
+    const auth = await requireRestaurantAccess(restaurantId, {
+      includeSettings: false,
+      includeTheme: false,
+    });
     if (!auth.authorized) {
       return createOwnerAccessDeniedResponse(auth, 403);
     }
@@ -40,27 +43,31 @@ export async function POST(req: Request) {
     const restaurant = auth.restaurant;
     const fileKeys = upload.fileKeys as string[];
 
-    // Read files (from S3/Supabase Storage or local fallback) and normalize MIME via magic bytes
-    const images: Array<{ buffer: Buffer; mimeType: string }> = [];
-    for (const fileUrl of fileKeys) {
-      try {
-        const loaded = await readAssetFromUrl(fileUrl);
-        if (loaded && loaded.buffer.length > 0) {
-          const resolvedMime = resolveMenuMimeForExtraction(
-            loaded.buffer,
-            loaded.mimeType,
-            fileUrl
-          );
-          if (resolvedMime) {
-            images.push({ buffer: loaded.buffer, mimeType: resolvedMime });
-          } else {
+    // Read files concurrently (from S3/Supabase Storage or local fallback) and normalize MIME via magic bytes
+    const fileLoads = await Promise.all(
+      fileKeys.map(async (fileUrl) => {
+        try {
+          const loaded = await readAssetFromUrl(fileUrl);
+          if (loaded && loaded.buffer.length > 0) {
+            const resolvedMime = resolveMenuMimeForExtraction(
+              loaded.buffer,
+              loaded.mimeType,
+              fileUrl
+            );
+            if (resolvedMime) {
+              return { buffer: loaded.buffer, mimeType: resolvedMime };
+            }
             console.warn('Skipping unsupported uploaded menu file:', fileUrl, loaded.mimeType);
           }
+        } catch (err) {
+          console.warn('Failed to load uploaded menu file:', fileUrl, err);
         }
-      } catch (err) {
-        console.warn('Failed to load uploaded menu file:', fileUrl, err);
-      }
-    }
+        return null;
+      })
+    );
+    const images = fileLoads.filter(
+      (entry): entry is { buffer: Buffer; mimeType: SupportedMenuMime } => entry !== null
+    );
 
     if (images.length === 0) {
       await prisma.menuUpload.update({
@@ -308,26 +315,27 @@ export async function POST(req: Request) {
           })
         : [];
 
-    // Invalidate live diner menu cache immediately
+    // Invalidate live diner menu cache and persist upload/job states in parallel
     const cache = getCache();
-    await cache.del(`menu:slug:${restaurant.slug}`);
-
-    // Update upload and job statuses
-    await prisma.menuUpload.update({
-      where: { id: upload.id },
-      data: { status: 'COMPLETED', reviewStatus: 'REVIEWED' },
-    });
-
-    if (jobId) {
-      await prisma.extractionJob.update({
-        where: { id: jobId },
-        data: {
-          status: 'COMPLETED',
-          extractedJson: extracted as any,
-          extractionConfidence: 0.94,
-        },
-      });
-    }
+    await Promise.all([
+      cache.del(`menu:slug:${restaurant.slug}`),
+      prisma.menuUpload.update({
+        where: { id: upload.id },
+        data: { status: 'COMPLETED', reviewStatus: 'REVIEWED' },
+      }),
+      ...(jobId
+        ? [
+            prisma.extractionJob.update({
+              where: { id: jobId },
+              data: {
+                status: 'COMPLETED',
+                extractedJson: extracted as any,
+                extractionConfidence: 0.94,
+              },
+            }),
+          ]
+        : []),
+    ]);
 
     return NextResponse.json({
       success: true,

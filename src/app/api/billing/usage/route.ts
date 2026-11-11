@@ -24,6 +24,8 @@ export async function GET(req: Request) {
 
     const auth = await requireRestaurantAccess(restaurantId, {
       allowDuringExpiredSubscription: true,
+      includeSettings: false,
+      includeTheme: false,
     });
     if (!auth.authorized || !auth.restaurant?.organizationId) {
       return createOwnerAccessDeniedResponse(auth, 403);

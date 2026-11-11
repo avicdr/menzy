@@ -14,7 +14,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'restaurantId required' }, { status: 400 });
   }
 
-  const auth = await requireRestaurantAccess(restaurantId);
+  const auth = await requireRestaurantAccess(restaurantId, {
+    includeSettings: false,
+    includeTheme: false,
+  });
   if (!auth.authorized) {
     return createOwnerAccessDeniedResponse(auth, 403);
   }
@@ -59,7 +62,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'restaurantId and customName are required' }, { status: 400 });
     }
 
-    const auth = await requireRestaurantAccess(restaurantId);
+    const auth = await requireRestaurantAccess(restaurantId, {
+    includeSettings: false,
+    includeTheme: false,
+  });
     if (!auth.authorized) {
       return createOwnerAccessDeniedResponse(auth, 403);
     }
@@ -170,7 +176,10 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'itemId and restaurantId are required' }, { status: 400 });
     }
 
-    const auth = await requireRestaurantAccess(restaurantId);
+    const auth = await requireRestaurantAccess(restaurantId, {
+    includeSettings: false,
+    includeTheme: false,
+  });
     if (!auth.authorized) {
       return createOwnerAccessDeniedResponse(auth, 403);
     }
@@ -292,7 +301,10 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: 'itemId and restaurantId required' }, { status: 400 });
     }
 
-    const auth = await requireRestaurantAccess(restaurantId);
+    const auth = await requireRestaurantAccess(restaurantId, {
+    includeSettings: false,
+    includeTheme: false,
+  });
     if (!auth.authorized) {
       return createOwnerAccessDeniedResponse(auth, 403);
     }

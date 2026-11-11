@@ -12,8 +12,8 @@
   --dishora-border: #E4D9CB;
   --dishora-hover: #F1E9DF;
   --card-radius: 16px;
-  --font-serif: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-sans: 'Inter', 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif: var(--font-next-plus-jakarta-sans, 'Plus Jakarta Sans'), var(--font-next-inter, 'Inter'), -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: var(--font-next-inter, 'Inter'), var(--font-next-dm-sans, 'DM Sans'), -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 body {
@@ -368,6 +368,17 @@ dialog::backdrop {
   .menzy-cta:focus-visible {
     outline: 3px solid Highlight;
   }
+}
+
+/* Defer layout/paint for off-screen diner menu cards (modern-web-guidance) */
+.menzy-dish-deferred--grid {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 360px;
+}
+
+.menzy-dish-deferred--list {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 120px;
 }
 
 

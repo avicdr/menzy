@@ -82,30 +82,48 @@ export async function GET(
     else if (sortBy === 'amount_high') orderBy = { totalMinor: 'desc' };
     else if (sortBy === 'amount_low') orderBy = { totalMinor: 'asc' };
 
-    const totalCount = await prisma.order.count({ where });
-
-    const orders = await prisma.order.findMany({
-      where,
-      orderBy,
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      include: {
-        table: { select: { id: true, name: true, section: true } },
-        items: true,
-        statusHistory: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          include: { staff: { select: { displayName: true } } },
+    const [totalCount, orders, aggregated] = await Promise.all([
+      prisma.order.count({ where }),
+      prisma.order.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          currency: true,
+          subtotalMinor: true,
+          taxMinor: true,
+          serviceChargeMinor: true,
+          totalMinor: true,
+          paymentMethod: true,
+          paymentStatus: true,
+          placedAt: true,
+          completedAt: true,
+          table: { select: { id: true, name: true, section: true } },
+          items: {
+            select: {
+              quantity: true,
+              dishNameSnapshot: true,
+            },
+          },
+          statusHistory: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              staff: { select: { displayName: true } },
+            },
+          },
         },
-      },
-    });
-
-    // Compute aggregated value
-    const aggregated = await prisma.order.aggregate({
-      where,
-      _sum: { totalMinor: true },
-      _avg: { totalMinor: true },
-    });
+      }),
+      prisma.order.aggregate({
+        where,
+        _sum: { totalMinor: true },
+        _avg: { totalMinor: true },
+      }),
+    ]);
 
     const formatted = orders.map((o) => ({
       id: o.id,
