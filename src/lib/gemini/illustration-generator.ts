@@ -10,6 +10,10 @@ import {
   resolveGeminiAttemptClients,
 } from './client';
 import { generateOpenAIDishImage, hasOpenAIFallback } from '../ai/openai-fallback';
+import {
+  generateCloudflareDishImage,
+  hasCloudflareWorkersAI,
+} from '../ai/cloudflare-workers-ai';
 import { uploadAsset } from '../storage/adapter';
 import prisma from '../db/prisma';
 import { AssetType, ModerationStatus } from '@prisma/client';
@@ -356,7 +360,29 @@ export async function generateOrReuseDishIllustration(params: {
   let usedSource = 'GEMINI_GEN';
   const providerErrors: string[] = [];
 
-  // Tier 1: Try official Google GenAI across image models x configured Gemini API keys
+  // Prefer Workers AI when configured so exhausted Gemini/OpenAI quotas do not add latency.
+  if (hasCloudflareWorkersAI()) {
+    try {
+      const cloudflareImage = await generateCloudflareDishImage({ prompt, timeoutMs: 45_000 });
+      if (isRasterImageBuffer(cloudflareImage.buffer)) {
+        imageBuffer = cloudflareImage.buffer;
+        mimeType = cloudflareImage.mimeType;
+        ext = cloudflareImage.ext;
+        usedModel = cloudflareImage.model;
+        usedSource = 'CLOUDFLARE_WORKERS_AI';
+      }
+    } catch (cloudflareError: any) {
+      providerErrors.push(
+        `Cloudflare Workers AI: ${String(cloudflareError?.message || cloudflareError).slice(0, 180)}`
+      );
+      console.warn(
+        'Cloudflare Workers AI image generation failed:',
+        cloudflareError?.message || cloudflareError
+      );
+    }
+  }
+
+  // Next fallback: official Google GenAI across image models x configured Gemini API keys
   const invalidKeySet = new Set<string>();
   const zeroQuotaModelCount = new Map<string, number>();
   let abortModelCascade = false;
@@ -455,7 +481,7 @@ export async function generateOrReuseDishIllustration(params: {
     }
   }
 
-  // Tier 1b: OpenAI Image Generation fallback if Gemini keys failed or aren't configured
+  // OpenAI image fallback if Cloudflare and Gemini failed or aren't configured
   if (!imageBuffer && hasOpenAIFallback()) {
     try {
       const openAiImg = await generateOpenAIDishImage({ prompt, timeoutMs: 45000 });

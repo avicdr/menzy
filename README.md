@@ -42,6 +42,18 @@ Ensure `DATABASE_URL` points to your PostgreSQL instance:
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/dishora?schema=public"
 ```
 
+For photorealistic food image generation through Cloudflare Workers AI, create a
+Workers AI REST API token scoped to your account and configure:
+
+```env
+CLOUDFLARE_ACCOUNT_ID="your Cloudflare account ID"
+CLOUDFLARE_AI_API_TOKEN="your Workers AI API token"
+CLOUDFLARE_AI_IMAGE_MODEL="@cf/black-forest-labs/flux-1-schnell"
+CLOUDFLARE_AI_IMAGE_STEPS="8"
+```
+
+Keep `CLOUDFLARE_AI_API_TOKEN` server-side. Never prefix it with `NEXT_PUBLIC_`.
+
 ### 4. Database Setup & Seeding
 Push the Prisma schema and run the comprehensive seed script:
 ```bash
