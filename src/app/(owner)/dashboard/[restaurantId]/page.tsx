@@ -285,7 +285,12 @@ function RestaurantDashboardContent() {
     email: '',
     googleReviewUrl: '',
     coverUrl: '',
+    logoUrl: '',
+    showLogo: true,
   });
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const [logoToast, setLogoToast] = useState<string | null>(null);
   const [wifiForm, setWifiForm] = useState<{
     enabled: boolean;
     ssid: string;
@@ -387,6 +392,8 @@ function RestaurantDashboardContent() {
         email: rsData.restaurant.email || '',
         googleReviewUrl: rsData.restaurant.googleReviewUrl || '',
         coverUrl: rsData.restaurant.coverUrl || '',
+        logoUrl: rsData.restaurant.logoUrl || '',
+        showLogo: rsData.showLogo !== false,
       });
     }
   }, []);
@@ -678,6 +685,8 @@ function RestaurantDashboardContent() {
               email: cachedRest.email || '',
               googleReviewUrl: cachedRest.googleReviewUrl || '',
               coverUrl: cachedRest.coverUrl || '',
+              logoUrl: cachedRest.logoUrl || '',
+              showLogo: cachedRest.showLogo !== false,
             });
 
             if (currentTabRef.current === 'settings') {
@@ -769,6 +778,8 @@ function RestaurantDashboardContent() {
             email: targetRest.email || '',
             googleReviewUrl: targetRest.googleReviewUrl || '',
             coverUrl: targetRest.coverUrl || '',
+            logoUrl: targetRest.logoUrl || '',
+            showLogo: targetRest.showLogo !== false,
           });
 
           if (currentTabRef.current === 'settings') {
@@ -1358,6 +1369,134 @@ function RestaurantDashboardContent() {
       setBannerError(err?.message || 'Error removing banner image');
     } finally {
       setIsUploadingBanner(false);
+    }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !restaurant?.id) return;
+
+    setLogoError(null);
+    setLogoToast(null);
+
+    const normalizedType = file.type === 'image/jpg' ? 'image/jpeg' : file.type;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(normalizedType)) {
+      setLogoError('Unsupported format. Please upload a JPG, PNG, or WebP image.');
+      e.target.value = '';
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setLogoError('Logo file size must be 5 MB or smaller.');
+      e.target.value = '';
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    try {
+      const formData = new FormData();
+      formData.append('restaurantId', restaurant.id);
+      formData.append('folder', 'logos');
+      formData.append('file', file);
+
+      const uploadRes = await fetch('/api/images/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const uploadData = await uploadRes.json().catch(() => ({}));
+      if (uploadRes.status === 402) {
+        handleSubscriptionExpired(uploadData);
+        return;
+      }
+      if (!uploadRes.ok || !uploadData?.asset?.publicUrl) {
+        throw new Error(uploadData?.error || 'Failed to upload logo image');
+      }
+
+      const uploadedUrl = uploadData.asset.publicUrl as string;
+      const saveRes = await fetch('/api/restaurant/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+          logoUrl: uploadedUrl,
+        }),
+      });
+      const saveData = await saveRes.json().catch(() => ({}));
+      if (saveRes.status === 402) {
+        handleSubscriptionExpired(saveData);
+        return;
+      }
+      if (!saveRes.ok) {
+        throw new Error(saveData?.error || 'Logo uploaded but failed to save to restaurant profile');
+      }
+
+      setSettingsForm((prev) => ({ ...prev, logoUrl: uploadedUrl }));
+      setRestaurant(saveData.restaurant || { ...restaurant, logoUrl: uploadedUrl });
+      invalidateRestaurantSessionCache(restaurant.id, ['restaurantSettings', 'authMe']);
+      setLogoToast('Logo updated and published live!');
+      setTimeout(() => setLogoToast(null), 4000);
+    } catch (err: any) {
+      setLogoError(err?.message || 'Error uploading logo image.');
+    } finally {
+      setIsUploadingLogo(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    if (!restaurant?.id) return;
+    setIsUploadingLogo(true);
+    setLogoError(null);
+    setLogoToast(null);
+    try {
+      const res = await fetch('/api/restaurant/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+          logoUrl: null,
+        }),
+      });
+      const data = await res.json();
+      if (res.status === 402) {
+        handleSubscriptionExpired(data);
+        return;
+      }
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to remove logo image');
+      }
+      setSettingsForm((prev) => ({ ...prev, logoUrl: '' }));
+      setRestaurant(data.restaurant || { ...restaurant, logoUrl: null });
+      invalidateRestaurantSessionCache(restaurant.id, ['restaurantSettings', 'authMe']);
+      setLogoToast('Logo image removed.');
+      setTimeout(() => setLogoToast(null), 3000);
+    } catch (err: any) {
+      setLogoError(err?.message || 'Error removing logo image');
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
+  const handleToggleShowLogo = async (nextShow: boolean) => {
+    if (!restaurant?.id) return;
+    setSettingsForm((prev) => ({ ...prev, showLogo: nextShow }));
+    try {
+      const res = await fetch('/api/restaurant/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+          showLogo: nextShow,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        invalidateRestaurantSessionCache(restaurant.id, ['restaurantSettings', 'authMe']);
+        setLogoToast(nextShow ? 'Logo view enabled on menu.' : 'Logo view disabled on menu.');
+        setTimeout(() => setLogoToast(null), 3000);
+      }
+    } catch {
+      // non-blocking
     }
   };
 
@@ -1981,6 +2120,12 @@ function RestaurantDashboardContent() {
                 bannerToast={bannerToast}
                 onBannerUpload={handleBannerUpload}
                 onRemoveBanner={handleRemoveBanner}
+                isUploadingLogo={isUploadingLogo}
+                logoError={logoError}
+                logoToast={logoToast}
+                onLogoUpload={handleLogoUpload}
+                onRemoveLogo={handleRemoveLogo}
+                onToggleShowLogo={handleToggleShowLogo}
                 supportEmail={supportEmail}
                 supportMailHref={supportMailHref}
                 onSubscriptionExpired={handleSubscriptionExpired}

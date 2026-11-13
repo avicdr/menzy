@@ -857,36 +857,53 @@ export function DashboardThemeTab({
               {coverUrl && (
                 <img src={coverUrl} alt="" className="w-full aspect-[2/1] object-cover block" />
               )}
-              <div className="p-4">
-                <h3
-                  className="text-lg font-bold truncate"
-                  style={{
-                    fontFamily: `var(--font-serif)`,
-                    color: themeState.primaryTextColor,
-                  }}
-                >
-                  {restaurant.displayName}
-                </h3>
-                <div className="flex items-center gap-2 mt-1">
-                  <span
-                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+              <div className="p-4 flex items-center gap-3">
+                {restaurant.showLogo !== false && (
+                  <div
+                    className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center font-bold text-base shrink-0 shadow-xs"
                     style={{
-                      backgroundColor: `${themeState.accentColor}20`,
-                      color: themeState.accentColor,
-                      fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
+                      backgroundColor: themeState.accentColor,
+                      color: pickContrastForeground(themeState.accentColor),
                     }}
                   >
-                    {themeState.layoutMode === 'GRID' ? 'Grid Mode' : 'List Mode'}
-                  </span>
-                  <span
-                    className="text-[10px]"
+                    {restaurant.logoUrl ? (
+                      <img src={restaurant.logoUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'
+                    )}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <h3
+                    className="text-lg font-bold truncate"
                     style={{
-                      color: themeState.secondaryTextColor,
-                      fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
+                      fontFamily: `var(--font-serif)`,
+                      color: themeState.primaryTextColor,
                     }}
                   >
-                    {themeState.headingFont} • {themeState.bodyFont}
-                  </span>
+                    {restaurant.displayName}
+                  </h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span
+                      className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                      style={{
+                        backgroundColor: `${themeState.accentColor}20`,
+                        color: themeState.accentColor,
+                        fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
+                      }}
+                    >
+                      {themeState.layoutMode === 'GRID' ? 'Grid Mode' : 'List Mode'}
+                    </span>
+                    <span
+                      className="text-[10px]"
+                      style={{
+                        color: themeState.secondaryTextColor,
+                        fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
+                      }}
+                    >
+                      {themeState.headingFont} • {themeState.bodyFont}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

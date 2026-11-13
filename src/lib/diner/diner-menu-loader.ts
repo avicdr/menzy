@@ -22,9 +22,20 @@ export type DinerMenuLoadResult =
     };
 
 export async function loadDinerMenuPayload(rawSlug: string): Promise<DinerMenuLoadResult> {
-  const slug = (rawSlug || '').trim();
+  let slug = (rawSlug || '').trim();
   if (!slug) {
     return { status: 'NOT_FOUND' };
+  }
+
+  // Alias acai-theory to acai-theory-demo if requested
+  if (slug === 'acai-theory') {
+    const directMatch = await prisma.restaurant.findUnique({
+      where: { slug: 'acai-theory' },
+      select: { id: true },
+    });
+    if (!directMatch) {
+      slug = 'acai-theory-demo';
+    }
   }
 
   const cache = getCache();
@@ -263,6 +274,7 @@ export async function loadDinerMenuPayload(rawSlug: string): Promise<DinerMenuLo
 
     const notifSettings =
       (restaurant.orderingSettings?.notificationSettings as Record<string, any>) || {};
+    const showLogo = notifSettings?.showLogo !== false;
     const wifiConfig = isWifiVisibleToDiners(notifSettings?.wifi) ? notifSettings.wifi : null;
     const tableSessionConfig = extractTableSessionConfig(notifSettings);
 
@@ -286,11 +298,14 @@ export async function loadDinerMenuPayload(rawSlug: string): Promise<DinerMenuLo
         address: restaurant.address,
         phone: restaurant.phone,
         logoUrl: restaurant.logoUrl,
+        showLogo,
         coverUrl: restaurant.coverUrl,
         googleReviewUrl: restaurant.googleReviewUrl,
         publicationState: restaurant.publicationState,
+        isClaimed: restaurant.isClaimed,
         theme: normalizedTheme,
       },
+      showLogo,
       settings: restaurant.settings,
       theme: normalizedTheme,
       tableSession: tableSessionConfig,

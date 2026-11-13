@@ -58,6 +58,8 @@ interface DashboardSettingsTabProps {
     email: string;
     googleReviewUrl: string;
     coverUrl: string;
+    logoUrl?: string;
+    showLogo?: boolean;
   };
   setSettingsForm: React.Dispatch<React.SetStateAction<any>>;
   wifiForm: {
@@ -83,6 +85,12 @@ interface DashboardSettingsTabProps {
   bannerToast: string | null;
   onBannerUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onRemoveBanner: () => void;
+  isUploadingLogo?: boolean;
+  logoError?: string | null;
+  logoToast?: string | null;
+  onLogoUpload?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemoveLogo?: () => void;
+  onToggleShowLogo?: (enabled: boolean) => void;
   supportEmail: string;
   supportMailHref: string;
   onSubscriptionExpired: (payload?: any) => void;
@@ -105,6 +113,12 @@ export function DashboardSettingsTab({
   bannerToast,
   onBannerUpload,
   onRemoveBanner,
+  isUploadingLogo,
+  logoError,
+  logoToast,
+  onLogoUpload,
+  onRemoveLogo,
+  onToggleShowLogo,
   supportEmail,
   supportMailHref,
   onSubscriptionExpired,
@@ -565,6 +579,156 @@ export function DashboardSettingsTab({
                   className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-terracotta"
                 />
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Restaurant Logo & Menu Header Display Card */}
+        <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-serif text-lg font-bold text-espresso-900">
+                Restaurant Logo &amp; Menu Header
+              </h3>
+              <p className="text-xs text-taupe-500 mt-0.5">
+                Customize your brand logo, upload a custom insignia, or disable the logo view completely on the menu.
+              </p>
+            </div>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 border border-purple-200 text-[11px] font-semibold text-purple-900 shrink-0">
+              <ImageIcon className="w-3.5 h-3.5 text-purple-700" />
+              Recommended: 400 × 400 px (1:1 Square)
+            </span>
+          </div>
+
+          {/* Visibility Toggle Card */}
+          <div className="p-4 rounded-2xl bg-cream-50 border border-cream-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <span className="text-xs font-bold text-espresso-900">
+                Display Logo on Diner Menu
+              </span>
+              <p className="text-[11px] text-taupe-600">
+                When enabled, your logo (or initial badge) appears beside your restaurant name on the QR landing hub and visual menu. When disabled, the logo badge is completely hidden for a minimalist, typography-first menu header.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={settingsForm.showLogo !== false}
+                onChange={(e) => {
+                  const nextVal = e.target.checked;
+                  setSettingsForm((prev: any) => ({ ...prev, showLogo: nextVal }));
+                  if (onToggleShowLogo) {
+                    onToggleShowLogo(nextVal);
+                  }
+                }}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-cream-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-cream-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-terracotta"></div>
+              <span className="ml-2.5 text-xs font-semibold text-espresso-900">
+                {settingsForm.showLogo !== false ? 'Visible on Menu' : 'Disabled / Hidden'}
+              </span>
+            </label>
+          </div>
+
+          {logoError && (
+            <div className="p-3 rounded-2xl bg-red-50 border border-red-200 text-xs sm:text-sm text-red-700 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{logoError}</span>
+            </div>
+          )}
+
+          {logoToast && (
+            <div className="p-3 rounded-2xl bg-sage-50 border border-sage-200 text-xs sm:text-sm text-sage-900 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-sage-600 shrink-0" />
+              <span>{logoToast}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
+            {/* Logo Preview Canvas */}
+            <div className="md:col-span-4 flex flex-col items-center justify-center p-4 rounded-2xl border border-cream-300 bg-cream-100 min-h-[160px] relative">
+              {settingsForm.logoUrl ? (
+                <div className={`relative ${settingsForm.showLogo === false ? 'opacity-40 grayscale' : ''}`}>
+                  <div className="w-24 h-24 rounded-2xl overflow-hidden border border-cream-300 bg-white shadow-sm flex items-center justify-center">
+                    <img
+                      src={settingsForm.logoUrl}
+                      alt="Restaurant logo preview"
+                      className="w-full h-full object-cover block"
+                    />
+                  </div>
+                  {settingsForm.showLogo === false && (
+                    <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap px-2 py-0.5 rounded-full bg-espresso-900 text-white text-[9px] font-mono font-bold uppercase tracking-wider shadow">
+                      Hidden on Menu
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className={`text-center space-y-1.5 ${settingsForm.showLogo === false ? 'opacity-40' : ''}`}>
+                  <div className="w-16 h-16 rounded-full bg-terracotta text-white font-serif font-bold text-2xl flex items-center justify-center shadow-sm mx-auto">
+                    {restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'}
+                  </div>
+                  <p className="text-[11px] font-semibold text-taupe-600">Default Initial Badge</p>
+                  <p className="text-[10px] text-taupe-400">
+                    {settingsForm.showLogo === false ? 'Hidden on Menu' : 'Used when no image uploaded'}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Logo Actions */}
+            <div className="md:col-span-8 space-y-3">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <label className="cursor-pointer px-4 py-2.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors shadow-xs">
+                  {isUploadingLogo ? (
+                    <RefreshCw className="w-4 h-4 animate-spin text-terracotta" />
+                  ) : (
+                    <Upload className="w-4 h-4 text-terracotta" />
+                  )}
+                  <span>
+                    {isUploadingLogo
+                      ? 'Uploading Logo...'
+                      : settingsForm.logoUrl
+                      ? 'Upload New Logo'
+                      : 'Upload Logo Image'}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    disabled={isUploadingLogo}
+                    onChange={onLogoUpload}
+                    className="hidden"
+                  />
+                </label>
+
+                {settingsForm.logoUrl && (
+                  <button
+                    type="button"
+                    disabled={isUploadingLogo}
+                    onClick={onRemoveLogo}
+                    className="px-3.5 py-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Remove Logo
+                  </button>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-taupe-500 mb-1">
+                  Or paste Logo Image URL (Square 1:1 or SVG)
+                </label>
+                <input
+                  type="text"
+                  value={settingsForm.logoUrl || ''}
+                  onChange={(e) => setSettingsForm({ ...settingsForm, logoUrl: e.target.value })}
+                  placeholder="/images/... or /uploads/logos/... or https://..."
+                  className="w-full px-3 py-2 border border-cream-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-terracotta"
+                />
+              </div>
+
+              <p className="text-[11px] text-taupe-500">
+                Recommended: 400 × 400 px square PNG, JPG, or WebP with transparent or solid background.
+              </p>
             </div>
           </div>
         </div>

@@ -82,9 +82,9 @@ export function validateBannerUrlInput(coverUrl: unknown):
     return { ok: true, value: null };
   }
 
-  if (trimmed.startsWith('/uploads/') || trimmed.startsWith('/api/storage/')) {
+  if (trimmed.startsWith('/uploads/') || trimmed.startsWith('/api/storage/') || trimmed.startsWith('/images/')) {
     if (trimmed.includes('..') || /[\s\0]/.test(trimmed)) {
-      return { ok: false, error: 'Invalid uploaded banner path.' };
+      return { ok: false, error: 'Invalid uploaded image path.' };
     }
     return { ok: true, value: trimmed };
   }
@@ -123,16 +123,18 @@ export function resolveLandingHeroMedia(params: {
   bannerError?: boolean;
   logoUrl?: string | null;
   logoError?: boolean;
+  showLogo?: boolean;
 }): {
   bannerUrl: string | null;
   logoUrl: string | null;
 } {
   const cleanCover = typeof params.coverUrl === 'string' ? params.coverUrl.trim() : '';
   const cleanLogo = typeof params.logoUrl === 'string' ? params.logoUrl.trim() : '';
+  const isLogoVisible = params.showLogo !== false;
 
   return {
     bannerUrl: cleanCover && !params.bannerError ? cleanCover : null,
-    logoUrl: cleanLogo && !params.logoError ? cleanLogo : null,
+    logoUrl: cleanLogo && !params.logoError && isLogoVisible ? cleanLogo : null,
   };
 }
 

@@ -64,6 +64,7 @@ export async function GET(req: Request) {
 
     const { organization: _org, theme: _theme, ...restaurant } = restaurantRecord;
     const notifSettings = (orderingSettings?.notificationSettings as Record<string, any>) || {};
+    const showLogo = notifSettings?.showLogo !== false;
     const wifi = notifSettings?.wifi || { enabled: false, ssid: '', password: '', security: 'WPA' };
     const tableSession = extractTableSessionConfig(notifSettings);
     const taxPercentage = resolveTaxPercentageValue(orderingSettings?.taxPercentage);
@@ -75,6 +76,7 @@ export async function GET(req: Request) {
     return NextResponse.json(
       {
         restaurant,
+        showLogo,
         wifi,
         tableSession,
         taxPercentage,
@@ -112,6 +114,8 @@ export async function PATCH(req: Request) {
       email,
       googleReviewUrl,
       coverUrl,
+      logoUrl,
+      showLogo,
       wifi,
       tableSession,
       taxPercentage,
@@ -207,6 +211,13 @@ export async function PATCH(req: Request) {
       }
       restaurantUpdates.coverUrl = parsedCover.value;
     }
+    if (logoUrl !== undefined) {
+      const parsedLogo = validateBannerUrlInput(logoUrl);
+      if (!parsedLogo.ok) {
+        return NextResponse.json({ error: parsedLogo.error }, { status: 400 });
+      }
+      restaurantUpdates.logoUrl = parsedLogo.value;
+    }
 
     // 2. Prepare RestaurantSettings updates
     const settingsUpdates: any = {};
@@ -217,7 +228,7 @@ export async function PATCH(req: Request) {
     if (maxDinerChatPerSession !== undefined) settingsUpdates.maxDinerChatPerSession = Number(maxDinerChatPerSession);
 
     const resolveOrderingUpdate = async () => {
-      const hasNotifUpdate = Boolean(savedWifi || savedTableSession);
+      const hasNotifUpdate = Boolean(savedWifi || savedTableSession || showLogo !== undefined);
       const hasChargeUpdate =
         savedTaxPercentage !== undefined || savedServiceChargePercentage !== undefined;
       if (!hasNotifUpdate && !hasChargeUpdate) return null;
@@ -237,6 +248,7 @@ export async function PATCH(req: Request) {
           ...currentNotifs,
           ...(savedWifi ? { wifi: savedWifi } : {}),
           ...(savedTableSession ? { tableSession: { ...savedTableSession } } : {}),
+          ...(showLogo !== undefined ? { showLogo: Boolean(showLogo) } : {}),
         };
       }
 
@@ -278,13 +290,26 @@ export async function PATCH(req: Request) {
       resolveOrderingUpdate(),
     ]);
 
-    // Invalidate public diner cache
+    // Invalidate public diner and restaurant cache
     const cache = getCache();
-    await cache.del(`menu:slug:${updatedRestaurant.slug}`);
+    await Promise.allSettled([
+      cache.del(`menu:slug:${updatedRestaurant.slug}`),
+      cache.del(`menzy:restaurant:${targetRestaurantId}`),
+      cache.del(`menzy:restaurant:slug:${updatedRestaurant.slug}`),
+      cache.del(`menzy:diner:menu:${updatedRestaurant.slug}`),
+      cache.del(`menzy:diner:menu:${targetRestaurantId}`),
+    ]);
+
+    const finalNotifSettings =
+      (updatedOrderingSettings?.notificationSettings as Record<string, any>) ||
+      existingNotifSettings ||
+      {};
+    const finalShowLogo = finalNotifSettings?.showLogo !== false;
 
     return NextResponse.json({
       success: true,
       restaurant: updatedRestaurant,
+      showLogo: finalShowLogo,
       settings: updatedSettings,
       ...(savedWifi ? { wifi: savedWifi } : {}),
       ...(savedTableSession ? { tableSession: savedTableSession } : {}),

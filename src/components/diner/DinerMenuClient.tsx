@@ -668,11 +668,14 @@ export function DinerMenuClient({
       `${restaurant.displayName} ${restaurant.city || ''} review`.trim()
     )}`;
 
+  const isLogoEnabled = restaurant.showLogo !== false && data?.showLogo !== false;
+
   const { bannerUrl: heroBannerUrl, logoUrl: heroLogoUrl } = resolveLandingHeroMedia({
     coverUrl: restaurant.coverUrl,
     bannerError,
     logoUrl: restaurant.logoUrl,
     logoError,
+    showLogo: isLogoEnabled,
   });
 
   return (
@@ -680,6 +683,17 @@ export function DinerMenuClient({
       style={themeVars as React.CSSProperties}
       className="min-h-screen bg-[var(--dishora-bg)] text-[var(--dishora-text)] selection:bg-[var(--dishora-accent)] selection:text-[var(--dishora-accent-fg,#FFFFFF)] transition-colors duration-200 font-sans"
     >
+      {/* Demo Restaurant Notice Banner */}
+      {restaurant.isClaimed === false && (
+        <aside
+          role="note"
+          aria-label="Demo menu disclaimer"
+          className="w-full bg-[var(--dishora-accent)]/10 border-b border-[var(--dishora-accent)]/20 px-4 py-2.5 text-center text-xs font-semibold text-[var(--dishora-text)] flex items-center justify-center gap-2 backdrop-blur-xs"
+        >
+          <span className="inline-block w-2 h-2 rounded-full bg-[var(--dishora-secondary-accent,#FC9020)] shrink-0" />
+          <span>Demo menu — prices and availability subject to confirmation.</span>
+        </aside>
+      )}
       {/* =========================================================================
           VIEW 1: HOSPITALITY LANDING HUB (QR SCAN FIRST SCREEN)
       ========================================================================= */}
@@ -701,9 +715,22 @@ export function DinerMenuClient({
                 />
                 <header className="p-5 sm:p-6 space-y-2.5">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-full bg-[var(--dishora-accent)] text-[var(--dishora-accent-fg,#FFFFFF)] font-serif font-bold text-lg flex items-center justify-center shadow-sm shrink-0">
-                      {restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'}
-                    </div>
+                    {isLogoEnabled && (
+                      <div className="w-10 h-10 rounded-full bg-[var(--dishora-accent)] text-[var(--dishora-accent-fg,#FFFFFF)] font-serif font-bold text-lg flex items-center justify-center shadow-sm shrink-0 overflow-hidden">
+                        {heroLogoUrl ? (
+                          <img
+                            src={heroLogoUrl}
+                            alt={restaurant.displayName}
+                            width={40}
+                            height={40}
+                            className="w-full h-full object-cover"
+                            onError={() => setLogoError(true)}
+                          />
+                        ) : (
+                          restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'
+                        )}
+                      </div>
+                    )}
                     <div className="min-w-0">
                       <h1 className="font-serif text-2xl sm:text-3xl font-bold text-[var(--dishora-text)] tracking-tight leading-none truncate">
                         {restaurant.displayName}
@@ -732,7 +759,7 @@ export function DinerMenuClient({
                       </button>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-[var(--dishora-bg)] text-[var(--dishora-muted-text)] border border-[var(--dishora-border)]">
-                        DINER PORTAL
+                        {restaurant.isClaimed === false ? 'DEMO MENU • DINER PORTAL' : 'DINER PORTAL'}
                       </span>
                     )}
                     {itemCount > 0 && (
@@ -754,26 +781,24 @@ export function DinerMenuClient({
                   backgroundColor: 'var(--dishora-surface)',
                 }}
               >
-                {heroLogoUrl && (
-                  <div className="flex justify-end mb-3">
-                    <div className="w-20 h-20 rounded-2xl overflow-hidden bg-black/5 border border-[var(--dishora-border)] shadow-md">
-                      <img
-                        src={heroLogoUrl}
-                        alt={restaurant.displayName}
-                        width={80}
-                        height={80}
-                        className="w-full h-full object-cover"
-                        onError={() => setLogoError(true)}
-                      />
-                    </div>
-                  </div>
-                )}
-
                 <header className="space-y-2.5">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-full bg-[var(--dishora-accent)] text-[var(--dishora-accent-fg,#FFFFFF)] font-serif font-bold text-lg flex items-center justify-center shadow-sm shrink-0">
-                      {restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'}
-                    </div>
+                    {isLogoEnabled && (
+                      <div className="w-10 h-10 rounded-full bg-[var(--dishora-accent)] text-[var(--dishora-accent-fg,#FFFFFF)] font-serif font-bold text-lg flex items-center justify-center shadow-sm shrink-0 overflow-hidden">
+                        {heroLogoUrl ? (
+                          <img
+                            src={heroLogoUrl}
+                            alt={restaurant.displayName}
+                            width={40}
+                            height={40}
+                            className="w-full h-full object-cover"
+                            onError={() => setLogoError(true)}
+                          />
+                        ) : (
+                          restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'
+                        )}
+                      </div>
+                    )}
                     <div className="min-w-0">
                       <h1 className="font-serif text-2xl sm:text-3xl font-bold text-[var(--dishora-text)] tracking-tight leading-none truncate">
                         {restaurant.displayName}
@@ -802,7 +827,7 @@ export function DinerMenuClient({
                       </button>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-[var(--dishora-bg)] text-[var(--dishora-muted-text)] border border-[var(--dishora-border)]">
-                        DINER PORTAL
+                        {restaurant.isClaimed === false ? 'DEMO MENU • DINER PORTAL' : 'DINER PORTAL'}
                       </span>
                     )}
                     {itemCount > 0 && (
@@ -1040,7 +1065,9 @@ export function DinerMenuClient({
                 <div className="space-y-1.5 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--dishora-accent)] font-semibold">
-                      Visual Menu & Table Ordering
+                      {restaurant.isClaimed === false
+                        ? 'Demo Menu • Visual Experience'
+                        : 'Visual Menu & Table Ordering'}
                     </span>
                     {tableInfo ? (
                       <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
@@ -1058,9 +1085,27 @@ export function DinerMenuClient({
                       </button>
                     ) : null}
                   </div>
-                  <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold text-[var(--dishora-text)] tracking-tight">
-                    {restaurant.displayName}
-                  </h1>
+                  <div className="flex items-center gap-3">
+                    {isLogoEnabled && (
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-[var(--dishora-accent)] text-[var(--dishora-accent-fg,#FFFFFF)] font-serif font-bold text-base sm:text-xl flex items-center justify-center shadow-sm shrink-0 overflow-hidden border border-[var(--dishora-border)]">
+                        {heroLogoUrl ? (
+                          <img
+                            src={heroLogoUrl}
+                            alt={restaurant.displayName}
+                            width={48}
+                            height={48}
+                            className="w-full h-full object-cover"
+                            onError={() => setLogoError(true)}
+                          />
+                        ) : (
+                          restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'
+                        )}
+                      </div>
+                    )}
+                    <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold text-[var(--dishora-text)] tracking-tight">
+                      {restaurant.displayName}
+                    </h1>
+                  </div>
                   {restaurant.description && (
                     <p className="text-xs sm:text-sm text-[var(--dishora-muted-text)] max-w-2xl leading-relaxed">
                       {restaurant.description}

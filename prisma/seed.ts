@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { PlanTier, NutritionSource, AssetType, ThemePreset, LayoutMode, PublicationState, ClaimStatus } from '@prisma/client';
 import crypto from 'crypto';
 import prisma from '../src/lib/db/prisma';
+import { seedAcaiTheoryDemo } from '../scripts/seed-acai-theory';
 
 function hashStaffPassword(plainText: string): string {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -1140,6 +1141,10 @@ async function main() {
   });
 
   console.log(`✅ Founder demo restaurant seeded: /m/bakehouse-72-demo (Claim Token: ${rawClaimToken})`);
+
+  // 7. Seed Founder Demo Menu: "Açaí Theory"
+  await seedAcaiTheoryDemo();
+
   console.log('🎉 Menzy database seeding complete!');
 }
 
