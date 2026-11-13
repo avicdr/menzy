@@ -1,0 +1,18 @@
+## Engineering principles
+- Prefer the simplest correct implementation.
+- Follow KISS, DRY and YAGNI.
+- Write minimal, readable, production-ready TypeScript.
+- Reuse existing code, utilities and dependencies.
+- Do not introduce abstractions for hypothetical future needs.
+- Avoid unnecessary files, wrappers, hooks, services and dependencies.
+- Prefer native APIs and framework capabilities.
+- Keep components and functions focused on one responsibility.
+- Do not add defensive checks for impossible states; validate external inputs and trust established internal invariants.
+- Avoid unnecessary useEffect, useMemo, useCallback and client components.
+- Do not silently swallow errors.
+- Preserve existing functionality, security and public interfaces.
+- Make the smallest meaningful diff for each task.
+- Do not refactor unrelated code.
+- Add tests for meaningful behavior changes and regressions.
+- Run relevant checks before claiming completion.
+- When multiple solutions work, choose the one with fewer moving parts and lower maintenance cost.c

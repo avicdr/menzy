@@ -249,11 +249,12 @@ function SignupFormInner({ initialRegion, authoritativeGeo }: SignupFormClientPr
               name="password"
               type={showPassword ? 'text' : 'password'}
               required
-              minLength={6}
+              minLength={12}
+              maxLength={256}
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 6 characters"
+              placeholder="At least 12 characters"
               className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-cream-300 text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
             />
             <button
@@ -330,4 +331,3 @@ export function SignupFormClient({ initialRegion, authoritativeGeo }: SignupForm
     </main>
   );
 }
-

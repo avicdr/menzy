@@ -55,7 +55,7 @@ function isHardBillingOrZeroQuotaError(msg: string): boolean {
   );
 }
 
-let geminiImageZeroQuotaKeys = new Set<string>();
+  const geminiImageZeroQuotaKeys = new Set<string>();
 let globalStopSignal: string | null = null;
 
 interface SeedGeneratedImage {

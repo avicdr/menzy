@@ -760,6 +760,8 @@ export function DinerMenuClient({
                       <img
                         src={heroLogoUrl}
                         alt={restaurant.displayName}
+                        width={80}
+                        height={80}
                         className="w-full h-full object-cover"
                         onError={() => setLogoError(true)}
                       />
@@ -1338,4 +1340,3 @@ export function DinerMenuClient({
     </div>
   );
 }
-

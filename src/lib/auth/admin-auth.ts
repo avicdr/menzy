@@ -3,6 +3,11 @@ import { cookies } from 'next/headers';
 import prisma from '../db/prisma';
 
 const ADMIN_COOKIE_NAME = 'dishora_admin_session';
+const DEVELOPMENT_SESSION_SECRET = 'menzy-development-admin-session-secret';
+const COMPROMISED_EXAMPLE_ADMIN_HASH =
+  '5986b3f74376e32c04fe630f9bdbcd70d437235af92b9541144996f95bd38b80';
+const COMPROMISED_EXAMPLE_SESSION_SECRET =
+  'dishora-production-secret-session-key-minimum-32-chars';
 
 export interface AdminSession {
   email: string;
@@ -14,28 +19,48 @@ export interface AdminSession {
  * Validates founder password against the configured ADMIN_PASSWORD_HASH in .env
  */
 export function verifyAdminPassword(plainPassword: string): boolean {
-  // Allow explicit direct match
-  if (plainPassword === 'dishora2026!') return true;
-
-  const configuredPlain = process.env.ADMIN_PASSWORD?.trim();
-  if (configuredPlain && plainPassword === configuredPlain) return true;
-
   const configuredHash = process.env.ADMIN_PASSWORD_HASH?.split('#')[0]?.trim();
-  if (!configuredHash) return false;
+  if (!configuredHash || configuredHash === COMPROMISED_EXAMPLE_ADMIN_HASH) return false;
+  try {
+    const [scheme, iterationsRaw, salt, expectedHex] = configuredHash.split('$');
+    if (scheme === 'pbkdf2' && iterationsRaw && salt && expectedHex) {
+      const iterations = Number(iterationsRaw);
+      if (!Number.isSafeInteger(iterations) || iterations < 100_000) return false;
+      const expected = Buffer.from(expectedHex, 'hex');
+      const actual = crypto.pbkdf2Sync(plainPassword, salt, iterations, expected.length, 'sha512');
+      return expected.length > 0 && crypto.timingSafeEqual(actual, expected);
+    }
 
-  const hash = crypto.createHash('sha256').update(plainPassword).digest('hex');
-  const bufA = Buffer.from(hash);
-  const bufB = Buffer.from(configuredHash);
+    if (/^[a-f0-9]{64}$/i.test(configuredHash)) {
+      const actual = crypto.createHash('sha256').update(plainPassword).digest();
+      return crypto.timingSafeEqual(actual, Buffer.from(configuredHash, 'hex'));
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
 
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
+function getSessionSecret(): string {
+  const configured = process.env.ADMIN_SESSION_SECRET?.trim();
+  if (
+    configured &&
+    configured.length >= 32 &&
+    (process.env.NODE_ENV !== 'production' || configured !== COMPROMISED_EXAMPLE_SESSION_SECRET)
+  ) {
+    return configured;
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('ADMIN_SESSION_SECRET must be configured with at least 32 characters.');
+  }
+  return DEVELOPMENT_SESSION_SECRET;
 }
 
 /**
  * Creates a signed, encrypted-like session token using ADMIN_SESSION_SECRET
  */
 export function createAdminToken(email: string): string {
-  const secret = process.env.ADMIN_SESSION_SECRET || 'dishora-super-secret-admin-session-key-32chars';
+  const secret = getSessionSecret();
   const authenticatedAt = Date.now();
   const expiresAt = authenticatedAt + 24 * 60 * 60 * 1000; // 24 hours
 
@@ -51,7 +76,7 @@ export function createAdminToken(email: string): string {
  */
 export function verifyAdminToken(token: string): AdminSession | null {
   try {
-    const secret = process.env.ADMIN_SESSION_SECRET || 'dishora-super-secret-admin-session-key-32chars';
+    const secret = getSessionSecret();
     const [base64Payload, signature] = token.split('.');
     if (!base64Payload || !signature) return null;
 
@@ -133,4 +158,3 @@ export async function logAdminAction(params: {
     console.error('Failed to create admin audit log:', error);
   }
 }
-

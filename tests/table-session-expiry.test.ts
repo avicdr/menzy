@@ -28,7 +28,7 @@ import { normalizeSiteUrl } from '../src/lib/seo';
 describe('Table Session 30-Minute Idle Expiry & Rescan Enforcement', () => {
   let restaurant: any;
   let menuItem: any;
-  let requiredModifierIds: string[] = [];
+const requiredModifierIds: string[] = [];
   let tableOne: { id: string; name: string; rawToken: string };
   let tableTwo: { id: string; name: string; rawToken: string };
 
@@ -583,4 +583,3 @@ describe('Table Session 30-Minute Idle Expiry & Rescan Enforcement', () => {
     expect(publicQrBody.targetUrl).toBe(`${expectedBaseUrl}/m/${restaurant.slug}`);
   });
 });
-

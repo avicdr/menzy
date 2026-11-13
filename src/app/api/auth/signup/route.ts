@@ -43,6 +43,13 @@ export async function POST(req: Request) {
       );
     }
 
+    if (typeof password !== 'string' || password.length < 12 || password.length > 256) {
+      return NextResponse.json(
+        { error: 'Password must be between 12 and 256 characters.' },
+        { status: 400 }
+      );
+    }
+
     if (!trimmedClaimToken && !trimmedRestaurantName) {
       return NextResponse.json(
         { error: 'Email, password, and restaurant name are required.' },

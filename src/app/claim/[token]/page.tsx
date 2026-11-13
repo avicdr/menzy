@@ -368,6 +368,8 @@ export default function ClaimPage() {
                 <img
                   src={restaurant.coverUrl}
                   alt={`${restaurant.displayName} banner`}
+                  width={800}
+                  height={400}
                   onError={() => setClaimBannerError(true)}
                   className="w-full aspect-[2/1] object-cover block"
                 />

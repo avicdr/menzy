@@ -89,7 +89,7 @@ Running `npm run build`:
   - Owner: `elena@gildedbistro.com` / `dishora2026!`
   - Kitchen Display System: `kitchen-gilded` / `dishora2026!`
 - **Founder Super-Admin Portal**: `/admin`
-  - Login at `/admin/login`: `founder@menzy.app` / `dishora2026!`
+  - Login at `/admin/login` with server-configured credentials.
   - Includes dedicated **Orders & Tables Operations** telemetry tracking platform GMV and active orders.
 - **Kitchen & Staff POS Terminal**: `/orders/login` -> `/orders` (Live Kanban) -> `/orders/history`
 - **Owner Dashboard Tabs**:

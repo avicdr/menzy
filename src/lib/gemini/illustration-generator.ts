@@ -264,28 +264,6 @@ export async function generateOrReuseDishIllustration(params: {
     }
   }
 
-  // 2. Check remaining image credits from CreditLedger
-  const ledgerEntries = await prisma.creditLedger.findMany({
-    where: {
-      organizationId: params.organizationId,
-      creditType: 'IMAGE_GENERATION',
-    },
-  });
-
-  const totalCredits = ledgerEntries.reduce((acc, curr) => acc + curr.delta, 0);
-
-  // If no subscription exists yet or zero balance, check onboarding allowance
-  if (totalCredits <= 0) {
-    // Check if within onboarding free initial allowance (10)
-    const generatedCount = await prisma.generationJob.count({
-      where: { restaurantId: params.restaurantId, status: 'COMPLETED' },
-    });
-
-    if (generatedCount >= 10) {
-      throw new Error('INSUFFICIENT_IMAGE_CREDITS');
-    }
-  }
-
   const visualInput: DishVisualPromptInput = {
     dishName: params.dishName,
     visualDescription: params.visualDescription,
@@ -311,16 +289,56 @@ export async function generateOrReuseDishIllustration(params: {
   const modelName = getImageModelName();
   const modelCandidates = getImageModelCandidates();
 
-  // Create GenerationJob to track state
-  const job = await prisma.generationJob.create({
-    data: {
-      restaurantId: params.restaurantId,
-      menuItemId: params.menuItemId ?? null,
-      canonicalId: params.canonicalId ?? null,
-      status: 'PROCESSING',
-      prompt,
-      isBillable: true,
-    },
+  // Serialize the balance check and PROCESSING reservation per organization.
+  // A concurrent request sees the in-flight job and cannot overspend the same credit.
+  const job = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${params.organizationId}))`;
+
+    const [balance, inFlightCount] = await Promise.all([
+      tx.creditLedger.aggregate({
+        where: {
+          organizationId: params.organizationId,
+          creditType: 'IMAGE_GENERATION',
+        },
+        _sum: { delta: true },
+      }),
+      tx.generationJob.count({
+        where: {
+          isBillable: true,
+          status: 'PROCESSING',
+          restaurant: { organizationId: params.organizationId },
+        },
+      }),
+    ]);
+
+    const totalCredits = balance._sum.delta ?? 0;
+    if (totalCredits > 0) {
+      if (totalCredits <= inFlightCount) {
+        throw new Error('INSUFFICIENT_IMAGE_CREDITS');
+      }
+    } else {
+      const onboardingJobs = await tx.generationJob.count({
+        where: {
+          restaurantId: params.restaurantId,
+          isBillable: true,
+          status: { in: ['PROCESSING', 'COMPLETED'] },
+        },
+      });
+      if (onboardingJobs >= 10) {
+        throw new Error('INSUFFICIENT_IMAGE_CREDITS');
+      }
+    }
+
+    return tx.generationJob.create({
+      data: {
+        restaurantId: params.restaurantId,
+        menuItemId: params.menuItemId ?? null,
+        canonicalId: params.canonicalId ?? null,
+        status: 'PROCESSING',
+        prompt,
+        isBillable: true,
+      },
+    });
   });
 
   const allGeminiClients = resolveGeminiAttemptClients(getGenAIClient('image'), 'image');
@@ -519,75 +537,103 @@ export async function generateOrReuseDishIllustration(params: {
   }
 
   // Store asset with correct MIME type and matching file extension
-  const uploadResult = await uploadAsset(
-    imageBuffer,
-    `${params.dishName.toLowerCase().replace(/[^a-z0-9]/g, '-')}.${ext}`,
-    mimeType,
-    'illustrations'
-  );
+  let uploadResult: Awaited<ReturnType<typeof uploadAsset>>;
+  try {
+    uploadResult = await uploadAsset(
+      imageBuffer,
+      `${params.dishName.toLowerCase().replace(/[^a-z0-9]/g, '-')}.${ext}`,
+      mimeType,
+      'illustrations'
+    );
+  } catch (error) {
+    await prisma.generationJob.updateMany({
+      where: { id: job.id, status: 'PROCESSING' },
+      data: { status: 'FAILED', error: 'Generated image could not be stored.' },
+    });
+    throw error;
+  }
 
-  const asset = await prisma.asset.create({
-    data: {
-      type: AssetType.AI_ILLUSTRATION,
-      storageKey: uploadResult.storageKey,
-      publicUrl: uploadResult.publicUrl,
-      mime: mimeType,
-      source: usedSource,
-      prompt,
-      generationModel: usedModel,
-      moderationStatus: ModerationStatus.APPROVED,
-      ownerOrganizationId: params.organizationId,
-      canonicalId: params.canonicalId ?? null,
-    },
-  });
+  let asset;
+  try {
+    asset = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${params.organizationId}))`;
 
-  // Create initial asset version
-  await prisma.assetVersion.create({
-    data: {
-      assetId: asset.id,
-      versionNumber: 1,
-      storageKey: uploadResult.storageKey,
-      publicUrl: uploadResult.publicUrl,
-      prompt,
-    },
-  });
+    const currentBalance = await tx.creditLedger.aggregate({
+      where: {
+        organizationId: params.organizationId,
+        creditType: 'IMAGE_GENERATION',
+      },
+      _sum: { delta: true },
+    });
+    const balanceAfter = (currentBalance._sum.delta ?? 0) - 1;
 
-  // Update GenerationJob as completed
-  await prisma.generationJob.update({
-    where: { id: job.id },
-    data: {
-      status: 'COMPLETED',
-      outputAssetId: asset.id,
-    },
-  });
+    const createdAsset = await tx.asset.create({
+      data: {
+        type: AssetType.AI_ILLUSTRATION,
+        storageKey: uploadResult.storageKey,
+        publicUrl: uploadResult.publicUrl,
+        mime: mimeType,
+        source: usedSource,
+        prompt,
+        generationModel: usedModel,
+        moderationStatus: ModerationStatus.APPROVED,
+        ownerOrganizationId: params.organizationId,
+        canonicalId: params.canonicalId ?? null,
+      },
+    });
 
-  // Deduct 1 image credit idempotently
-  const idempotencyKey = `gen_${job.id}_${Date.now()}`;
-  await prisma.creditLedger.create({
-    data: {
-      organizationId: params.organizationId,
-      creditType: 'IMAGE_GENERATION',
-      delta: -1,
-      balanceAfter: Math.max(0, totalCredits - 1),
-      reason: `AI food photo generated for "${params.dishName}"`,
-      generationJobId: job.id,
-      idempotencyKey,
-    },
-  });
+    await tx.assetVersion.create({
+      data: {
+        assetId: createdAsset.id,
+        versionNumber: 1,
+        storageKey: uploadResult.storageKey,
+        publicUrl: uploadResult.publicUrl,
+        prompt,
+      },
+    });
 
-  // Record AI usage event
-  await prisma.aIUsageEvent.create({
-    data: {
-      organizationId: params.organizationId,
-      restaurantId: params.restaurantId,
-      operationType: 'IMAGE_GENERATION',
-      modelId: usedModel,
-      requestId: job.id,
-      imageCount: 1,
-      estimatedCostUsd: 0.03, // $0.03 per image
-      status: 'SUCCESS',
-    },
-  });
+    await tx.generationJob.update({
+      where: { id: job.id },
+      data: {
+        status: 'COMPLETED',
+        outputAssetId: createdAsset.id,
+      },
+    });
+
+    await tx.creditLedger.create({
+      data: {
+        organizationId: params.organizationId,
+        creditType: 'IMAGE_GENERATION',
+        delta: -1,
+        balanceAfter,
+        reason: `AI food photo generated for "${params.dishName}"`,
+        generationJobId: job.id,
+        idempotencyKey: `gen_${job.id}`,
+      },
+    });
+
+    await tx.aIUsageEvent.create({
+      data: {
+        organizationId: params.organizationId,
+        restaurantId: params.restaurantId,
+        operationType: 'IMAGE_GENERATION',
+        modelId: usedModel,
+        requestId: job.id,
+        imageCount: 1,
+        estimatedCostUsd: 0.03,
+        status: 'SUCCESS',
+      },
+    });
+
+      return createdAsset;
+    });
+  } catch (error) {
+    await prisma.generationJob.updateMany({
+      where: { id: job.id, status: 'PROCESSING' },
+      data: { status: 'FAILED', error: 'Generated image could not be finalized.' },
+    });
+    throw error;
+  }
 
   return {
     asset,
@@ -595,4 +641,3 @@ export async function generateOrReuseDishIllustration(params: {
     creditsCharged: 1,
   };
 }
-

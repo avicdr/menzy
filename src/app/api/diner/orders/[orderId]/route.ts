@@ -4,6 +4,7 @@ import {
   createSubscriptionExpiredResponse,
   evaluateOrganizationAccess,
 } from '@/lib/billing/subscription-access';
+import { getDinerSessionCookieName, readCookieFromRequest } from '@/lib/diner/table-session';
 
 export async function GET(
   req: Request,
@@ -55,6 +56,7 @@ export async function GET(
             },
           },
         },
+        dinerSession: { select: { sessionToken: true } },
         items: true,
         statusHistory: {
           orderBy: { createdAt: 'asc' },
@@ -64,6 +66,12 @@ export async function GET(
     });
 
     if (!order) {
+      return NextResponse.json({ error: 'Order not found.' }, { status: 404 });
+    }
+
+    const cookieName = getDinerSessionCookieName(order.restaurant.id);
+    const sessionToken = readCookieFromRequest(req, cookieName);
+    if (!sessionToken || sessionToken !== order.dinerSession?.sessionToken) {
       return NextResponse.json({ error: 'Order not found.' }, { status: 404 });
     }
 
@@ -119,4 +127,3 @@ export async function GET(
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
-

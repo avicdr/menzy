@@ -219,7 +219,7 @@ export function Modal({
               <button
                 type="button"
                 onClick={onClose}
-                className={`p-2 rounded-xl transition-colors shrink-0 ${
+                className={`min-w-11 min-h-11 p-2 rounded-xl transition-colors shrink-0 ${
                   dark
                     ? 'text-cream-300/70 hover:text-white hover:bg-espresso-800'
                     : 'text-taupe-400 hover:text-espresso-800 hover:bg-cream-100'

@@ -160,6 +160,8 @@ export function DishDetailSheet({
             <img
               src={imageUrl}
               alt={item.customName}
+              width={320}
+              height={320}
               className="w-full h-full object-cover"
               onError={(e) => {
                 e.currentTarget.src = '/placeholder-dish.svg';

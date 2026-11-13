@@ -23,6 +23,7 @@ import { getDinerSessionCookieName } from '../src/lib/diner/table-session';
 import { placeTableOrder } from '../src/lib/orders/order-service';
 import { POST as sessionPost } from '../src/app/api/diner/session/route';
 import { POST as orderPost } from '../src/app/api/diner/orders/route';
+import { GET as orderGet } from '../src/app/api/diner/orders/[orderId]/route';
 import { POST as serviceCallPost } from '../src/app/api/diner/service-calls/route';
 import { GET as qrGenerateGet } from '../src/app/api/qr/generate/route';
 import { GET as tablesGet } from '../src/app/api/restaurants/[id]/tables/route';
@@ -32,7 +33,7 @@ describe('Cross-Table Ordering & Waiter-Call Isolation (Table 3 vs Table 5)', ()
   let restaurant: any;
   let ownerToken: string | null = null;
   let menuItem: any;
-  let requiredModifierIds: string[] = [];
+  const requiredModifierIds: string[] = [];
 
   let table3: { id: string; name: string; rawToken: string; signedToken: string };
   let table5: { id: string; name: string; rawToken: string; signedToken: string };
@@ -340,6 +341,28 @@ describe('Cross-Table Ordering & Waiter-Call Isolation (Table 3 vs Table 5)', ()
     expect(ownOrderRes.status).toBe(200);
     const ownOrderBody = await ownOrderRes.json();
     createdOrderIds.push(ownOrderBody.order.id);
+
+    const ownOrderRead = await orderGet(
+      new Request(`http://localhost:3000/api/diner/orders/${ownOrderBody.order.id}`, {
+        headers: { Cookie: `${cookieName}=${session3Token}` },
+      }),
+      { params: Promise.resolve({ orderId: ownOrderBody.order.id }) }
+    );
+    expect(ownOrderRead.status).toBe(200);
+
+    const crossSessionRead = await orderGet(
+      new Request(`http://localhost:3000/api/diner/orders/${ownOrderBody.order.id}`, {
+        headers: { Cookie: `${cookieName}=${session5Token}` },
+      }),
+      { params: Promise.resolve({ orderId: ownOrderBody.order.id }) }
+    );
+    expect(crossSessionRead.status).toBe(404);
+
+    const anonymousRead = await orderGet(
+      new Request(`http://localhost:3000/api/diner/orders/${ownOrderBody.order.id}`),
+      { params: Promise.resolve({ orderId: ownOrderBody.order.id }) }
+    );
+    expect(anonymousRead.status).toBe(404);
   });
 
   it('rejects raw ?tableId= UUID switching and forged/rotated signed QR tokens', async () => {

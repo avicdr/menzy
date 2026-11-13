@@ -40,7 +40,7 @@ import {
 describe('Table QR Management, Staff Security & Ordering Engine', () => {
   let testRestaurant: any;
   let testMenuItem: any;
-  let requiredModifierOptionIds: string[] = [];
+const requiredModifierOptionIds: string[] = [];
 
   // Retrieve existing seeded restaurant & menu item for integration testing
   it('prepares test fixtures from seeded restaurant data', async () => {

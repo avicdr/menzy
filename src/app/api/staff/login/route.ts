@@ -10,21 +10,36 @@ import {
   checkRestaurantSubscriptionAccess,
   createSubscriptionExpiredResponse,
 } from '@/lib/billing/subscription-access';
+import { checkLoginRateLimit } from '@/lib/auth/login-rate-limit';
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { loginId, password } = body;
 
-    if (!loginId || !password) {
+    if (
+      typeof loginId !== 'string' ||
+      typeof password !== 'string' ||
+      !loginId.trim() ||
+      !password
+    ) {
       return NextResponse.json(
         { error: 'Staff Login ID and password are required.' },
         { status: 400 }
       );
     }
 
+    const normalizedLoginId = loginId.trim().toLowerCase();
+    const rate = await checkLoginRateLimit(req, 'staff', normalizedLoginId, 10);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'Too many login attempts. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } }
+      );
+    }
+
     const staff = await prisma.restaurantStaff.findUnique({
-      where: { loginId: loginId.trim().toLowerCase() },
+      where: { loginId: normalizedLoginId },
       include: {
         restaurant: {
           select: {
@@ -102,4 +117,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
-

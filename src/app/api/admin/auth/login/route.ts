@@ -1,13 +1,22 @@
 import { NextResponse } from 'next/server';
 import { verifyAdminPassword, createAdminToken, setAdminSessionCookie, logAdminAction } from '@/lib/auth/admin-auth';
+import { checkLoginRateLimit } from '@/lib/auth/login-rate-limit';
 
 export async function POST(req: Request) {
   try {
     const { email, password } = await req.json();
     const adminEmail = process.env.ADMIN_EMAIL || 'founder@menzy.app';
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
       return NextResponse.json({ error: 'Email and password required' }, { status: 400 });
+    }
+
+    const rate = await checkLoginRateLimit(req, 'admin', email, 5);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'Too many login attempts. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } }
+      );
     }
 
     if (email.toLowerCase() !== adminEmail.toLowerCase()) {
@@ -36,4 +45,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
-

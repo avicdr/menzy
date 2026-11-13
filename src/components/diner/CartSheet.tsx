@@ -367,6 +367,8 @@ export function CartSheet({
                         <img
                           src={item.imageUrl}
                           alt={item.name}
+                          width={64}
+                          height={64}
                           className="w-16 h-16 rounded-xl object-cover bg-cream-100 shrink-0 border border-cream-200"
                         />
                       ) : (

@@ -143,6 +143,22 @@ dialog::backdrop {
   overscroll-behavior: contain;
 }
 
+:where(a, button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--dishora-accent, #B86D52);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   dialog[open]::backdrop {
     animation: modalBackdropFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -380,5 +396,4 @@ dialog::backdrop {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 120px;
 }
-
 

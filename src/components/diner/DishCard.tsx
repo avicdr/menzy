@@ -32,9 +32,10 @@ export const DishCard = React.memo(function DishCard({
 
   if (layoutMode === 'LIST') {
     return (
-      <div
+      <button
+        type="button"
         onClick={() => onSelect(item)}
-        className={`group relative flex items-center justify-between p-4 bg-[var(--dishora-surface)] rounded-2xl border border-[var(--dishora-border)] hover:border-[var(--dishora-accent)] transition-all duration-200 cursor-pointer shadow-soft hover:shadow-lifted ${
+        className={`group relative flex w-full items-center justify-between p-4 text-left bg-[var(--dishora-surface)] rounded-2xl border border-[var(--dishora-border)] hover:border-[var(--dishora-accent)] transition-[border-color,box-shadow] duration-200 cursor-pointer shadow-soft hover:shadow-lifted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dishora-accent)] ${
           deferRender ? 'menzy-dish-deferred--list' : ''
         }`}
       >
@@ -95,15 +96,16 @@ export const DishCard = React.memo(function DishCard({
             </div>
           )}
         </div>
-      </div>
+      </button>
     );
   }
 
   // Grid layout
   return (
-    <div
+    <button
+      type="button"
       onClick={() => onSelect(item)}
-      className={`group relative flex flex-col bg-[var(--dishora-surface)] rounded-2xl border border-[var(--dishora-border)] hover:border-[var(--dishora-accent)] transition-all duration-200 overflow-hidden cursor-pointer shadow-soft hover:shadow-lifted ${
+      className={`group relative flex w-full flex-col text-left bg-[var(--dishora-surface)] rounded-2xl border border-[var(--dishora-border)] hover:border-[var(--dishora-accent)] transition-[border-color,box-shadow] duration-200 overflow-hidden cursor-pointer shadow-soft hover:shadow-lifted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dishora-accent)] ${
         deferRender ? 'menzy-dish-deferred--grid' : ''
       }`}
     >
@@ -182,6 +184,6 @@ export const DishCard = React.memo(function DishCard({
           </div>
         )}
       </div>
-    </div>
+    </button>
   );
 });

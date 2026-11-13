@@ -9,6 +9,12 @@ import {
 } from '../billing/subscription-access';
 
 const OWNER_COOKIE_NAME = 'dishora_owner_session';
+const PASSWORD_ITERATIONS = 210_000;
+const PASSWORD_KEY_LENGTH = 64;
+const PASSWORD_DIGEST = 'sha512';
+const DEVELOPMENT_SESSION_SECRET = 'menzy-development-owner-session-secret';
+const COMPROMISED_EXAMPLE_SESSION_SECRET =
+  'dishora-production-secret-session-key-minimum-32-chars';
 
 export interface OwnerSession {
   userId: string;
@@ -22,16 +28,63 @@ export interface OwnerSession {
 }
 
 export function hashPassword(plainText: string): string {
-  return crypto.createHash('sha256').update(plainText).digest('hex');
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto
+    .pbkdf2Sync(plainText, salt, PASSWORD_ITERATIONS, PASSWORD_KEY_LENGTH, PASSWORD_DIGEST)
+    .toString('hex');
+  return `pbkdf2$${PASSWORD_ITERATIONS}$${salt}$${hash}`;
 }
 
 export function verifyPassword(plainText: string, storedHash: string): boolean {
-  const hash = hashPassword(plainText);
-  return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(storedHash));
+  try {
+    const [scheme, iterationsRaw, salt, expectedHex] = storedHash.split('$');
+    if (scheme === 'pbkdf2' && iterationsRaw && salt && expectedHex) {
+      const iterations = Number(iterationsRaw);
+      if (!Number.isSafeInteger(iterations) || iterations < 100_000) return false;
+      const expected = Buffer.from(expectedHex, 'hex');
+      const actual = crypto.pbkdf2Sync(
+        plainText,
+        salt,
+        iterations,
+        expected.length,
+        PASSWORD_DIGEST
+      );
+      return expected.length > 0 && crypto.timingSafeEqual(actual, expected);
+    }
+
+    // Backward compatibility for pre-PBKDF2 owner accounts. Successful logins
+    // are upgraded immediately by the login route.
+    if (/^[a-f0-9]{64}$/i.test(storedHash)) {
+      const legacy = crypto.createHash('sha256').update(plainText).digest();
+      return crypto.timingSafeEqual(legacy, Buffer.from(storedHash, 'hex'));
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+export function passwordHashNeedsUpgrade(storedHash: string): boolean {
+  return !storedHash.startsWith(`pbkdf2$${PASSWORD_ITERATIONS}$`);
+}
+
+function getSessionSecret(): string {
+  const configured = process.env.ADMIN_SESSION_SECRET?.trim();
+  if (
+    configured &&
+    configured.length >= 32 &&
+    (process.env.NODE_ENV !== 'production' || configured !== COMPROMISED_EXAMPLE_SESSION_SECRET)
+  ) {
+    return configured;
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('ADMIN_SESSION_SECRET must be configured with at least 32 characters.');
+  }
+  return DEVELOPMENT_SESSION_SECRET;
 }
 
 export function createOwnerToken(userId: string, email: string): string {
-  const secret = process.env.ADMIN_SESSION_SECRET || 'dishora-owner-secret-key-32chars';
+  const secret = getSessionSecret();
   const issuedAt = Date.now();
   const expiresAt = issuedAt + 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -44,7 +97,7 @@ export function createOwnerToken(userId: string, email: string): string {
 
 export function verifyOwnerToken(token: string): { userId: string; email: string } | null {
   try {
-    const secret = process.env.ADMIN_SESSION_SECRET || 'dishora-owner-secret-key-32chars';
+    const secret = getSessionSecret();
     const [base64Payload, signature] = token.split('.');
     if (!base64Payload || !signature) return null;
 
@@ -297,4 +350,3 @@ export async function requireRestaurantAccess(
 
   return { authorized: true, status: 200, user, restaurant, access };
 }
-

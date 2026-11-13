@@ -81,7 +81,13 @@ export function WifiConnectModal({
           {qrDataUrl && (
             <div className="space-y-2">
               <div className="w-44 h-44 mx-auto p-2.5 bg-[#FAF7F2] rounded-2xl shadow-lifted border border-white/20 flex items-center justify-center">
-                <img src={qrDataUrl} alt="Scan to join Wi-Fi" className="w-full h-full object-contain" />
+                <img
+                  src={qrDataUrl}
+                  alt="Scan to join Wi-Fi"
+                  width={176}
+                  height={176}
+                  className="w-full h-full object-contain"
+                />
               </div>
               <p className="text-[11px] text-taupe-400 flex items-center justify-center gap-1">
                 <QrIcon className="w-3.5 h-3.5 text-emerald-400" />
@@ -148,4 +154,3 @@ export function WifiConnectModal({
     </div>
   );
 }
-

@@ -84,7 +84,7 @@ npm run test
 | **US Bistro (USD)** | `/m/the-gilded-fork` | Owner: `elena@gildedbistro.com` / `dishora2026!` |
 | **Founder Demo** | `/m/bakehouse-72-demo` | Claim Token: `demo-claim-bakehouse72-secret2026` |
 | **Owner Dashboard** | `/dashboard` | Login at `/login` with either owner account |
-| **Founder Admin** | `/admin` | Login at `/admin/login`: `founder@menzy.app` / `dishora2026!` |
+| **Founder Admin** | `/admin` | Login at `/admin/login` with server-configured credentials. |
 
 ---
 
@@ -128,4 +128,3 @@ npm run test
 2. **Deterministic Allergy Safety**: AI never invents allergen-free claims; communicates uncertainty when ingredients are not verified by restaurant staff.
 3. **Sliding-Window Protection**: Atomic Redis sliding window prevents API abuse and budget overruns.
 4. **Environment-Gated Super-Admin**: Admin session cookies verified with SHA-256 HMAC and isolated from standard customer tables.
-

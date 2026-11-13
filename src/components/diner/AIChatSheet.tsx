@@ -286,6 +286,8 @@ export function AIChatSheet({
                             <img
                               src={img}
                               alt={item.customName}
+                              width={48}
+                              height={48}
                               className="w-12 h-12 rounded-lg object-cover bg-cream-50 shrink-0"
                             />
                             <div className="flex-1 min-w-0 pr-1">
@@ -410,4 +412,3 @@ export function AIChatSheet({
   </Portal>
 );
 }
-
