@@ -12,7 +12,7 @@ import {
 import { generateOpenAIDishImage, hasOpenAIFallback } from '../ai/openai-fallback';
 import {
   generateCloudflareDishImage,
-  hasCloudflareWorkersAI,
+  getCloudflareWorkersAIStatus,
 } from '../ai/cloudflare-workers-ai';
 import { uploadAsset } from '../storage/adapter';
 import prisma from '../db/prisma';
@@ -360,8 +360,14 @@ export async function generateOrReuseDishIllustration(params: {
   let usedSource = 'GEMINI_GEN';
   const providerErrors: string[] = [];
 
-  // Prefer Workers AI when configured so exhausted Gemini/OpenAI quotas do not add latency.
-  if (hasCloudflareWorkersAI()) {
+  // Prefer Workers AI so exhausted Gemini/OpenAI quotas do not add latency.
+  const cloudflareStatus = getCloudflareWorkersAIStatus();
+  if (!cloudflareStatus.configured) {
+    console.warn(`[Cloudflare Workers AI] skipped: ${cloudflareStatus.reason}`);
+  } else {
+    console.info(
+      `[Cloudflare Workers AI] configured via ${cloudflareStatus.accountIdSource} and ${cloudflareStatus.apiTokenSource}; attempting image generation`
+    );
     try {
       const cloudflareImage = await generateCloudflareDishImage({ prompt, timeoutMs: 45_000 });
       if (isRasterImageBuffer(cloudflareImage.buffer)) {
@@ -370,6 +376,7 @@ export async function generateOrReuseDishIllustration(params: {
         ext = cloudflareImage.ext;
         usedModel = cloudflareImage.model;
         usedSource = 'CLOUDFLARE_WORKERS_AI';
+        console.info(`[Cloudflare Workers AI] generated image with ${cloudflareImage.model}`);
       }
     } catch (cloudflareError: any) {
       providerErrors.push(

@@ -7,22 +7,81 @@ const INVALID_PLACEHOLDERS = new Set([
   'replace-with-cloudflare-workers-ai-token',
 ]);
 
-function getCloudflareCredentials(): { accountId: string; apiToken: string } | null {
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || '';
-  const apiToken = process.env.CLOUDFLARE_AI_API_TOKEN?.trim() || '';
+function firstConfiguredEnv(names: string[]): { value: string; source: string } | null {
+  for (const name of names) {
+    const value = process.env[name]?.trim() || '';
+    if (value && !INVALID_PLACEHOLDERS.has(value)) {
+      return { value, source: name };
+    }
+  }
+  return null;
+}
+
+function getCloudflareCredentials(): {
+  accountId: string;
+  apiToken: string;
+  accountIdSource: string;
+  apiTokenSource: string;
+} | null {
+  const account = firstConfiguredEnv(['CLOUDFLARE_ACCOUNT_ID', 'CF_ACCOUNT_ID']);
+  const token = firstConfiguredEnv([
+    'CLOUDFLARE_AI_API_TOKEN',
+    'CLOUDFLARE_API_TOKEN',
+    'CF_API_TOKEN',
+  ]);
   if (
-    !accountId ||
-    !apiToken ||
-    INVALID_PLACEHOLDERS.has(accountId) ||
-    INVALID_PLACEHOLDERS.has(apiToken)
+    !account ||
+    !token
   ) {
     return null;
   }
-  return { accountId, apiToken };
+  return {
+    accountId: account.value,
+    apiToken: token.value,
+    accountIdSource: account.source,
+    apiTokenSource: token.source,
+  };
 }
 
 export function hasCloudflareWorkersAI(): boolean {
   return getCloudflareCredentials() !== null;
+}
+
+export function getCloudflareWorkersAIStatus(): {
+  configured: boolean;
+  accountIdSource: string | null;
+  apiTokenSource: string | null;
+  reason: string | null;
+} {
+  const credentials = getCloudflareCredentials();
+  if (credentials) {
+    return {
+      configured: true,
+      accountIdSource: credentials.accountIdSource,
+      apiTokenSource: credentials.apiTokenSource,
+      reason: null,
+    };
+  }
+
+  const account = firstConfiguredEnv(['CLOUDFLARE_ACCOUNT_ID', 'CF_ACCOUNT_ID']);
+  const token = firstConfiguredEnv([
+    'CLOUDFLARE_AI_API_TOKEN',
+    'CLOUDFLARE_API_TOKEN',
+    'CF_API_TOKEN',
+  ]);
+  const missing = [
+    !account ? 'account ID (CLOUDFLARE_ACCOUNT_ID or CF_ACCOUNT_ID)' : null,
+    !token
+      ? 'API token (CLOUDFLARE_AI_API_TOKEN, CLOUDFLARE_API_TOKEN, or CF_API_TOKEN)'
+      : null,
+  ].filter(Boolean);
+
+  return {
+    configured: false,
+    accountIdSource: account?.source ?? null,
+    apiTokenSource: token?.source ?? null,
+    reason: `missing ${missing.join(' and ')}`,
+  };
 }
 
 export function getCloudflareImageModel(): string {
@@ -58,7 +117,9 @@ export async function generateCloudflareDishImage(params: {
 }): Promise<{ buffer: Buffer; mimeType: string; ext: string; model: string }> {
   const credentials = getCloudflareCredentials();
   if (!credentials) {
-    throw new Error('Cloudflare Workers AI is not configured');
+    throw new Error(
+      `Cloudflare Workers AI is not configured: ${getCloudflareWorkersAIStatus().reason}`
+    );
   }
 
   const model = getCloudflareImageModel();

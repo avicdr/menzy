@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   generateCloudflareDishImage,
   getCloudflareImageModel,
+  getCloudflareWorkersAIStatus,
   hasCloudflareWorkersAI,
 } from '../src/lib/ai/cloudflare-workers-ai';
 import { buildIllustrationPrompt } from '../src/lib/gemini/illustration-generator';
@@ -9,6 +10,9 @@ import { buildIllustrationPrompt } from '../src/lib/gemini/illustration-generato
 const originalEnv = {
   accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
   token: process.env.CLOUDFLARE_AI_API_TOKEN,
+  fallbackToken: process.env.CLOUDFLARE_API_TOKEN,
+  cfAccountId: process.env.CF_ACCOUNT_ID,
+  cfToken: process.env.CF_API_TOKEN,
   model: process.env.CLOUDFLARE_AI_IMAGE_MODEL,
   steps: process.env.CLOUDFLARE_AI_IMAGE_STEPS,
 };
@@ -20,6 +24,9 @@ afterEach(() => {
   const values = [
     ['CLOUDFLARE_ACCOUNT_ID', originalEnv.accountId],
     ['CLOUDFLARE_AI_API_TOKEN', originalEnv.token],
+    ['CLOUDFLARE_API_TOKEN', originalEnv.fallbackToken],
+    ['CF_ACCOUNT_ID', originalEnv.cfAccountId],
+    ['CF_API_TOKEN', originalEnv.cfToken],
     ['CLOUDFLARE_AI_IMAGE_MODEL', originalEnv.model],
     ['CLOUDFLARE_AI_IMAGE_STEPS', originalEnv.steps],
   ] as const;
@@ -44,7 +51,29 @@ describe('Cloudflare Workers AI image provider', () => {
   it('requires an account ID and API token', () => {
     delete process.env.CLOUDFLARE_ACCOUNT_ID;
     delete process.env.CLOUDFLARE_AI_API_TOKEN;
+    delete process.env.CLOUDFLARE_API_TOKEN;
+    delete process.env.CF_ACCOUNT_ID;
+    delete process.env.CF_API_TOKEN;
     expect(hasCloudflareWorkersAI()).toBe(false);
+    expect(getCloudflareWorkersAIStatus()).toMatchObject({
+      configured: false,
+      accountIdSource: null,
+      apiTokenSource: null,
+    });
+  });
+
+  it('accepts common Cloudflare environment variable aliases', () => {
+    delete process.env.CLOUDFLARE_ACCOUNT_ID;
+    delete process.env.CLOUDFLARE_AI_API_TOKEN;
+    process.env.CF_ACCOUNT_ID = 'account-id';
+    process.env.CLOUDFLARE_API_TOKEN = 'workers-ai-token';
+
+    expect(getCloudflareWorkersAIStatus()).toEqual({
+      configured: true,
+      accountIdSource: 'CF_ACCOUNT_ID',
+      apiTokenSource: 'CLOUDFLARE_API_TOKEN',
+      reason: null,
+    });
   });
 
   it('generates a raster image through the Workers AI REST API', async () => {
