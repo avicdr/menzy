@@ -4,7 +4,11 @@ import { checkLoginRateLimit } from '@/lib/auth/login-rate-limit';
 
 export async function POST(req: Request) {
   try {
-    const { email, password } = await req.json();
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'A valid JSON request body is required.' }, { status: 400 });
+    }
+    const { email, password } = body as Record<string, unknown>;
     const adminEmail = process.env.ADMIN_EMAIL || 'founder@menzy.app';
 
     if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {

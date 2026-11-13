@@ -25,14 +25,23 @@ function setSessionCookie(res: NextResponse, cookieName: string, sessionToken: s
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'A valid JSON request body is required.' }, { status: 400 });
+    }
     const {
       restaurantSlug,
       tableToken,
       t,
       tableId,
       sessionToken: bodySessionToken,
-    } = body;
+    } = body as Record<string, unknown>;
+
+    if (typeof restaurantSlug !== 'string' || !restaurantSlug.trim()) {
+      return NextResponse.json({ error: 'Restaurant slug is required.' }, { status: 400 });
+    }
+
+    const normalizedRestaurantSlug = restaurantSlug.trim();
 
     const qrTokenCandidate =
       typeof t === 'string' && t.trim()
@@ -51,7 +60,7 @@ export async function POST(req: Request) {
     const nowCheck = new Date();
     const [restaurant, prefetchedResolvedTable, bodySessionRecord] = await Promise.all([
       prisma.restaurant.findUnique({
-        where: { slug: restaurantSlug },
+        where: { slug: normalizedRestaurantSlug },
         select: {
           id: true,
           slug: true,
@@ -92,7 +101,7 @@ export async function POST(req: Request) {
         },
       }),
       qrTokenCandidate
-        ? resolveTableFromToken(restaurantSlug, qrTokenCandidate)
+        ? resolveTableFromToken(normalizedRestaurantSlug, qrTokenCandidate)
         : Promise.resolve(null),
       bodySessionStr
         ? prisma.dinerSession.findUnique({

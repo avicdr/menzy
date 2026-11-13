@@ -10,14 +10,21 @@ import {
 import { checkLoginRateLimit } from '@/lib/auth/login-rate-limit';
 
 export async function POST(req: Request) {
+  let loginStage = 'request';
   try {
-    const { email, password } = await req.json();
+    loginStage = 'parse-request';
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'A valid JSON request body is required.' }, { status: 400 });
+    }
+    const { email, password } = body as Record<string, unknown>;
 
     if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
       return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    loginStage = 'rate-limit';
     const rate = await checkLoginRateLimit(req, 'owner', normalizedEmail, 10);
     if (!rate.allowed) {
       return NextResponse.json(
@@ -26,6 +33,7 @@ export async function POST(req: Request) {
       );
     }
 
+    loginStage = 'user-lookup';
     const user = await prisma.user.findUnique({
       where: { email: normalizedEmail },
       include: {
@@ -45,18 +53,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
     }
 
+    loginStage = 'password-verification';
     const isValid = verifyPassword(password, user.passwordHash);
     if (!isValid) {
       return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
     }
 
     if (passwordHashNeedsUpgrade(user.passwordHash)) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash: hashPassword(password) },
-      });
+      loginStage = 'password-migration';
+      try {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash: hashPassword(password) },
+        });
+      } catch (upgradeError) {
+        // Do not turn a valid login into a 500 when a best-effort hash migration
+        // is temporarily unavailable. The next successful login can retry it.
+        console.error('Login password upgrade failed; continuing with legacy hash:', upgradeError);
+      }
     }
 
+    loginStage = 'session-token';
     const token = createOwnerToken(user.id, user.email);
     await setOwnerSessionCookie(token);
 
@@ -69,7 +86,7 @@ export async function POST(req: Request) {
       defaultRestaurantSlug: firstRestaurant?.slug || null,
     });
   } catch (error: any) {
-    console.error('Login error:', error);
+    console.error(`Login error at ${loginStage}:`, error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -14,8 +14,11 @@ import { checkLoginRateLimit } from '@/lib/auth/login-rate-limit';
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { loginId, password } = body;
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'A valid JSON request body is required.' }, { status: 400 });
+    }
+    const { loginId, password } = body as Record<string, unknown>;
 
     if (
       typeof loginId !== 'string' ||
