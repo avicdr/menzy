@@ -20,6 +20,10 @@ import { AssetType, ModerationStatus } from '@prisma/client';
 import { sniffMenuFileMimeFromBytes } from '../menu/menu-file-validator';
 
 export const MAX_BATCH_GENERATION = 5;
+export const IMAGE_GENERATION_TRANSACTION_OPTIONS = {
+  maxWait: 10_000,
+  timeout: 30_000,
+} as const;
 
 export interface DishVisualPromptInput {
   dishName: string;
@@ -295,55 +299,58 @@ export async function generateOrReuseDishIllustration(params: {
 
   // Serialize the balance check and PROCESSING reservation per organization.
   // A concurrent request sees the in-flight job and cannot overspend the same credit.
-  const job = await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${params.organizationId}))`;
+  const job = await prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${params.organizationId}))`;
 
-    const [balance, inFlightCount] = await Promise.all([
-      tx.creditLedger.aggregate({
-        where: {
-          organizationId: params.organizationId,
-          creditType: 'IMAGE_GENERATION',
-        },
-        _sum: { delta: true },
-      }),
-      tx.generationJob.count({
-        where: {
-          isBillable: true,
-          status: 'PROCESSING',
-          restaurant: { organizationId: params.organizationId },
-        },
-      }),
-    ]);
+      const [balance, inFlightCount] = await Promise.all([
+        tx.creditLedger.aggregate({
+          where: {
+            organizationId: params.organizationId,
+            creditType: 'IMAGE_GENERATION',
+          },
+          _sum: { delta: true },
+        }),
+        tx.generationJob.count({
+          where: {
+            isBillable: true,
+            status: 'PROCESSING',
+            restaurant: { organizationId: params.organizationId },
+          },
+        }),
+      ]);
 
-    const totalCredits = balance._sum.delta ?? 0;
-    if (totalCredits > 0) {
-      if (totalCredits <= inFlightCount) {
-        throw new Error('INSUFFICIENT_IMAGE_CREDITS');
+      const totalCredits = balance._sum.delta ?? 0;
+      if (totalCredits > 0) {
+        if (totalCredits <= inFlightCount) {
+          throw new Error('INSUFFICIENT_IMAGE_CREDITS');
+        }
+      } else {
+        const onboardingJobs = await tx.generationJob.count({
+          where: {
+            restaurantId: params.restaurantId,
+            isBillable: true,
+            status: { in: ['PROCESSING', 'COMPLETED'] },
+          },
+        });
+        if (onboardingJobs >= 10) {
+          throw new Error('INSUFFICIENT_IMAGE_CREDITS');
+        }
       }
-    } else {
-      const onboardingJobs = await tx.generationJob.count({
-        where: {
+
+      return tx.generationJob.create({
+        data: {
           restaurantId: params.restaurantId,
+          menuItemId: params.menuItemId ?? null,
+          canonicalId: params.canonicalId ?? null,
+          status: 'PROCESSING',
+          prompt,
           isBillable: true,
-          status: { in: ['PROCESSING', 'COMPLETED'] },
         },
       });
-      if (onboardingJobs >= 10) {
-        throw new Error('INSUFFICIENT_IMAGE_CREDITS');
-      }
-    }
-
-    return tx.generationJob.create({
-      data: {
-        restaurantId: params.restaurantId,
-        menuItemId: params.menuItemId ?? null,
-        canonicalId: params.canonicalId ?? null,
-        status: 'PROCESSING',
-        prompt,
-        isBillable: true,
-      },
-    });
-  });
+    },
+    IMAGE_GENERATION_TRANSACTION_OPTIONS
+  );
 
   const allGeminiClients = resolveGeminiAttemptClients(getGenAIClient('image'), 'image');
   const healthyGeminiClients = allGeminiClients.filter(
@@ -588,78 +595,81 @@ export async function generateOrReuseDishIllustration(params: {
 
   let asset;
   try {
-    asset = await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${params.organizationId}))`;
+    asset = await prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext(${params.organizationId}))`;
 
-    const currentBalance = await tx.creditLedger.aggregate({
-      where: {
-        organizationId: params.organizationId,
-        creditType: 'IMAGE_GENERATION',
+        const currentBalance = await tx.creditLedger.aggregate({
+          where: {
+            organizationId: params.organizationId,
+            creditType: 'IMAGE_GENERATION',
+          },
+          _sum: { delta: true },
+        });
+        const balanceAfter = (currentBalance._sum.delta ?? 0) - 1;
+
+        const createdAsset = await tx.asset.create({
+          data: {
+            type: AssetType.AI_ILLUSTRATION,
+            storageKey: uploadResult.storageKey,
+            publicUrl: uploadResult.publicUrl,
+            mime: mimeType,
+            source: usedSource,
+            prompt,
+            generationModel: usedModel,
+            moderationStatus: ModerationStatus.APPROVED,
+            ownerOrganizationId: params.organizationId,
+            canonicalId: params.canonicalId ?? null,
+          },
+        });
+
+        await tx.assetVersion.create({
+          data: {
+            assetId: createdAsset.id,
+            versionNumber: 1,
+            storageKey: uploadResult.storageKey,
+            publicUrl: uploadResult.publicUrl,
+            prompt,
+          },
+        });
+
+        await tx.generationJob.update({
+          where: { id: job.id },
+          data: {
+            status: 'COMPLETED',
+            outputAssetId: createdAsset.id,
+          },
+        });
+
+        await tx.creditLedger.create({
+          data: {
+            organizationId: params.organizationId,
+            creditType: 'IMAGE_GENERATION',
+            delta: -1,
+            balanceAfter,
+            reason: `AI food photo generated for "${params.dishName}"`,
+            generationJobId: job.id,
+            idempotencyKey: `gen_${job.id}`,
+          },
+        });
+
+        await tx.aIUsageEvent.create({
+          data: {
+            organizationId: params.organizationId,
+            restaurantId: params.restaurantId,
+            operationType: 'IMAGE_GENERATION',
+            modelId: usedModel,
+            requestId: job.id,
+            imageCount: 1,
+            estimatedCostUsd: 0.03,
+            status: 'SUCCESS',
+          },
+        });
+
+        return createdAsset;
       },
-      _sum: { delta: true },
-    });
-    const balanceAfter = (currentBalance._sum.delta ?? 0) - 1;
-
-    const createdAsset = await tx.asset.create({
-      data: {
-        type: AssetType.AI_ILLUSTRATION,
-        storageKey: uploadResult.storageKey,
-        publicUrl: uploadResult.publicUrl,
-        mime: mimeType,
-        source: usedSource,
-        prompt,
-        generationModel: usedModel,
-        moderationStatus: ModerationStatus.APPROVED,
-        ownerOrganizationId: params.organizationId,
-        canonicalId: params.canonicalId ?? null,
-      },
-    });
-
-    await tx.assetVersion.create({
-      data: {
-        assetId: createdAsset.id,
-        versionNumber: 1,
-        storageKey: uploadResult.storageKey,
-        publicUrl: uploadResult.publicUrl,
-        prompt,
-      },
-    });
-
-    await tx.generationJob.update({
-      where: { id: job.id },
-      data: {
-        status: 'COMPLETED',
-        outputAssetId: createdAsset.id,
-      },
-    });
-
-    await tx.creditLedger.create({
-      data: {
-        organizationId: params.organizationId,
-        creditType: 'IMAGE_GENERATION',
-        delta: -1,
-        balanceAfter,
-        reason: `AI food photo generated for "${params.dishName}"`,
-        generationJobId: job.id,
-        idempotencyKey: `gen_${job.id}`,
-      },
-    });
-
-    await tx.aIUsageEvent.create({
-      data: {
-        organizationId: params.organizationId,
-        restaurantId: params.restaurantId,
-        operationType: 'IMAGE_GENERATION',
-        modelId: usedModel,
-        requestId: job.id,
-        imageCount: 1,
-        estimatedCostUsd: 0.03,
-        status: 'SUCCESS',
-      },
-    });
-
-      return createdAsset;
-    });
+      IMAGE_GENERATION_TRANSACTION_OPTIONS
+    );
   } catch (error) {
     await prisma.generationJob.updateMany({
       where: { id: job.id, status: 'PROCESSING' },
