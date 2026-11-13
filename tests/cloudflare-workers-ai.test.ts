@@ -83,7 +83,10 @@ describe('Cloudflare Workers AI image provider', () => {
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
     global.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       expect(init?.headers).toMatchObject({ Authorization: 'Bearer workers-ai-token' });
-      expect(JSON.parse(String(init?.body))).toMatchObject({ steps: 8 });
+      expect(JSON.parse(String(init?.body))).toEqual({
+        prompt: 'Photorealistic restaurant food photography',
+        steps: 8,
+      });
       return new Response(
         JSON.stringify({ success: true, result: { image: jpeg.toString('base64') } }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }

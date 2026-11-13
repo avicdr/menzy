@@ -146,7 +146,6 @@ export async function generateCloudflareDishImage(params: {
         body: JSON.stringify({
           prompt: params.prompt,
           steps,
-          seed: Math.floor(Math.random() * 2_147_483_647),
         }),
         signal: controller.signal,
       }
