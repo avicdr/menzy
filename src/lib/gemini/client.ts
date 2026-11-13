@@ -220,31 +220,39 @@ export function getGenAIClient(
   return ordered[0]?.client ?? null;
 }
 
-const DEPRECATED_OR_STALLING_MODELS = new Set([
-  'gemini-3.8-flash',
+const RETIRED_TEXT_MODELS = new Set([
+  'gemini-3-flash-preview',
+  'gemini-3.1-flash-lite-preview',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
   'gemini-2.5-pro',
 ]);
 
-export const DEFAULT_GEMINI_TEXT_MODEL = 'gemini-3-flash-preview';
-export const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-2.5-flash-image';
-
-const DEFAULT_GEMINI_TEXT_FALLBACK_MODELS = [
-  'gemini-3-flash-preview',
-  'gemini-3.1-flash-lite-preview',
-  'gemini-3.5-flash',
-  'gemini-3.1-flash-lite',
-];
-
-const VERTEX_ONLY_IMAGE_MODELS = new Set([
+const RETIRED_IMAGE_MODELS = new Set([
+  'gemini-2.5-flash-image',
+  'gemini-3.1-flash-image-preview',
+  'gemini-3-pro-image-preview',
   'imagen-3.0-generate-002',
   'imagen-3.0-fast-generate-001',
+  'imagen-4.0-generate-001',
+  'imagen-4.0-fast-generate-001',
+  'imagen-4.0-ultra-generate-001',
 ]);
+
+export const DEFAULT_GEMINI_TEXT_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
+
+const DEFAULT_GEMINI_TEXT_FALLBACK_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+];
 
 export function getTextModelName(): string {
   const configured = process.env.GEMINI_TEXT_MODEL?.trim();
-  if (!configured || DEPRECATED_OR_STALLING_MODELS.has(configured)) {
+  if (!configured || RETIRED_TEXT_MODELS.has(configured)) {
     return DEFAULT_GEMINI_TEXT_MODEL;
   }
   return configured;
@@ -258,7 +266,7 @@ export function getTextModelCandidates(): string[] {
 
   for (const model of [primary, ...envFallbacks, ...DEFAULT_GEMINI_TEXT_FALLBACK_MODELS]) {
     const trimmed = model.trim();
-    if (!trimmed || DEPRECATED_OR_STALLING_MODELS.has(trimmed) || seen.has(trimmed)) {
+    if (!trimmed || RETIRED_TEXT_MODELS.has(trimmed) || seen.has(trimmed)) {
       continue;
     }
     seen.add(trimmed);
@@ -270,27 +278,19 @@ export function getTextModelCandidates(): string[] {
 
 export function getImageModelName(): string {
   const configured = process.env.GEMINI_IMAGE_MODEL?.trim();
-  const useVertex = process.env.GEMINI_USE_VERTEX === 'true';
-  if (!configured) {
-    return DEFAULT_GEMINI_IMAGE_MODEL;
-  }
-  if (!useVertex && VERTEX_ONLY_IMAGE_MODELS.has(configured)) {
+  if (!configured || RETIRED_IMAGE_MODELS.has(configured)) {
     return DEFAULT_GEMINI_IMAGE_MODEL;
   }
   return configured;
 }
 
 export function getImageModelCandidates(): string[] {
-  const useVertex = process.env.GEMINI_USE_VERTEX === 'true';
   const primary = getImageModelName();
   const envFallbacks = parseKeyList(process.env.GEMINI_IMAGE_FALLBACK_MODELS);
   const defaults = [
-    'gemini-2.5-flash-image',
-    'gemini-3.1-flash-image-preview',
     'gemini-3.1-flash-image',
     'gemini-3.1-flash-lite-image',
-    'gemini-3-pro-image-preview',
-    ...(useVertex ? ['imagen-3.0-generate-002'] : []),
+    'gemini-3-pro-image',
   ];
 
   const seen = new Set<string>();
@@ -298,10 +298,7 @@ export function getImageModelCandidates(): string[] {
 
   for (const model of [primary, ...envFallbacks, ...defaults]) {
     const trimmed = model.trim();
-    if (!trimmed || seen.has(trimmed)) {
-      continue;
-    }
-    if (!useVertex && VERTEX_ONLY_IMAGE_MODELS.has(trimmed)) {
+    if (!trimmed || RETIRED_IMAGE_MODELS.has(trimmed) || seen.has(trimmed)) {
       continue;
     }
     seen.add(trimmed);

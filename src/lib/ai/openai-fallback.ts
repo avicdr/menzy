@@ -8,7 +8,14 @@ const INVALID_OPENAI_PLACEHOLDERS = new Set([
 
 export const DEFAULT_OPENAI_TEXT_MODEL = 'gpt-4o-mini';
 export const DEFAULT_OPENAI_VISION_MODEL = 'gpt-4o-mini';
-export const DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-1-mini';
+export const DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-2';
+
+const RETIRED_OPENAI_IMAGE_MODELS = new Set([
+  'dall-e-2',
+  'dall-e-3',
+  'gpt-image-1',
+  'gpt-image-1-mini',
+]);
 
 export function parseOpenAIApiKeys(): string[] {
   const sources = [process.env.OPENAI_API_KEY, process.env.OPENAI_API_KEYS];
@@ -50,7 +57,11 @@ export function getOpenAIVisionModelName(): string {
 }
 
 export function getOpenAIImageModelName(): string {
-  return process.env.OPENAI_IMAGE_MODEL?.trim() || DEFAULT_OPENAI_IMAGE_MODEL;
+  const configured = process.env.OPENAI_IMAGE_MODEL?.trim();
+  if (!configured || RETIRED_OPENAI_IMAGE_MODELS.has(configured)) {
+    return DEFAULT_OPENAI_IMAGE_MODEL;
+  }
+  return configured;
 }
 
 function detectImageTypeFromBuffer(buffer: Buffer): { mimeType: string; ext: string } {
@@ -362,4 +373,3 @@ export async function generateOpenAIDishImage(params: {
     }
   });
 }
-

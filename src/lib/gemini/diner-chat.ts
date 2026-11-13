@@ -323,7 +323,7 @@ Available menu snapshot: ${JSON.stringify(sanitizedMenu)}`;
           };
 
           if (candidateModel.startsWith('gemini-3')) {
-            modelConfig.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
+            modelConfig.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
           }
 
           const response: any = await Promise.race([
@@ -507,4 +507,3 @@ Available menu snapshot: ${JSON.stringify(sanitizedMenu)}`;
     safetyNotice,
   };
 }
-

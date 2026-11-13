@@ -26,6 +26,7 @@ describe('Multi-Key Gemini Rotation & OpenAI Fallback', () => {
     GEMINI_API_KEY_2: process.env.GEMINI_API_KEY_2,
     GEMINI_TEXT_MODEL: process.env.GEMINI_TEXT_MODEL,
     GEMINI_IMAGE_MODEL: process.env.GEMINI_IMAGE_MODEL,
+    GEMINI_IMAGE_FALLBACK_MODELS: process.env.GEMINI_IMAGE_FALLBACK_MODELS,
     GEMINI_USE_VERTEX: process.env.GEMINI_USE_VERTEX,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
@@ -97,7 +98,7 @@ describe('Multi-Key Gemini Rotation & OpenAI Fallback', () => {
     expect(reordered[2].key).toBe('invalid-key-c');
   });
 
-  it('parses OpenAI fallback keys and adjusts image payloads between gpt-image-1 and dall-e-3', async () => {
+  it('parses OpenAI fallback keys and upgrades a retired image model', async () => {
     process.env.OPENAI_API_KEY = 'sk-test-openai-1';
     process.env.OPENAI_API_KEYS = '["sk-test-openai-2", "sk-placeholder"]';
     expect(parseOpenAIApiKeys()).toEqual(['sk-test-openai-1', 'sk-test-openai-2']);
@@ -119,12 +120,8 @@ describe('Multi-Key Gemini Rotation & OpenAI Fallback', () => {
     process.env.OPENAI_IMAGE_MODEL = 'gpt-image-1';
     const gptImg = await generateOpenAIDishImage({ prompt: 'Clay biryani bowl' });
     expect(gptImg.mimeType).toBe('image/png');
+    expect(requestBodies[0].body.model).toBe('gpt-image-2');
     expect(requestBodies[0].body.response_format).toBeUndefined();
-
-    process.env.OPENAI_IMAGE_MODEL = 'dall-e-3';
-    const dalleImg = await generateOpenAIDishImage({ prompt: 'Clay masala chai' });
-    expect(dalleImg.mimeType).toBe('image/png');
-    expect(requestBodies[1].body.response_format).toBe('b64_json');
   });
 
   it('fails over from first Gemini key to backup Gemini key, and then to OpenAI in diner chat', async () => {
@@ -324,19 +321,24 @@ describe('Multi-Key Gemini Rotation & OpenAI Fallback', () => {
     expect(res.model).toBe('gpt-4o-mini');
   });
 
-  it('filters deprecated/Vertex models, isolates text vs image cooldowns, and sets >=10s Gemini httpOptions timeout', async () => {
+  it('filters retired Gemini text and image models from configured fallbacks', () => {
     process.env.GEMINI_TEXT_MODEL = 'gemini-2.5-flash';
     const textModels = getTextModelCandidates();
     expect(textModels).not.toContain('gemini-2.5-flash');
     expect(textModels).not.toContain('gemini-2.5-pro');
-    expect(textModels[0]).toBe('gemini-3-flash-preview');
+    expect(textModels).not.toContain('gemini-3.1-flash-lite-preview');
+    expect(textModels[0]).toBe('gemini-3.8-flash');
 
-    process.env.GEMINI_IMAGE_MODEL = 'imagen-3.0-generate-002';
-    delete process.env.GEMINI_USE_VERTEX;
-    expect(getImageModelCandidates()).not.toContain('imagen-3.0-generate-002');
-    process.env.GEMINI_USE_VERTEX = 'true';
-    expect(getImageModelCandidates()).toContain('imagen-3.0-generate-002');
+    process.env.GEMINI_IMAGE_MODEL = 'gemini-2.5-flash-image';
+    process.env.GEMINI_IMAGE_FALLBACK_MODELS = 'gemini-3.1-flash-image-preview,imagen-3.0-generate-002';
+    const imageModels = getImageModelCandidates();
+    expect(imageModels[0]).toBe('gemini-3.1-flash-image');
+    expect(imageModels).not.toContain('gemini-2.5-flash-image');
+    expect(imageModels).not.toContain('gemini-3.1-flash-image-preview');
+    expect(imageModels).not.toContain('imagen-3.0-generate-002');
+  });
 
+  it('isolates text vs image cooldowns and sets >=10s Gemini httpOptions timeout', async () => {
     delete process.env.GEMINI_API_KEY;
     process.env.GEMINI_API_KEYS = '["scoped-key-1", "scoped-key-2"]';
     markGeminiKeyCooldown('scoped-key-1', { status: 429, message: 'RESOURCE_EXHAUSTED' }, 'image');
@@ -389,8 +391,7 @@ describe('Multi-Key Gemini Rotation & OpenAI Fallback', () => {
 
     expect(spy).toHaveBeenCalled();
     expect(observedHttpTimeout).toBeGreaterThanOrEqual(10_000);
-    expect(observedThinkingLevel).toBe('MINIMAL');
+    expect(observedThinkingLevel).toBe('LOW');
     expect(MAX_BATCH_GENERATION).toBe(5);
   });
 });
-

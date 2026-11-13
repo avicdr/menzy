@@ -145,7 +145,7 @@ async function enrichDishVisualDescriptionWithGeminiText(
     return null;
   }
 
-  const primaryModel = getTextModelCandidates()[0] || 'gemini-3-flash-preview';
+  const primaryModel = getTextModelCandidates()[0] || 'gemini-3.8-flash';
   const entry = textClients[0];
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('VISUAL_BRIEF_TIMEOUT')), 3500);
@@ -173,7 +173,7 @@ async function enrichDishVisualDescriptionWithGeminiText(
       httpOptions: { timeout: 3500 },
     };
     if (primaryModel.startsWith('gemini-3')) {
-      config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
+      config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
     }
 
     const res: any = await Promise.race([

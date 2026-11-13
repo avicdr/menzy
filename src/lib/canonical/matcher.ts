@@ -775,7 +775,7 @@ ${canonicalCatalogLines}`;
   const timeoutMs = options.timeoutMs ?? 15000;
   const modelCandidates = getTextModelCandidates();
   let rawResponseText: string | null = null;
-  let usedModel = modelCandidates[0] || 'gemini-3-flash-preview';
+  let usedModel = modelCandidates[0] || 'gemini-3.8-flash';
 
   const invalidKeySet = new Set<string>();
   let abortModelCascade = false;
@@ -804,7 +804,7 @@ ${canonicalCatalogLines}`;
         };
 
         if (candidateModel.startsWith('gemini-3')) {
-          modelConfig.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
+          modelConfig.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
         }
 
         const response: any = await Promise.race([

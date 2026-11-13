@@ -1067,7 +1067,7 @@ ${excludeInstruction ? `\n${excludeInstruction}` : ''}`;
           };
 
           if (candidateModel.startsWith('gemini-3')) {
-            modelConfig.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
+            modelConfig.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
           }
 
           const response: any = await Promise.race([

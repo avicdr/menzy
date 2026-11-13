@@ -28,15 +28,15 @@ describe('Diner AI Chat Resiliency, Timeout Guard & Model Resolution', () => {
     }
   });
 
-  it('upgrades known broken or stalling model IDs to gemini-3-flash-preview', () => {
-    process.env.GEMINI_TEXT_MODEL = 'gemini-3.8-flash';
-    expect(getTextModelName()).toBe(DEFAULT_GEMINI_TEXT_MODEL);
-
+  it('upgrades legacy model IDs to the current default', () => {
     process.env.GEMINI_TEXT_MODEL = 'gemini-2.5-flash';
     expect(getTextModelName()).toBe(DEFAULT_GEMINI_TEXT_MODEL);
 
     process.env.GEMINI_TEXT_MODEL = 'gemini-3.1-flash-lite-preview';
-    expect(getTextModelName()).toBe('gemini-3.1-flash-lite-preview');
+    expect(getTextModelName()).toBe(DEFAULT_GEMINI_TEXT_MODEL);
+
+    process.env.GEMINI_TEXT_MODEL = 'gemini-3.8-flash';
+    expect(getTextModelName()).toBe('gemini-3.8-flash');
   });
 
   it('parses fenced and raw Gemini JSON payloads safely', () => {
@@ -88,4 +88,3 @@ describe('Diner AI Chat Resiliency, Timeout Guard & Model Resolution', () => {
     expect(result.dishIds.length).toBeGreaterThan(0);
   });
 });
-

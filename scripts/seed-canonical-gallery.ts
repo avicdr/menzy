@@ -169,7 +169,7 @@ async function generateWithGeminiFirstOrOpenAI(prompt: string, label: string): P
     try {
       const result = await generateOpenAIDishImage({
         prompt,
-        model: 'gpt-image-1-mini',
+        model: 'gpt-image-2',
         quality: 'medium',
         outputFormat: 'jpeg',
         outputCompression: 85,

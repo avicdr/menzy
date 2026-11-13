@@ -90,10 +90,13 @@ const fontVariablesClass = [
   outfit.variable,
 ].join(' ');
 
-export const metadata: Metadata = generateSEOMetadata({
-  path: '/',
-  omitCanonical: true,
-});
+export const metadata: Metadata = {
+  ...generateSEOMetadata({ path: '/', omitCanonical: true }),
+  other: {
+    'page-type': 'software',
+    'site-kind': 'software',
+  },
+};
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -107,7 +110,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={fontVariablesClass}>
+    <html lang="en" data-type="software" data-site-kind="software" data-radius="soft" data-buttons="solid" data-motion="quiet" className={fontVariablesClass}>
       <body className="min-h-screen antialiased selection:bg-terracotta-200 selection:text-espresso-900">
         {children}
         <GoogleAnalytics />

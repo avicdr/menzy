@@ -1,357 +1,107 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
-import { Sparkles, ArrowRight, ScanText, QrCode, UtensilsCrossed, Coffee, Zap, Mail, ExternalLink } from 'lucide-react';
+import Image from 'next/image';
+import { ArrowDownRight, ArrowRight, Check, ChevronDown, ExternalLink, ScanLine } from 'lucide-react';
 import type { PlanDefinition } from '@/lib/payments/plans';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 import { HOMEPAGE_FAQS } from '@/content/seo-pages';
-import { MarketingHeader } from './MarketingHeader';
-import { MarketingFooter } from './MarketingFooter';
 import { PricingCardsClient } from './PricingCardsClient';
-import { MenuPreviewClip } from './MenuPreviewClip';
+import { MarketingFooter } from './MarketingFooter';
+import { MarketingHeader } from './MarketingHeader';
 
 interface LandingPageClientProps {
   authoritativeGeo: boolean;
   initialPlans: PlanDefinition[] | null;
 }
 
+function HeroPreview() {
+  const [view, setView] = useState<'guest' | 'staff'>('guest');
+
+  return (
+    <div className="hero-preview" aria-label="Menzy product preview">
+      <div className="preview-toolbar">
+        <div className="preview-dots" aria-hidden="true"><i /><i /><i /></div>
+        <span className="preview-url">menzy.app/m/saffron</span>
+        <span className="preview-live"><span /> Live preview</span>
+      </div>
+      <div className="preview-tabs" role="tablist" aria-label="Product preview views">
+        <button type="button" role="tab" aria-controls="guest-preview" aria-selected={view === 'guest'} className={view === 'guest' ? 'is-active' : ''} onClick={() => setView('guest')}>Guest menu</button>
+        <button type="button" role="tab" aria-controls="staff-preview" aria-selected={view === 'staff'} className={view === 'staff' ? 'is-active' : ''} onClick={() => setView('staff')}>Staff terminal</button>
+      </div>
+      {view === 'guest' ? (
+        <div className="preview-guest" id="guest-preview" role="tabpanel">
+          <div className="preview-phone">
+            <div className="phone-topline"><span>9:41</span><span>Table 04 · Saffron</span><span>•••</span></div>
+            <div className="phone-brand"><span>SAFFRON</span><small>courtyard café</small></div>
+            <div className="phone-search">Search the menu <span>⌕</span></div>
+            <div className="phone-filters"><span className="selected">All</span><span>Veg</span><span>Small plates</span></div>
+            <div className="phone-dish-image"><Image src="/media/menu-preview-poster.webp" alt="Menzy mobile menu preview" fill sizes="(max-width: 640px) 72vw, 250px" priority /></div>
+            <div className="phone-dish-copy"><div><b>Tandoori paneer tikka</b><small>Charred paneer · mint chutney</small></div><strong>₹380</strong></div>
+            <div className="phone-ai"><span>✦</span><div><b>Ask the AI waiter</b><small>What pairs well with this?</small></div><ArrowRight size={14} /></div>
+            <div className="phone-cart"><span>2 items</span><b>View order · ₹540</b><ArrowRight size={14} /></div>
+          </div>
+          <div className="preview-note"><ScanLine size={16} /><span>Scanned from a table QR code. No app download.</span></div>
+        </div>
+      ) : (
+        <div className="preview-staff" id="staff-preview" role="tabpanel">
+          <div className="staff-window-top"><span>Staff order terminal</span><span className="staff-status"><i /> Syncing live</span></div>
+          <div className="staff-summary"><div><small>Today</small><strong>Table service</strong></div><span>Sample interface</span></div>
+          <div className="staff-columns">
+            <div className="staff-column"><div className="staff-column-head"><span>New</span><b>02</b></div><div className="ticket"><strong>#104 · Table 04</strong><span>Tandoori paneer tikka × 1</span><span>Masala chai · regular × 1</span><button type="button">Accept order</button></div></div>
+            <div className="staff-column staff-column-muted"><div className="staff-column-head"><span>Preparing</span><b>01</b></div><div className="ticket"><strong>#103 · Table 02</strong><span>Butter chicken × 2</span><span>Garlic naan × 2</span><em>08 min</em></div></div>
+          </div>
+          <div className="staff-footnote"><Check size={15} /> Order statuses move from placed to preparing, ready, served, and completed.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const experience = [
+  ['Scan', 'A table-specific QR code opens the right menu and table session.'],
+  ['Explore', 'Guests browse categories, variants, photos, and dietary labels on their phone.'],
+  ['Ask', 'The menu-grounded AI waiter answers pairing and ingredient questions from your published catalog.'],
+  ['Order', 'A dine-in order arrives in the browser-based staff terminal with its table identity attached.'],
+];
+
 export function LandingPageClient({ authoritativeGeo, initialPlans }: LandingPageClientProps) {
   return (
-    <div className="min-h-screen bg-[#F7F3EC] text-espresso-900 selection:bg-terracotta-200 overflow-x-clip flex flex-col">
+    <div className="marketing-site">
       <MarketingHeader />
-
-      <main id="main-content" className="flex-1">
-        {/* Hero Section */}
-        <section className="max-w-5xl mx-auto px-4 sm:px-6 pt-10 sm:pt-20 pb-16 text-center space-y-6">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-cream-200 border border-cream-300 text-xs font-semibold text-espresso-800 shadow-sm animate-fade-in">
-            <Sparkles className="w-3.5 h-3.5 text-terracotta shrink-0" aria-hidden="true" />
-            <span>AI Digital Menus, 3D Dish Visuals &amp; Table QR Ordering</span>
-          </div>
-
-          <h1 className="font-serif text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-espresso-900 tracking-tight leading-[1.12]">
-            Your menu deserves <br className="hidden sm:inline" />
-            <span className="italic font-normal text-terracotta-600">more than a QR code.</span>
-          </h1>
-
-          <p className="max-w-2xl mx-auto text-sm sm:text-base md:text-lg text-taupe-600 leading-relaxed font-sans px-2">
-            Turn your static restaurant menu into a beautiful, interactive visual experience.
-            Let diners explore dishes in 3D clay style, order straight from signed table QR codes, and ask a grounded AI waiter anything.
-          </p>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 pt-2 sm:pt-4 w-full sm:w-auto">
-            <Link
-              href="/signup"
-              className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 rounded-full bg-espresso-900 text-white font-semibold text-sm sm:text-base hover:bg-espresso-800 active:scale-95 transition-all shadow-lifted flex items-center justify-center gap-2 whitespace-nowrap"
-            >
-              <span>Start 14-Day Free Trial</span>
-              <ArrowRight className="w-4 h-4 shrink-0" aria-hidden="true" />
-            </Link>
-            <Link
-              href="/m/the-peddler-s-cafe-demo-18f4"
-              className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 rounded-full bg-white border border-cream-300 text-espresso-900 font-semibold text-sm sm:text-base hover:bg-cream-100 transition-all shadow-soft flex items-center justify-center gap-2 whitespace-nowrap"
-            >
-              <span>Explore Live Menu Demo</span>
-              <ExternalLink className="w-3.5 h-3.5 text-terracotta shrink-0" aria-hidden="true" />
-            </Link>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-xs text-taupe-600 pt-1">
-            <span>Includes 14-day free &quot;Trial&quot; plan • No payment method required</span>
-            <span className="hidden sm:inline text-taupe-400">•</span>
-            <a
-              href={SUPPORT_EMAIL_HREF}
-              className="inline-flex items-center gap-1.5 font-semibold text-espresso-900 hover:text-terracotta transition-colors"
-            >
-              <Mail className="w-3.5 h-3.5 text-terracotta shrink-0" aria-hidden="true" />
-              <span>Setup queries: {SUPPORT_EMAIL_DISPLAY}</span>
-            </a>
-          </div>
-
-          {/* Interactive Diner Preview Clip */}
-          <div id="preview" className="scroll-mt-24 pt-12 sm:pt-16 max-w-5xl mx-auto text-center space-y-3">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cream-200 border border-cream-300 text-[11px] sm:text-xs font-semibold text-terracotta-700">
-              <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span>Interactive Diner Menu &amp; AI Waiter Preview</span>
+      <main id="main-content">
+        <section className="hero-section" data-enter>
+          <div className="marketing-frame hero-grid">
+            <div className="hero-copy">
+              <p className="eyebrow"><span className="eyebrow-mark" /> Digital menus for independent restaurants</p>
+              <h1>Your menu. Their phone.<br /><em>A smoother service.</em></h1>
+              <p className="hero-lede">Turn a printed menu into a branded digital experience. Guests scan their table QR code, explore dishes, ask the AI waiter questions, and send orders to your staff.</p>
+              <div className="hero-actions"><Link href="/m/the-peddler-s-cafe-demo-18f4" className="button button-primary">Try the interactive menu <ExternalLink size={16} /></Link><Link href="/signup" className="button button-secondary">Create your menu <ArrowRight size={16} /></Link></div>
+              <p className="hero-note">14-day free trial · no payment method required · <a href={SUPPORT_EMAIL_HREF}>{SUPPORT_EMAIL_DISPLAY}</a></p>
             </div>
-            <h2 className="font-serif text-2xl sm:text-4xl font-bold text-espresso-900">
-              See your QR menu in action in 13 seconds
-            </h2>
-            <p className="text-xs sm:text-sm text-taupe-600 max-w-xl mx-auto">
-              Watch how diners browse 3D-styled dishes, customize orders, ask your AI host for pairings, and order directly to the kitchen.
-            </p>
+            <HeroPreview />
           </div>
-
-          <MenuPreviewClip />
+          <div className="hero-bottom marketing-frame"><span>Built for cafés, restaurants, and quick-service teams.</span><span className="hero-scroll">Scroll to see the service flow <ArrowDownRight size={16} /></span></div>
         </section>
 
-        {/* 3-Step Hospitality Workflow */}
-        <section id="how-it-works" className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20 border-t border-cream-300">
-          <div className="text-center max-w-2xl mx-auto mb-12 sm:mb-14 space-y-2.5">
-            <span className="inline-flex items-center px-3 py-1 rounded-full bg-cream-200/80 border border-cream-300/80 text-[11px] font-semibold uppercase tracking-[0.14em] text-terracotta-700">
-              Simple Hospitality Workflow
-            </span>
-            <h2 className="font-serif text-3xl sm:text-4xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
-              From physical paper to intelligent visual dining in minutes.
-            </h2>
-          </div>
-
-          <div className="menzy-card-grid">
-            <article className="menzy-card group">
-              <header className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-cream-100 border border-cream-300/80 text-[11px] font-semibold uppercase tracking-[0.1em] text-espresso-700 menzy-tabular">
-                    Step 01
-                  </span>
-                  <span
-                    className="w-11 h-11 rounded-2xl bg-espresso-900/5 border border-espresso-900/10 text-espresso-800 flex items-center justify-center shrink-0"
-                    aria-hidden="true"
-                  >
-                    <ScanText className="w-5 h-5" />
-                  </span>
-                </div>
-                <h3 className="font-serif text-xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
-                  Upload &amp; Gemini Vision OCR
-                </h3>
-              </header>
-
-              <p className="text-sm text-taupe-600 leading-relaxed menzy-copy-pretty">
-                Upload smartphone photos or PDF menus. Gemini extracts item titles, prices, descriptions, variants, and dietary tags accurately.
-              </p>
-
-              <footer className="pt-4 border-t border-cream-200/90">
-                <Link
-                  href="/ai-digital-menu"
-                  className="menzy-card-link inline-flex items-center justify-between w-full text-sm font-semibold text-terracotta-700 hover:text-espresso-900 transition-colors"
-                >
-                  <span>Learn about AI Menu OCR</span>
-                  <ArrowRight className="w-4 h-4 shrink-0 menzy-card-arrow" aria-hidden="true" />
-                </Link>
-              </footer>
-            </article>
-
-            <article className="menzy-card group">
-              <header className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-terracotta-50 border border-terracotta-200/80 text-[11px] font-semibold uppercase tracking-[0.1em] text-terracotta-700 menzy-tabular">
-                    Step 02
-                  </span>
-                  <span
-                    className="w-11 h-11 rounded-2xl bg-terracotta-50 border border-terracotta-200/80 text-terracotta-700 flex items-center justify-center shrink-0"
-                    aria-hidden="true"
-                  >
-                    <Sparkles className="w-5 h-5" />
-                  </span>
-                </div>
-                <h3 className="font-serif text-xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
-                  3D-Clay Food Illustrations
-                </h3>
-              </header>
-
-              <p className="text-sm text-taupe-600 leading-relaxed menzy-copy-pretty">
-                Dishes match against our shared canonical culinary library to reuse approved assets or generate custom 3D-styled editorial illustrations.
-              </p>
-
-              <footer className="pt-4 border-t border-cream-200/90">
-                <Link
-                  href="/features"
-                  className="menzy-card-link inline-flex items-center justify-between w-full text-sm font-semibold text-terracotta-700 hover:text-espresso-900 transition-colors"
-                >
-                  <span>Explore Theme &amp; Illustration Studio</span>
-                  <ArrowRight className="w-4 h-4 shrink-0 menzy-card-arrow" aria-hidden="true" />
-                </Link>
-              </footer>
-            </article>
-
-            <article className="menzy-card group">
-              <header className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-sage-50 border border-sage-200/80 text-[11px] font-semibold uppercase tracking-[0.1em] text-sage-600 menzy-tabular">
-                    Step 03
-                  </span>
-                  <span
-                    className="w-11 h-11 rounded-2xl bg-sage-50 border border-sage-200/80 text-sage-600 flex items-center justify-center shrink-0"
-                    aria-hidden="true"
-                  >
-                    <QrCode className="w-5 h-5" />
-                  </span>
-                </div>
-                <h3 className="font-serif text-xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
-                  Table QR Ordering &amp; Live KDS
-                </h3>
-              </header>
-
-              <p className="text-sm text-taupe-600 leading-relaxed menzy-copy-pretty">
-                Print signed 4×6&quot; table tents with optional guest Wi-Fi QRs. Diners order directly to your kitchen terminal without downloading any app.
-              </p>
-
-              <footer className="pt-4 border-t border-cream-200/90">
-                <Link
-                  href="/table-ordering"
-                  className="menzy-card-link inline-flex items-center justify-between w-full text-sm font-semibold text-terracotta-700 hover:text-espresso-900 transition-colors"
-                >
-                  <span>See how Table Ordering works</span>
-                  <ArrowRight className="w-4 h-4 shrink-0 menzy-card-arrow" aria-hidden="true" />
-                </Link>
-              </footer>
-            </article>
-          </div>
+        <section className="statement-section" id="how-it-works">
+          <div className="marketing-frame statement-grid"><p className="section-kicker">The guest experience</p><div><h2>Less friction at the table. More room for hospitality.</h2><p className="section-intro">Menzy keeps the experience simple for guests and legible for the people running service.</p></div></div>
+          <div className="marketing-frame ruled-list">{experience.map(([title, detail]) => <div className="ruled-row" key={title}><span className="row-label">{title}</span><p>{detail}</p><ArrowRight size={18} aria-hidden="true" /></div>)}</div>
         </section>
 
-        {/* Geo-Locked Pricing */}
-        <div className="border-t border-cream-300">
-          <PricingCardsClient
-            authoritativeGeo={authoritativeGeo}
-            initialPlans={initialPlans}
-            sectionId="pricing"
-          />
-        </div>
+        <section className="setup-section"><div className="marketing-frame split-grid"><div className="split-copy"><p className="section-kicker">The owner setup</p><h2>From menu file to live service in one clear pass.</h2><p className="section-intro">Review what Menzy extracts, make the decisions that matter, then publish once. Your menu, prices, availability, and brand stay in one workspace.</p><Link href="/ai-digital-menu" className="text-link">See menu digitization <ArrowRight size={16} /></Link></div><div className="setup-visual"><div className="upload-sheet"><div className="upload-head"><span>Menu Studio</span><span className="upload-state">Ready to review</span></div><div className="upload-file"><div className="file-icon">PDF</div><div><b>summer-menu-2026.pdf</b><small>18 dishes · 4 categories · extracted</small></div><Check size={18} /></div><div className="upload-rule" /><div className="upload-item"><span className="dish-dot dish-dot-orange" /><div><b>Tandoori paneer tikka</b><small>₹380 · Veg · Small plates</small></div><span className="review-tag">Reviewed</span></div><div className="upload-item"><span className="dish-dot dish-dot-green" /><div><b>Classic masala chai</b><small>₹160 · Beverage · Variants</small></div><span className="review-tag">Reviewed</span></div><div className="upload-footer"><span>All changes saved locally</span><button type="button">Publish menu <ArrowRight size={14} /></button></div></div></div></div></section>
 
-        {/* Built for every hospitality format */}
-        <section className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-16 border-t border-cream-300 space-y-10">
-          <div className="text-center max-w-2xl mx-auto space-y-2.5">
-            <span className="inline-flex items-center px-3 py-1 rounded-full bg-cream-200/80 border border-cream-300/80 text-[11px] font-semibold uppercase tracking-[0.14em] text-terracotta-700">
-              Hospitality Solutions
-            </span>
-            <h2 className="font-serif text-2xl sm:text-4xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
-              Tailored workflows for dining rooms, cafés &amp; counters
-            </h2>
-          </div>
+        <section className="visuals-section"><div className="marketing-frame visuals-grid"><div className="visuals-copy"><p className="section-kicker">A menu worth opening</p><h2>Useful information can still feel inviting.</h2><p className="section-intro">Use your own photography, approved canonical visuals, or generated dish artwork to help guests decide with confidence.</p><Link href="/features" className="text-link">Explore the feature set <ArrowRight size={16} /></Link></div><div className="dish-gallery"><div className="dish-image dish-image-large"><Image src="/uploads/illustrations/1794263392050-paneer-butter-masala.jpg" alt="Paneer butter masala dish visual" fill sizes="(max-width: 900px) 80vw, 420px" /></div><div className="dish-image"><Image src="/uploads/illustrations/1794251490842-black-truffle-tagliatelle.webp" alt="Black truffle tagliatelle dish visual" fill sizes="(max-width: 900px) 40vw, 210px" /></div><div className="dish-image dish-image-dark"><Image src="/uploads/illustrations/1794282866377-classic-chicken-punjabi-meal.jpg" alt="Classic chicken Punjabi meal visual" fill sizes="(max-width: 900px) 40vw, 210px" /></div></div></div></section>
 
-          <div className="menzy-card-grid">
-            <article className="menzy-card group">
-              <header className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-cream-100 border border-cream-300/80 text-[11px] font-semibold uppercase tracking-[0.08em] text-espresso-700">
-                    Dining Rooms
-                  </span>
-                  <span
-                    className="w-10 h-10 rounded-2xl bg-espresso-900/5 border border-espresso-900/10 text-espresso-800 flex items-center justify-center shrink-0"
-                    aria-hidden="true"
-                  >
-                    <UtensilsCrossed className="w-5 h-5" />
-                  </span>
-                </div>
-                <h3 className="font-serif text-xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
-                  Full-Service Restaurants
-                </h3>
-              </header>
+        <section className="operations-section"><div className="marketing-frame operations-grid"><div className="operations-copy"><p className="section-kicker section-kicker-light">The staff view</p><h2>Every order arrives with the context your team needs.</h2><p className="section-intro section-intro-light">Table identity, line items, notes, totals, and a clear status path — in a browser-based terminal built for service.</p><Link href="/restaurant-order-management" className="button button-inverse">See order management <ArrowRight size={16} /></Link></div><div className="operations-panel"><div className="ops-panel-head"><span>Order management</span><span className="ops-live"><i /> Live queue</span></div><div className="ops-stage"><span>New</span><b>02</b><span>Preparing</span><b>01</b><span>Ready</span><b>03</b><span>Served</span><b>08</b></div><div className="ops-ticket"><div><strong>#104 · Table 04</strong><small>Just now · 2 items</small></div><span className="ops-badge">PLACED</span><div className="ops-ticket-items"><span>1 × Tandoori paneer tikka</span><span>1 × Masala chai · regular</span></div><div className="ops-ticket-foot"><span>₹540 · INR</span><button type="button">Accept order</button></div></div><p className="ops-caption">Sample terminal view. Live staff access is protected at <Link href="/orders/login">Staff Terminal</Link>.</p></div></div></section>
 
-              <p className="text-sm text-taupe-600 leading-relaxed menzy-copy-pretty">
-                FSSAI Veg/Egg/Non-Veg badges, beverage pairings, waiter calls, and section-scoped table tents.
-              </p>
+        <section className="pricing-section"><div className="marketing-frame pricing-intro"><p className="section-kicker">Plans for real service teams</p><h2>Start small. Keep the system clear.</h2><p className="section-intro">Regional monthly plans in INR and USD, with a 14-day trial and no per-order commission.</p></div><PricingCardsClient authoritativeGeo={authoritativeGeo} initialPlans={initialPlans} sectionId="pricing" eyebrow="" heading="" subheading="" /></section>
 
-              <footer className="pt-4 border-t border-cream-200/90">
-                <Link
-                  href="/digital-menu-for-restaurants"
-                  className="menzy-card-link inline-flex items-center justify-between w-full text-sm font-semibold text-terracotta-700 hover:text-espresso-900 transition-colors"
-                >
-                  <span>Explore restaurant workflow</span>
-                  <ArrowRight className="w-4 h-4 shrink-0 menzy-card-arrow" aria-hidden="true" />
-                </Link>
-              </footer>
-            </article>
+        <section className="faq-section"><div className="marketing-frame faq-grid"><div><p className="section-kicker">Practical answers</p><h2>Questions before you put a QR on the table?</h2><p className="section-intro">A few details owners usually want to know first.</p></div><div className="faq-list">{HOMEPAGE_FAQS.slice(0, 4).map((faq) => <details key={faq.question}><summary>{faq.question}<ChevronDown size={18} /></summary><p>{faq.answer}</p></details>)}</div></div></section>
 
-            <article className="menzy-card group">
-              <header className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-terracotta-50 border border-terracotta-200/80 text-[11px] font-semibold uppercase tracking-[0.08em] text-terracotta-700">
-                    Cafés &amp; Bakeries
-                  </span>
-                  <span
-                    className="w-10 h-10 rounded-2xl bg-terracotta-50 border border-terracotta-200/80 text-terracotta-700 flex items-center justify-center shrink-0"
-                    aria-hidden="true"
-                  >
-                    <Coffee className="w-5 h-5" />
-                  </span>
-                </div>
-                <h3 className="font-serif text-xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
-                  Cafés &amp; Patisseries
-                </h3>
-              </header>
-
-              <p className="text-sm text-taupe-600 leading-relaxed menzy-copy-pretty">
-                Botanical &amp; pastel presets, milk/roast add-on variants, daily stock toggles, and Guest Wi-Fi QR cards.
-              </p>
-
-              <footer className="pt-4 border-t border-cream-200/90">
-                <Link
-                  href="/digital-menu-for-cafes"
-                  className="menzy-card-link inline-flex items-center justify-between w-full text-sm font-semibold text-terracotta-700 hover:text-espresso-900 transition-colors"
-                >
-                  <span>Explore café setup</span>
-                  <ArrowRight className="w-4 h-4 shrink-0 menzy-card-arrow" aria-hidden="true" />
-                </Link>
-              </footer>
-            </article>
-
-            <article className="menzy-card group">
-              <header className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-sage-50 border border-sage-200/80 text-[11px] font-semibold uppercase tracking-[0.08em] text-sage-600">
-                    Counters &amp; QSRs
-                  </span>
-                  <span
-                    className="w-10 h-10 rounded-2xl bg-sage-50 border border-sage-200/80 text-sage-600 flex items-center justify-center shrink-0"
-                    aria-hidden="true"
-                  >
-                    <Zap className="w-5 h-5" />
-                  </span>
-                </div>
-                <h3 className="font-serif text-xl font-bold text-espresso-900 tracking-tight menzy-heading-balance">
-                  Food Courts &amp; QSRs
-                </h3>
-              </header>
-
-              <p className="text-sm text-taupe-600 leading-relaxed menzy-copy-pretty">
-                Fast counter QR scanning, combo customization, real-time KDS queues, and zero per-order commission.
-              </p>
-
-              <footer className="pt-4 border-t border-cream-200/90">
-                <Link
-                  href="/digital-menu-for-cloud-kitchens"
-                  className="menzy-card-link inline-flex items-center justify-between w-full text-sm font-semibold text-terracotta-700 hover:text-espresso-900 transition-colors"
-                >
-                  <span>Explore QSR &amp; KDS tools</span>
-                  <ArrowRight className="w-4 h-4 shrink-0 menzy-card-arrow" aria-hidden="true" />
-                </Link>
-              </footer>
-            </article>
-          </div>
-        </section>
-
-        {/* Visible AEO FAQ Section matching FAQPage Schema */}
-        <section className="max-w-4xl mx-auto px-4 sm:px-6 py-16 border-t border-cream-300 space-y-6">
-          <div className="text-center space-y-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-terracotta-700">
-              Answers for Operators
-            </span>
-            <h2 className="font-serif text-2xl sm:text-3xl font-bold text-espresso-900">
-              Frequently Asked Questions
-            </h2>
-          </div>
-
-          <div className="space-y-3">
-            {HOMEPAGE_FAQS.map((faq) => (
-              <details
-                key={faq.question}
-                className="group bg-white rounded-2xl border border-cream-200 p-5 shadow-xs"
-              >
-                <summary className="cursor-pointer font-semibold text-sm sm:text-base text-espresso-900 list-none flex items-center justify-between gap-3">
-                  <span>{faq.question}</span>
-                  <span className="text-terracotta-700 text-lg font-normal shrink-0 group-open:rotate-45 transition-transform">
-                    +
-                  </span>
-                </summary>
-                <p className="mt-3 text-xs sm:text-sm text-taupe-600 leading-relaxed">
-                  {faq.answer}
-                </p>
-              </details>
-            ))}
-          </div>
-        </section>
+        <section className="closing-section"><div className="marketing-frame closing-inner"><div><p className="section-kicker section-kicker-light">Ready when your menu is</p><h2>Give guests a better way to order.</h2></div><div className="closing-actions"><Link href="/signup" className="button button-primary">Create your menu <ArrowRight size={16} /></Link><a href={SUPPORT_EMAIL_HREF} className="closing-contact">Talk to the team <span>{SUPPORT_EMAIL_DISPLAY}</span></a></div></div></section>
       </main>
-
       <MarketingFooter />
     </div>
   );
