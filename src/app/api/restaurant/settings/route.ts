@@ -58,6 +58,10 @@ export async function GET(req: Request) {
     const rawTheme = restaurantRecord.theme || THEME_PRESETS.WARM_EDITORIAL;
     const theme = {
       ...rawTheme,
+      mobileGridColumns:
+        (rawTheme.publishedSettings as Record<string, any> | null)?.mobileGridColumns ??
+        (rawTheme.draftSettings as Record<string, any> | null)?.mobileGridColumns ??
+        1,
       headingFont: normalizeThemeFont(rawTheme.headingFont, 'Plus Jakarta Sans'),
       bodyFont: normalizeThemeFont(rawTheme.bodyFont, 'Inter'),
     };
@@ -328,4 +332,3 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
-

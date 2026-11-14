@@ -147,6 +147,7 @@ export async function loadDinerMenuPayload(rawSlug: string): Promise<DinerMenuLo
             buttonStyle: true,
             imageProportions: true,
             texture: true,
+            publishedSettings: true,
           },
         },
         orderingSettings: {
@@ -281,6 +282,8 @@ export async function loadDinerMenuPayload(rawSlug: string): Promise<DinerMenuLo
     const normalizedTheme = restaurant.theme
       ? {
           ...restaurant.theme,
+          mobileGridColumns:
+            (restaurant.theme.publishedSettings as Record<string, any> | null)?.mobileGridColumns ?? 1,
           headingFont: normalizeThemeFont(restaurant.theme.headingFont, 'Plus Jakarta Sans'),
           bodyFont: normalizeThemeFont(restaurant.theme.bodyFont, 'Inter'),
         }

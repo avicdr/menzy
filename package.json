@@ -19,6 +19,7 @@
     "seed:cafe": "tsx scripts/seed-cafe-specialties.ts",
     "assets:import-realistic": "tsx scripts/import-realistic-food-assets.ts",
     "assets:upload-realistic": "tsx scripts/upload-realistic-food-assets.ts",
+    "assets:remove-clay": "tsx scripts/remove-clay-canonical-assets.ts",
     "worker": "tsx src/workers/index.ts"
   },
   "dependencies": {

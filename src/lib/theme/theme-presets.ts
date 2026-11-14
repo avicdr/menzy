@@ -11,6 +11,7 @@ export interface ThemeConfig {
   headingFont: string;
   bodyFont: string;
   layoutMode: 'GRID' | 'LIST';
+  mobileGridColumns?: 1 | 2;
   cardRadius: string;
   buttonStyle: 'rounded' | 'pill' | 'sharp';
   imageProportions: 'square' | 'wide' | 'compact';
@@ -82,6 +83,7 @@ export const THEME_PRESETS: Record<string, ThemeConfig> = {
     headingFont: 'Lora',
     bodyFont: 'DM Sans',
     layoutMode: 'GRID',
+    mobileGridColumns: 1,
     cardRadius: '16px',
     buttonStyle: 'rounded',
     imageProportions: 'square',
@@ -98,6 +100,7 @@ export const THEME_PRESETS: Record<string, ThemeConfig> = {
     headingFont: 'DM Serif Display',
     bodyFont: 'Manrope',
     layoutMode: 'GRID',
+    mobileGridColumns: 1,
     cardRadius: '14px',
     buttonStyle: 'rounded',
     imageProportions: 'square',
@@ -114,6 +117,7 @@ export const THEME_PRESETS: Record<string, ThemeConfig> = {
     headingFont: 'Playfair Display',
     bodyFont: 'DM Sans',
     layoutMode: 'GRID',
+    mobileGridColumns: 1,
     cardRadius: '18px',
     buttonStyle: 'pill',
     imageProportions: 'square',
@@ -130,6 +134,7 @@ export const THEME_PRESETS: Record<string, ThemeConfig> = {
     headingFont: 'Plus Jakarta Sans',
     bodyFont: 'DM Sans',
     layoutMode: 'GRID',
+    mobileGridColumns: 1,
     cardRadius: '20px',
     buttonStyle: 'pill',
     imageProportions: 'square',
@@ -195,6 +200,7 @@ const VALID_PRESET_KEYS = new Set<ThemeConfig['presetKey']>([
 ]);
 
 const VALID_LAYOUT_MODES = new Set<ThemeConfig['layoutMode']>(['GRID', 'LIST']);
+const VALID_MOBILE_GRID_COLUMNS = new Set<NonNullable<ThemeConfig['mobileGridColumns']>>([1, 2]);
 const VALID_BUTTON_STYLES = new Set<ThemeConfig['buttonStyle']>(['rounded', 'pill', 'sharp']);
 const VALID_IMAGE_PROPORTIONS = new Set<ThemeConfig['imageProportions']>(['square', 'wide', 'compact']);
 const VALID_TEXTURES = new Set<ThemeConfig['texture']>(['none', 'paper', 'gradient']);
@@ -231,6 +237,7 @@ export function sanitizeThemePersistenceInput(raw: Record<string, any>): Partial
     out.bodyFont = normalizeThemeFont(raw.bodyFont, 'Inter');
   }
   if (VALID_LAYOUT_MODES.has(raw.layoutMode)) out.layoutMode = raw.layoutMode;
+  if (VALID_MOBILE_GRID_COLUMNS.has(raw.mobileGridColumns)) out.mobileGridColumns = raw.mobileGridColumns;
   if (typeof raw.cardRadius === 'string' && /^\d{1,2}px$/.test(raw.cardRadius.trim())) {
     out.cardRadius = raw.cardRadius.trim();
   }
@@ -318,4 +325,3 @@ export function generateStaffTypographyVars(theme?: Partial<ThemeConfig> | null)
     fontFamily: bodyFontCss,
   } as CSSProperties;
 }
-

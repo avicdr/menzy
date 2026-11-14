@@ -61,6 +61,7 @@ function normalizeRawTheme(rsTheme: any): ThemeConfig {
     headingFont: normalizeThemeFont(rsTheme.headingFont, 'Plus Jakarta Sans'),
     bodyFont: normalizeThemeFont(rsTheme.bodyFont, 'Inter'),
     layoutMode: rsTheme.layoutMode || 'GRID',
+    mobileGridColumns: rsTheme.mobileGridColumns === 2 ? 2 : 1,
     cardRadius: rsTheme.cardRadius || '16px',
     buttonStyle: rsTheme.buttonStyle || 'rounded',
     imageProportions: rsTheme.imageProportions || 'square',
@@ -595,6 +596,34 @@ export function DashboardThemeTab({
             </div>
           </div>
 
+          <div className="mt-4 space-y-3">
+            <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
+              Phone grid columns
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              {([1, 2] as const).map((columns) => (
+                <button
+                  key={columns}
+                  type="button"
+                  onClick={() => updateThemeState({ ...themeState, mobileGridColumns: columns })}
+                  className={`p-3 rounded-2xl border text-left transition-all ${
+                    themeState.mobileGridColumns === columns
+                      ? 'border-espresso-900 bg-espresso-900 text-white shadow-sm'
+                      : 'border-cream-300 bg-white text-espresso-800 hover:bg-cream-50'
+                  }`}
+                >
+                  <div className="font-bold text-sm flex items-center justify-between">
+                    <span>{columns === 1 ? 'One per row' : 'Two side by side'}</span>
+                    {themeState.mobileGridColumns === columns && <Check className="w-4 h-4 text-terracotta" />}
+                  </div>
+                  <p className={`text-xs mt-1 ${themeState.mobileGridColumns === columns ? 'text-cream-200' : 'text-taupe-500'}`}>
+                    {columns === 1 ? 'Larger cards and easier reading' : 'Denser menu browsing on phones'}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Color Palette Customization */}
           <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
             <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
@@ -1092,4 +1121,3 @@ export function DashboardThemeTab({
     </div>
   );
 }
-

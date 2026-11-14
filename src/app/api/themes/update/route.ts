@@ -22,6 +22,7 @@ export async function POST(req: Request) {
     }
 
     const themeFields = sanitizeThemePersistenceInput(rawThemeFields);
+    const { mobileGridColumns = 1, ...persistedThemeFields } = themeFields;
 
     // Check accessibility & contrast
     const accessCheck = validateThemeAccessibility(themeFields);
@@ -36,16 +37,35 @@ export async function POST(req: Request) {
       );
     }
 
+    const existingTheme = await prisma.restaurantTheme.findUnique({
+      where: { restaurantId },
+      select: { draftSettings: true, publishedSettings: true },
+    });
+    const draftSettings = {
+      ...((existingTheme?.draftSettings as Record<string, unknown> | null) || {}),
+      mobileGridColumns,
+    };
+    const publishedSettings = isPublishing
+      ? {
+          ...((existingTheme?.publishedSettings as Record<string, unknown> | null) || {}),
+          mobileGridColumns,
+        }
+      : undefined;
+
     const theme = await prisma.restaurantTheme.upsert({
       where: { restaurantId },
       update: {
-        ...themeFields,
+        ...persistedThemeFields,
+        draftSettings,
+        publishedSettings,
         isPublished: isPublishing ? true : undefined,
         publishedAt: isPublishing ? new Date() : undefined,
       },
       create: {
         restaurantId,
-        ...themeFields,
+        ...persistedThemeFields,
+        draftSettings,
+        ...(publishedSettings ? { publishedSettings } : {}),
         isPublished: Boolean(isPublishing),
         publishedAt: isPublishing ? new Date() : undefined,
       },
@@ -57,7 +77,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      theme,
+      theme: { ...theme, mobileGridColumns },
       warnings: accessCheck.warnings,
     });
   } catch (error: any) {
@@ -65,4 +85,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
-

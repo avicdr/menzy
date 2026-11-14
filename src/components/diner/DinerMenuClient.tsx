@@ -661,6 +661,7 @@ export function DinerMenuClient({
     expiredTimeoutMinutes ?? configuredScanTimeoutMinutes;
 
   const layoutMode = theme?.layoutMode || 'GRID';
+  const mobileGridColumns = theme?.mobileGridColumns === 2 ? 2 : 1;
 
   const reviewUrl =
     restaurant.googleReviewUrl?.trim() ||
@@ -1216,7 +1217,7 @@ export function DinerMenuClient({
                 className={
                   layoutMode === 'LIST'
                     ? 'space-y-3'
-                    : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6'
+                    : `${mobileGridColumns === 2 ? 'grid grid-cols-2' : 'grid grid-cols-1'} sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6`
                 }
               >
                 {filteredDishes.map((item, index) => (

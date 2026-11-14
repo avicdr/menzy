@@ -178,6 +178,7 @@ describe('Hospitality Nice Theme Generator & Contrast Guarantees', () => {
       primaryTextColor: '#1e2a38',
       accentColor: '#1e5e76',
       headingFont: 'Cormorant Garamond',
+      mobileGridColumns: 2,
       themeName: 'Amalfi Sunlit Stone',
       rationale: 'Extra UI metadata should be stripped',
     });
@@ -189,6 +190,7 @@ describe('Hospitality Nice Theme Generator & Contrast Guarantees', () => {
       primaryTextColor: '#1E2A38',
       accentColor: '#1E5E76',
       headingFont: 'Playfair Display',
+      mobileGridColumns: 2,
     });
     expect((cleaned as any).themeName).toBeUndefined();
     expect((cleaned as any).rationale).toBeUndefined();
@@ -272,4 +274,3 @@ describe('Hospitality Nice Theme Generator & Contrast Guarantees', () => {
     expect(validateThemeAccessibility(data.theme).isValid).toBe(true);
   });
 });
-
