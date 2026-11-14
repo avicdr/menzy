@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAssetBuffer, sanitizeStorageKey } from '@/lib/storage/adapter';
 import { getOwnerSession } from '@/lib/auth/owner-auth';
 
-const ALLOWED_FOLDERS = new Set(['banners', 'photos', 'illustrations', 'qr', 'menus']);
+const ALLOWED_FOLDERS = new Set(['banners', 'photos', 'illustrations', 'qr', 'menus', 'canonical']);
 
 export async function GET(
   _req: Request,
@@ -57,4 +57,3 @@ export async function GET(
     return NextResponse.json({ error: 'Failed to load asset' }, { status: 500 });
   }
 }
-
