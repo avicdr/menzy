@@ -181,7 +181,7 @@ export const PIZZAS_AND_MAINS_CATALOG: CanonicalCatalogItem[] = [
       'Pasta coated in a velvety sauce of butter, heavy cream, garlic, and parmesan cheese.',
     visualPrompt:
       'silky Penne Alfredo coated luxuriously in thick ivory butter-cream parmesan sauce cracked with black pepper and herbs inside a deep ceramic pasta bowl',
-    aliases: ['alfredo pasta', 'penne alfredo', 'penne alfredo white sauce', 'white sauce pasta', 'fettuccine alfredo'],
+    aliases: ['alfredo pasta', 'penne alfredo', 'penne alfredo white sauce', 'fettuccine alfredo'],
     estimatedNutrition: { calories: 640, protein: 18, carbs: 66, fat: 34, servingGrams: 330 },
   },
   {

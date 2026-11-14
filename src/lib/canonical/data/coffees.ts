@@ -421,7 +421,7 @@ export const COFFEES_CATALOG: CanonicalCatalogItem[] = [
       'Blended iced coffee whipped until frothy, served tall with a drizzle of chocolate.',
     visualPrompt:
       'an indulgent frothy Classic Cafe Frappe in a tall clear glass crowned with whipped cream swirl, dark chocolate drizzle, and coffee bean dust',
-    aliases: ['frappe cold coffee', 'classic cafe frappe', 'cafe frappe', 'cold coffee', 'coffee frappe', 'hazelnut cold coffee', 'classic cold coffee'],
+    aliases: ['frappe cold coffee', 'classic cafe frappe', 'cafe frappe', 'cold coffee', 'coffee frappe', 'classic cold coffee'],
     estimatedNutrition: { calories: 260, protein: 6, carbs: 36, fat: 10, servingGrams: 350 },
   },
 ];

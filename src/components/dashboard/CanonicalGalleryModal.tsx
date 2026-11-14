@@ -32,6 +32,7 @@ export function CanonicalGalleryModal({
   const [galleryItems, setGalleryItems] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
+  const [selectedStyle, setSelectedStyle] = useState('ALL');
   const [applyingCanonicalId, setApplyingCanonicalId] = useState<string | null>(null);
 
   const searchInputId = useId();
@@ -92,7 +93,7 @@ export function CanonicalGalleryModal({
           itemId: effectiveTargetDishId,
           restaurantId,
           canonicalId: galleryEntry.canonicalId,
-          imageOverrideAssetId: null,
+          imageOverrideAssetId: galleryEntry.asset?.id || null,
         }),
       });
 
@@ -118,6 +119,9 @@ export function CanonicalGalleryModal({
   };
 
   const filteredGalleryItems = galleryItems.filter((entry) => {
+    if (selectedStyle !== 'ALL' && entry.style !== selectedStyle) {
+      return false;
+    }
     if (selectedCategory !== 'ALL' && entry.category !== selectedCategory) {
       return false;
     }
@@ -137,8 +141,8 @@ export function CanonicalGalleryModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Canonical 3D Culinary Gallery"
-      subtitle="Browse curated 3D-clay dish artwork. Apply any illustration to a dish on your menu at zero credit cost."
+      title="Canonical Image Library"
+      subtitle="Browse realistic food photos and 3D clay artwork by dish or category. Applying a library image costs no generation credits."
       maxWidth="4xl"
       bodyClassName="space-y-4"
     >
@@ -194,7 +198,33 @@ export function CanonicalGalleryModal({
       )}
 
       {galleryItems.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              ['ALL', 'All styles'],
+              ['REALISTIC', 'Realistic photos'],
+              ['CLAY', '3D clay artwork'],
+            ].map(([style, label]) => {
+              const count = style === 'ALL'
+                ? galleryItems.length
+                : galleryItems.filter((i) => i.style === style).length;
+              return (
+                <button
+                  key={style}
+                  type="button"
+                  onClick={() => setSelectedStyle(style)}
+                  className={`px-3 py-1 rounded-full text-[11px] font-semibold transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta ${
+                    selectedStyle === style
+                      ? 'bg-terracotta text-white'
+                      : 'bg-cream-100 text-taupe-700 hover:bg-cream-200'
+                  }`}
+                >
+                  {label} ({count})
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
           {[
             'ALL',
             ...sortCanonicalCategories(
@@ -203,8 +233,10 @@ export function CanonicalGalleryModal({
           ].map((cat) => {
             const count =
               cat === 'ALL'
-                ? galleryItems.length
-                : galleryItems.filter((i) => i.category === cat).length;
+                ? galleryItems.filter((i) => selectedStyle === 'ALL' || i.style === selectedStyle).length
+                : galleryItems.filter((i) =>
+                    i.category === cat && (selectedStyle === 'ALL' || i.style === selectedStyle)
+                  ).length;
             return (
               <button
                 key={cat}
@@ -220,6 +252,7 @@ export function CanonicalGalleryModal({
               </button>
             );
           })}
+          </div>
         </div>
       )}
 
@@ -238,7 +271,7 @@ export function CanonicalGalleryModal({
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5">
           {filteredGalleryItems.map((entry) => (
             <div
-              key={entry.canonicalId}
+              key={`${entry.canonicalId}-${entry.asset?.id || entry.style}`}
               className="rounded-2xl border border-cream-200 bg-white overflow-hidden flex flex-col justify-between shadow-xs hover:border-terracotta/50 transition-all"
             >
               <div>
@@ -252,6 +285,11 @@ export function CanonicalGalleryModal({
                   {entry.category && (
                     <span className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-black/65 text-white backdrop-blur-xs max-w-[90%] truncate">
                       {entry.category}
+                    </span>
+                  )}
+                  {entry.styleLabel && (
+                    <span className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-white/90 text-espresso-900 shadow-sm max-w-[90%] truncate">
+                      {entry.styleLabel}
                     </span>
                   )}
                 </div>
@@ -285,4 +323,3 @@ export function CanonicalGalleryModal({
     </Modal>
   );
 }
-

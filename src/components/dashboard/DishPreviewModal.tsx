@@ -39,6 +39,8 @@ interface DishPreviewModalProps {
 const SOURCE_BADGE_STYLES = {
   OWNER_PHOTO: 'bg-sky-100 text-sky-900 border border-sky-200',
   AI_GENERATED: 'bg-terracotta-100 text-terracotta-800 border border-terracotta-200',
+  CANONICAL_REALISTIC: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
+  CANONICAL_CLAY: 'bg-violet-100 text-violet-800 border border-violet-200',
   CANONICAL: 'bg-sage-100 text-sage-800 border border-sage-200',
   PLACEHOLDER: 'bg-cream-200 text-taupe-700 border border-cream-300',
 } as const;
@@ -502,4 +504,3 @@ export function DishPreviewModal({
     </Modal>
   );
 }
-

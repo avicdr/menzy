@@ -1,4 +1,16 @@
 export type CanonicalGalleryCategory =
+  | 'Cold Coffee'
+  | 'Shakes'
+  | 'Mojitos'
+  | 'Pasta'
+  | 'Wraps'
+  | 'Momos'
+  | 'Sandwiches'
+  | 'Snacks'
+  | 'Pizza'
+  | 'Tea & Bun'
+  | 'Maggi'
+  | 'Burgers'
   | 'Hot & Iced Coffees'
   | 'Teas, Matcha & Hot Infusions'
   | 'Shakes, Smoothies, Juices & Mocktails'
@@ -18,6 +30,18 @@ export type CanonicalGalleryCategory =
   | 'Artisanal Cocktails, Craft Brews, Sangrias & Specialty Drinks';
 
 export const CANONICAL_CATEGORY_ORDER: CanonicalGalleryCategory[] = [
+  'Cold Coffee',
+  'Shakes',
+  'Mojitos',
+  'Pasta',
+  'Wraps',
+  'Momos',
+  'Sandwiches',
+  'Snacks',
+  'Pizza',
+  'Tea & Bun',
+  'Maggi',
+  'Burgers',
   'Hot & Iced Coffees',
   'Teas, Matcha & Hot Infusions',
   'Shakes, Smoothies, Juices & Mocktails',

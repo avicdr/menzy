@@ -198,7 +198,7 @@ export async function uploadAsset(
   buffer: Buffer,
   filename: string,
   mimeType: string,
-  folder: 'menus' | 'illustrations' | 'photos' | 'qr' | 'banners' = 'illustrations'
+  folder: 'menus' | 'illustrations' | 'photos' | 'qr' | 'banners' | 'canonical' = 'illustrations'
 ): Promise<StorageUploadResult> {
   const cleanName = `${Date.now()}-${filename.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
   const storageKey = `${folder}/${cleanName}`;
@@ -243,6 +243,52 @@ export async function uploadAsset(
   return {
     storageKey,
     publicUrl,
+    mime: mimeType,
+    sizeBytes: buffer.length,
+  };
+}
+
+/** Upload an object using a caller-owned stable key (useful for idempotent catalog imports). */
+export async function uploadAssetAtStorageKey(
+  buffer: Buffer,
+  rawStorageKey: string,
+  mimeType: string
+): Promise<StorageUploadResult> {
+  const storageKey = sanitizeStorageKey(rawStorageKey);
+  if (!storageKey) {
+    throw new Error('Invalid storage key');
+  }
+
+  const s3Config = getS3StorageConfig();
+  if (s3Config) {
+    const res = await signedS3Fetch(s3Config, 'PUT', storageKey, {
+      body: buffer,
+      contentType: mimeType,
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(
+        `Object storage upload failed (${res.status} ${res.statusText}): ${errText.slice(0, 300)}`
+      );
+    }
+
+    return {
+      storageKey,
+      publicUrl: s3Config.publicBaseUrl
+        ? `${s3Config.publicBaseUrl}/${storageKey}`
+        : `/api/storage/${storageKey}`,
+      mime: mimeType,
+      sizeBytes: buffer.length,
+    };
+  }
+
+  const filePath = path.join(process.cwd(), 'public', 'uploads', storageKey);
+  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.promises.writeFile(filePath, buffer);
+
+  return {
+    storageKey,
+    publicUrl: `/uploads/${storageKey}`,
     mime: mimeType,
     sizeBytes: buffer.length,
   };

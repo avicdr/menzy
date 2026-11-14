@@ -17,6 +17,7 @@ import { PAN_ASIAN_CATALOG } from './data/pan-asian';
 import { CONTINENTAL_MEDITERRANEAN_CATALOG } from './data/continental-mediterranean';
 import { PATISSERIE_FROZEN_CATALOG } from './data/patisserie-frozen';
 import { COCKTAILS_CRAFT_DRINKS_CATALOG } from './data/cocktails-craft-drinks';
+import { CAFE_SPECIALTIES_CATALOG } from './data/cafe-specialties';
 
 export {
   CANONICAL_CATEGORY_ORDER,
@@ -26,6 +27,7 @@ export {
 };
 
 export const CANONICAL_GALLERY_CATALOG: CanonicalCatalogItem[] = [
+  ...CAFE_SPECIALTIES_CATALOG,
   ...COFFEES_CATALOG,
   ...TEAS_AND_DRINKS_CATALOG,
   ...BREAKFAST_AND_BAKERY_CATALOG,

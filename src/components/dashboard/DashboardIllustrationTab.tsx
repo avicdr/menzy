@@ -36,6 +36,8 @@ interface DashboardIllustrationTabProps {
 const CARD_BADGE_STYLES = {
   OWNER_PHOTO: 'bg-sky-100 text-sky-900',
   AI_GENERATED: 'bg-terracotta-100 text-terracotta-800',
+  CANONICAL_REALISTIC: 'bg-emerald-100 text-emerald-800',
+  CANONICAL_CLAY: 'bg-violet-100 text-violet-800',
   CANONICAL: 'bg-sage-100 text-sage-800',
   PLACEHOLDER: 'bg-cream-200 text-taupe-700',
 } as const;

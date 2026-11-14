@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getCache, withSingleflight } from '@/lib/cache/redis';
 import { getCanonicalDisplayMeta } from '@/lib/canonical/catalog';
+import {
+  getCanonicalVisualStyle,
+  getCanonicalVisualStyleLabel,
+} from '@/lib/canonical/visual-style';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +20,8 @@ async function queryCanonicalLibrary(query: string) {
     width: true,
     height: true,
     type: true,
+    source: true,
+    prompt: true,
   } as const;
 
   const canonicalDishes = await prisma.canonicalDish.findMany({
@@ -44,7 +50,6 @@ async function queryCanonicalLibrary(query: string) {
       imageAsset: { select: assetSelect },
       canonicalAssets: {
         where: { isApproved: true },
-        take: 1,
         select: {
           asset: { select: assetSelect },
         },
@@ -54,23 +59,29 @@ async function queryCanonicalLibrary(query: string) {
     take: 2000,
   });
 
-  return canonicalDishes
-    .map((d) => {
-      const resolvedAsset = d.imageAsset || d.canonicalAssets?.[0]?.asset || null;
-      if (!resolvedAsset) return null;
+  return canonicalDishes.flatMap((d) => {
       const meta = getCanonicalDisplayMeta(d.normalizedName, d.cuisine);
-      return {
-        canonicalId: d.id,
-        normalizedName: d.normalizedName,
-        dishName: meta.displayName,
-        category: meta.category,
-        cuisine: meta.cuisine,
-        description: d.generalizedDescription,
-        aliases: Array.isArray(d.aliases) ? d.aliases : [],
-        asset: resolvedAsset,
-      };
-    })
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+      const assets = [
+        ...(d.imageAsset ? [d.imageAsset] : []),
+        ...d.canonicalAssets.map((entry) => entry.asset),
+      ].filter((asset, index, all) => all.findIndex((candidate) => candidate.id === asset.id) === index);
+
+      return assets.map((asset) => {
+        const style = getCanonicalVisualStyle(asset);
+        return {
+          canonicalId: d.id,
+          normalizedName: d.normalizedName,
+          dishName: meta.displayName,
+          category: meta.category,
+          cuisine: meta.cuisine,
+          description: d.generalizedDescription,
+          aliases: Array.isArray(d.aliases) ? d.aliases : [],
+          style,
+          styleLabel: getCanonicalVisualStyleLabel(style),
+          asset,
+        };
+      });
+    });
 }
 
 export async function GET(req: Request) {
@@ -121,4 +132,3 @@ export async function GET(req: Request) {
     { headers: { 'Cache-Control': 'private, max-age=60, stale-while-revalidate=120' } }
   );
 }
-

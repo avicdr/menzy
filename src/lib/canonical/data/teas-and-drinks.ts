@@ -317,7 +317,7 @@ export const TEAS_AND_DRINKS_CATALOG: CanonicalCatalogItem[] = [
       'Vanilla ice cream blended with milk and Oreo cookies, topped with whipped cream.',
     visualPrompt:
       'a rich creamy Oreo Crumble Thick Shake in a tall glass rimmed with crushed dark sandwich cookie crumbs and topped with whipped cream and an Oreo cookie wedge',
-    aliases: ['thick shake', 'oreo crumble thick shake', 'oreo shake', 'oreo thick shake', 'cookies and cream shake'],
+    aliases: ['thick shake', 'oreo crumble thick shake', 'oreo thick shake', 'cookies and cream shake'],
     estimatedNutrition: { calories: 480, protein: 10, carbs: 62, fat: 21, servingGrams: 380 },
   },
   {
@@ -473,7 +473,7 @@ export const TEAS_AND_DRINKS_CATALOG: CanonicalCatalogItem[] = [
       'Muddled lime wedges, fresh mint leaves, and sugar topped with crushed ice and club soda.',
     visualPrompt:
       'a sparkling Classic Virgin Mojito in a highball glass packed with crushed clear ice, muddled green lime wedges, vibrant mint leaves, and crisp effervescent soda bubbles',
-    aliases: ['virgin mojito', 'classic virgin mojito', 'mojito', 'mint mojito', 'lime mint mojito'],
+    aliases: ['virgin mojito', 'classic virgin mojito', 'mojito', 'lime mint mojito'],
     estimatedNutrition: { calories: 110, protein: 0.2, carbs: 27, fat: 0, servingGrams: 320 },
   },
   {
