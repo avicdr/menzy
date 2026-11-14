@@ -4,6 +4,7 @@ import {
   getGenAIClient,
   getTextModelCandidates,
   getTextModelName,
+  isGeminiModelUnavailableError,
   markGeminiKeyCooldown,
   resolveGeminiAttemptClients,
 } from './client';
@@ -343,6 +344,10 @@ Available menu snapshot: ${JSON.stringify(sanitizedMenu)}`;
           const responseText = response?.text || '{}';
           return await finalizeAIResponse(responseText, candidateModel);
         } catch (err) {
+          if (isGeminiModelUnavailableError(err)) {
+            console.warn(`Gemini diner chat model unavailable (${candidateModel}); trying the next model.`);
+            break;
+          }
           const msg = String((err as any)?.message || err || '').toLowerCase();
           const status = Number((err as any)?.status ?? (err as any)?.statusCode ?? 0);
           if (

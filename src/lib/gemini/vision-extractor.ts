@@ -5,6 +5,7 @@ import {
   getGenAIClient,
   getTextModelCandidates,
   getTextModelName,
+  isGeminiModelUnavailableError,
   markGeminiKeyCooldown,
   resolveGeminiAttemptClients,
 } from './client';
@@ -542,6 +543,10 @@ export async function extractMenuFromImages(params: {
           return validated;
         } catch (geminiErr) {
           lastError = geminiErr;
+          if (isGeminiModelUnavailableError(geminiErr)) {
+            console.warn(`[VisionExtractor] ${candidateModel} is unavailable; trying the next model.`);
+            break;
+          }
           const msg = String((geminiErr as any)?.message || geminiErr || '').toLowerCase();
           const status = Number((geminiErr as any)?.status ?? (geminiErr as any)?.statusCode ?? 0);
           if (
@@ -647,4 +652,3 @@ export async function extractMenuFromImages(params: {
     throw new Error(friendlyMsg);
   }
 }
-

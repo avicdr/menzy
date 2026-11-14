@@ -3,6 +3,7 @@ import prisma from '../db/prisma';
 import {
   getGenAIClient,
   getTextModelCandidates,
+  isGeminiModelUnavailableError,
   markGeminiKeyCooldown,
   resolveGeminiAttemptClients,
 } from '../gemini/client';
@@ -775,7 +776,7 @@ ${canonicalCatalogLines}`;
   const timeoutMs = options.timeoutMs ?? 15000;
   const modelCandidates = getTextModelCandidates();
   let rawResponseText: string | null = null;
-  let usedModel = modelCandidates[0] || 'gemini-3.8-flash';
+  let usedModel = modelCandidates[0] || 'gemini-3.5-flash-lite';
 
   const invalidKeySet = new Set<string>();
   let abortModelCascade = false;
@@ -824,6 +825,10 @@ ${canonicalCatalogLines}`;
           break;
         }
       } catch (err: any) {
+        if (isGeminiModelUnavailableError(err)) {
+          console.warn(`[CanonicalMatcher] ${candidateModel} is unavailable; trying the next model.`);
+          break;
+        }
         const msg = String(err?.message || err || '').toLowerCase();
         const status = Number(err?.status ?? err?.statusCode ?? 0);
         if (

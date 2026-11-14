@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getAdminSession } from '@/lib/auth/admin-auth';
+import { logAdminAction } from '@/lib/auth/admin-auth';
 import { PLAN_CATALOG, PlanKey, TRIAL_PLAN_KEY } from '@/lib/payments/plans';
 
 export const dynamic = 'force-dynamic';
@@ -132,3 +133,99 @@ export async function GET(req: Request) {
   }
 }
 
+export async function PATCH(req: Request) {
+  const session = await getAdminSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const body = await req.json().catch(() => null);
+    const subscriptionId =
+      typeof body?.subscriptionId === 'string' ? body.subscriptionId.trim() : '';
+    const planKey = typeof body?.planKey === 'string' ? body.planKey.trim() : '';
+    const founderReason =
+      typeof body?.founderReason === 'string' ? body.founderReason.trim() : '';
+
+    if (!subscriptionId || !planKey || !founderReason) {
+      return NextResponse.json(
+        { error: 'subscriptionId, planKey, and founderReason are required.' },
+        { status: 400 }
+      );
+    }
+
+    const validPlanKeys = new Set<string>([TRIAL_PLAN_KEY, ...Object.keys(PLAN_CATALOG)]);
+    if (!validPlanKeys.has(planKey)) {
+      return NextResponse.json({ error: 'Unsupported subscription plan.' }, { status: 400 });
+    }
+
+    const subscription = await prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+      include: {
+        organization: {
+          select: {
+            id: true,
+            billingCountry: true,
+            billingCurrency: true,
+            restaurants: { take: 1, select: { country: true, slug: true } },
+          },
+        },
+      },
+    });
+    if (!subscription) {
+      return NextResponse.json({ error: 'Subscription not found.' }, { status: 404 });
+    }
+
+    const plan = planKey === TRIAL_PLAN_KEY ? null : PLAN_CATALOG[planKey as PlanKey];
+    const organizationCountry =
+      subscription.organization.billingCountry ||
+      subscription.organization.restaurants[0]?.country ||
+      'IN';
+    if (plan && plan.country !== organizationCountry) {
+      return NextResponse.json(
+        { error: `Choose a ${organizationCountry} plan for this organization.` },
+        { status: 400 }
+      );
+    }
+
+    const now = new Date();
+    const isTrial = planKey === TRIAL_PLAN_KEY;
+    const paidThrough = isTrial
+      ? new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
+      : subscription.paidThrough && subscription.paidThrough > now
+      ? subscription.paidThrough
+      : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const updated = await prisma.subscription.update({
+      where: { id: subscription.id },
+      data: {
+        planKey,
+        provider: isTrial ? 'TRIAL' : 'FOUNDER_OVERRIDE',
+        providerSubscriptionId: null,
+        providerCustomerId: null,
+        status: isTrial ? 'TRIAL' : 'ACTIVE',
+        currency: plan?.currency || subscription.organization.billingCurrency || subscription.currency,
+        paidThrough,
+        cancelAtPeriodEnd: false,
+      },
+    });
+
+    await logAdminAction({
+      adminEmail: session.email,
+      action: 'CHANGE_SUBSCRIPTION_PLAN',
+      entityType: 'SUBSCRIPTION',
+      entityId: subscription.id,
+      beforeState: subscription,
+      afterState: updated,
+      reason: founderReason,
+    });
+
+    return NextResponse.json({ success: true, subscription: updated });
+  } catch (error: any) {
+    console.error('Admin subscription PATCH error:', error);
+    return NextResponse.json(
+      { error: error.message || 'Failed to update subscription.' },
+      { status: 500, headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
+  }
+}

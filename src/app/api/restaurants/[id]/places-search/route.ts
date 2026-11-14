@@ -3,6 +3,7 @@ import { createTenantAccessDeniedResponse, verifyRestaurantOwnerAccess } from '@
 import {
   getGenAIClient,
   getTextModelCandidates,
+  isGeminiModelUnavailableError,
   markGeminiKeyCooldown,
   resolveGeminiAttemptClients,
 } from '@/lib/gemini/client';
@@ -74,6 +75,10 @@ export async function GET(
           searchCompleted = true;
           break;
         } catch (geminiErr) {
+          if (isGeminiModelUnavailableError(geminiErr)) {
+            console.warn(`Gemini search model unavailable (${candidateModel}); trying the next model.`);
+            break;
+          }
           if (entry.key !== 'mock-injected-client') {
             markGeminiKeyCooldown(entry.key, geminiErr, 'text');
           }

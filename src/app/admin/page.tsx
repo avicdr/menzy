@@ -25,6 +25,7 @@ import {
   Activity,
   ChefHat,
   KeyRound,
+  Trash2,
   X,
 } from 'lucide-react';
 import { Portal } from '@/components/ui/Portal';
@@ -73,6 +74,11 @@ type AdminSectionKey =
   | 'canonical'
   | 'claims'
   | 'orders';
+
+const ADMIN_PLAN_OPTIONS = {
+  IN: ['FREE_TRIAL', 'IN_STARTER', 'IN_GROWTH', 'IN_PRO'],
+  US: ['FREE_TRIAL', 'US_STARTER', 'US_GROWTH', 'US_PRO'],
+} as const;
 
 export default function SuperAdminPortalPage() {
   const router = useRouter();
@@ -146,6 +152,9 @@ export default function SuperAdminPortalPage() {
   } | null>(null);
   const [copiedInviteModal, setCopiedInviteModal] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [adminActionError, setAdminActionError] = useState<string | null>(null);
+  const [deletingRestaurantId, setDeletingRestaurantId] = useState<string | null>(null);
+  const [updatingSubscriptionId, setUpdatingSubscriptionId] = useState<string | null>(null);
 
   const fetchSection = useCallback(
     async (
@@ -306,6 +315,70 @@ export default function SuperAdminPortalPage() {
   const handleLogout = async () => {
     await fetch('/api/admin/auth/logout', { method: 'POST' });
     router.push('/admin/login');
+  };
+
+  const handleDeleteRestaurant = async (restaurant: any) => {
+    const confirmationName = window.prompt(
+      `This permanently removes ${restaurant.displayName} and its menus, tables, staff, orders, and sessions. Type the restaurant name exactly to continue:`
+    );
+    if (confirmationName === null) return;
+    if (confirmationName.trim() !== restaurant.displayName) {
+      setAdminActionError('Restaurant name did not match. Nothing was deleted.');
+      return;
+    }
+
+    setDeletingRestaurantId(restaurant.id);
+    setAdminActionError(null);
+    try {
+      const res = await fetch('/api/admin/restaurants', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurantId: restaurant.id, confirmationName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to delete restaurant.');
+      setRestaurants((current) => current.filter((item) => item.id !== restaurant.id));
+      await loadData(true);
+    } catch (error: any) {
+      setAdminActionError(error.message || 'Failed to delete restaurant.');
+    } finally {
+      setDeletingRestaurantId(null);
+    }
+  };
+
+  const handleChangeSubscriptionPlan = async (subscription: any, planKey: string) => {
+    if (planKey === subscription.planKey) return;
+    const confirmed = window.confirm(
+      `Change ${subscription.organization?.name || 'this organization'} from ${subscription.planKey} to ${planKey}? This creates a founder override and disconnects the previous payment-provider subscription ID.`
+    );
+    if (!confirmed) return;
+
+    const founderReason = window.prompt('Reason for this subscription change:');
+    if (!founderReason?.trim()) {
+      setAdminActionError('A founder reason is required. The subscription was not changed.');
+      return;
+    }
+
+    setUpdatingSubscriptionId(subscription.id);
+    setAdminActionError(null);
+    try {
+      const res = await fetch('/api/admin/subscriptions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscriptionId: subscription.id,
+          planKey,
+          founderReason: founderReason.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to update subscription.');
+      await loadData(true);
+    } catch (error: any) {
+      setAdminActionError(error.message || 'Failed to update subscription.');
+    } finally {
+      setUpdatingSubscriptionId(null);
+    }
   };
 
   const handleGenerateClaimLink = async (restaurantId: string, restaurantName: string) => {
@@ -562,6 +635,19 @@ export default function SuperAdminPortalPage() {
 
       {/* Main Content Area */}
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6 sm:space-y-8 min-w-0 overflow-x-clip">
+        {adminActionError && (
+          <div role="alert" className="p-3.5 bg-red-950/90 border border-red-800 text-red-200 rounded-xl text-xs flex items-center justify-between gap-3">
+            <span>{adminActionError}</span>
+            <button
+              type="button"
+              onClick={() => setAdminActionError(null)}
+              className="p-1 text-red-300 hover:text-white"
+              aria-label="Dismiss admin action error"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
         {activeSection === 'overview' && (
           <div className="space-y-6 sm:space-y-8 animate-fade-in">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -809,29 +895,40 @@ export default function SuperAdminPortalPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-3 border-t border-espresso-800 text-xs">
-                    {r.isClaimed && r.organizationId ? (
+                  <div className="flex items-center justify-between gap-3 pt-3 border-t border-espresso-800 text-xs">
+                    <div className="flex items-center gap-3">
+                      {r.isClaimed && r.organizationId ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedOrgId(r.organizationId);
+                            setIsGrantModalOpen(true);
+                          }}
+                          className="text-xs text-taupe-400 hover:text-cream-100 font-semibold"
+                        >
+                          Grant Perks
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={generatingInviteId === r.id}
+                          onClick={() => handleGenerateClaimLink(r.id, r.displayName)}
+                          className="text-xs text-amber-400 hover:text-amber-300 font-semibold inline-flex items-center gap-1 disabled:opacity-50"
+                        >
+                          <KeyRound className="w-3 h-3" />
+                          <span>{generatingInviteId === r.id ? 'Generating...' : 'Get Claim Link'}</span>
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => {
-                          setSelectedOrgId(r.organizationId);
-                          setIsGrantModalOpen(true);
-                        }}
-                        className="text-xs text-taupe-400 hover:text-cream-100 font-semibold"
+                        disabled={deletingRestaurantId === r.id}
+                        onClick={() => handleDeleteRestaurant(r)}
+                        className="text-xs text-red-400 hover:text-red-300 font-semibold inline-flex items-center gap-1 disabled:opacity-50"
                       >
-                        Grant Perks
+                        <Trash2 className="w-3 h-3" />
+                        <span>{deletingRestaurantId === r.id ? 'Deleting...' : 'Delete'}</span>
                       </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={generatingInviteId === r.id}
-                        onClick={() => handleGenerateClaimLink(r.id, r.displayName)}
-                        className="text-xs text-amber-400 hover:text-amber-300 font-semibold inline-flex items-center gap-1 disabled:opacity-50"
-                      >
-                        <KeyRound className="w-3 h-3" />
-                        <span>{generatingInviteId === r.id ? 'Generating...' : 'Get Claim Link'}</span>
-                      </button>
-                    )}
+                    </div>
                     <a
                       href={`/m/${r.slug}`}
                       target="_blank"
@@ -913,6 +1010,9 @@ export default function SuperAdminPortalPage() {
                   <tbody className="divide-y divide-espresso-800/60">
                     {filteredSubscriptions.map((sub: any) => {
                       const badge = getAdminSubBadge(sub);
+                      const planCountry =
+                        sub.organization?.restaurants?.[0]?.country === 'US' ? 'US' : 'IN';
+                      const planOptions = ADMIN_PLAN_OPTIONS[planCountry];
                       const providerLabel =
                         sub.provider === 'TRIAL'
                           ? 'Trial'
@@ -926,9 +1026,21 @@ export default function SuperAdminPortalPage() {
                             <div className="text-taupe-400 text-[11px]">{sub.organization.restaurants[0]?.displayName}</div>
                           </td>
                           <td className="py-3.5 px-4 font-mono font-medium text-cream-200">
-                            <span className="px-2 py-0.5 rounded bg-espresso-800/80 border border-espresso-700/60 text-cream-200 text-[11px]">
-                              {sub.planKey === 'FREE_TRIAL' ? 'Trial (14D Free)' : sub.planKey}
-                            </span>
+                            <select
+                              value={sub.planKey}
+                              disabled={updatingSubscriptionId === sub.id}
+                              onChange={(event) =>
+                                handleChangeSubscriptionPlan(sub, event.target.value)
+                              }
+                              aria-label={`Subscription tier for ${sub.organization.name}`}
+                              className="min-w-[150px] px-2 py-1.5 rounded-lg bg-[#0E0A08] border border-espresso-700 text-cream-100 text-[11px] disabled:opacity-50 dark-select"
+                            >
+                              {planOptions.map((key) => (
+                                <option key={key} value={key}>
+                                  {key === 'FREE_TRIAL' ? 'Trial (14D Free)' : key}
+                                </option>
+                              ))}
+                            </select>
                           </td>
                           <td className="py-3.5 px-4">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${badge.toneClass}`}>

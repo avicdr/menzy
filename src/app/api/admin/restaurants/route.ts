@@ -14,6 +14,7 @@ import {
   resolvePrimaryDietaryBucket,
 } from '@/lib/menu/deduplicate';
 import { validateBannerUrlInput } from '@/lib/banner/banner-validation';
+import { getCache } from '@/lib/cache/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -79,6 +80,69 @@ export async function GET() {
     { restaurants },
     { headers: { 'Cache-Control': 'no-store, max-age=0' } }
   );
+}
+
+export async function DELETE(req: Request) {
+  const session = await getAdminSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const body = await req.json().catch(() => null);
+    const restaurantId = typeof body?.restaurantId === 'string' ? body.restaurantId.trim() : '';
+    const confirmationName =
+      typeof body?.confirmationName === 'string' ? body.confirmationName.trim() : '';
+
+    if (!restaurantId || !confirmationName) {
+      return NextResponse.json(
+        { error: 'restaurantId and confirmationName are required.' },
+        { status: 400 }
+      );
+    }
+
+    const restaurant = await prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: {
+        id: true,
+        slug: true,
+        displayName: true,
+        organizationId: true,
+        isClaimed: true,
+        _count: {
+          select: { menuItems: true, orders: true, tables: true, staff: true },
+        },
+      },
+    });
+    if (!restaurant) {
+      return NextResponse.json({ error: 'Restaurant not found.' }, { status: 404 });
+    }
+    if (confirmationName !== restaurant.displayName) {
+      return NextResponse.json(
+        { error: 'Confirmation name does not match the restaurant name.' },
+        { status: 400 }
+      );
+    }
+
+    await prisma.restaurant.delete({ where: { id: restaurant.id } });
+    await getCache().del(`menu:slug:${restaurant.slug}`);
+    await logAdminAction({
+      adminEmail: session.email,
+      action: 'DELETE_RESTAURANT',
+      entityType: 'RESTAURANT',
+      entityId: restaurant.id,
+      beforeState: restaurant,
+      reason: `Founder permanently removed restaurant "${restaurant.displayName}"`,
+    });
+
+    return NextResponse.json({ success: true, deletedRestaurantId: restaurant.id });
+  } catch (error: any) {
+    console.error('Delete restaurant error:', error);
+    return NextResponse.json(
+      { error: error.message || 'Failed to delete restaurant.' },
+      { status: 500 }
+    );
+  }
 }
 
 interface IncomingDemoDish {

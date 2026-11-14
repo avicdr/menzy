@@ -6,6 +6,7 @@ import {
   getOrderedGeminiClients,
   getTextModelCandidates,
   isGeminiKeyCooledDown,
+  isGeminiModelUnavailableError,
   markGeminiKeyCooldown,
   resolveGeminiAttemptClients,
 } from './client';
@@ -153,7 +154,7 @@ async function enrichDishVisualDescriptionWithGeminiText(
     return null;
   }
 
-  const primaryModel = getTextModelCandidates()[0] || 'gemini-3.8-flash';
+  const primaryModel = getTextModelCandidates()[0] || 'gemini-3.5-flash-lite';
   const entry = textClients[0];
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('VISUAL_BRIEF_TIMEOUT')), 3500);
@@ -459,6 +460,11 @@ export async function generateOrReuseDishIllustration(params: {
           }
         }
       } catch (err: any) {
+        if (isGeminiModelUnavailableError(err)) {
+          providerErrors.push(`Gemini(${candidateModel}): model unavailable`);
+          console.warn(`GenAI image model unavailable (${candidateModel}); trying the next model.`);
+          break;
+        }
         const msg = String(err?.message || err || '').toLowerCase();
         const status = Number(err?.status ?? err?.statusCode ?? 0);
         if (

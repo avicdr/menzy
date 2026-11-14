@@ -224,7 +224,6 @@ const RETIRED_TEXT_MODELS = new Set([
   'gemini-3-flash-preview',
   'gemini-3.1-flash-lite-preview',
   'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
   'gemini-2.5-pro',
 ]);
 
@@ -239,16 +238,31 @@ const RETIRED_IMAGE_MODELS = new Set([
   'imagen-4.0-ultra-generate-001',
 ]);
 
-export const DEFAULT_GEMINI_TEXT_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_GEMINI_TEXT_MODEL = 'gemini-3.5-flash-lite';
 export const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
 
 const DEFAULT_GEMINI_TEXT_FALLBACK_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-3.7-flash',
-  'gemini-3.6-flash',
-  'gemini-3.5-flash',
   'gemini-3.5-flash-lite',
+  'gemini-3.6-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-2.5-flash-lite',
+  'gemini-3.8-flash',
 ];
+
+export function isGeminiModelUnavailableError(error: unknown): boolean {
+  const value = error as any;
+  const status = Number(
+    value?.status ?? value?.statusCode ?? value?.error?.code ?? value?.cause?.status ?? 0
+  );
+  const message = String(value?.message || value || '').toLowerCase();
+  return (
+    status === 503 ||
+    message.includes('high demand') ||
+    message.includes('model is currently experiencing') ||
+    message.includes('"status":"unavailable"') ||
+    message.includes('service unavailable')
+  );
+}
 
 export function getTextModelName(): string {
   const configured = process.env.GEMINI_TEXT_MODEL?.trim();

@@ -327,7 +327,13 @@ describe('Multi-Key Gemini Rotation & OpenAI Fallback', () => {
     expect(textModels).not.toContain('gemini-2.5-flash');
     expect(textModels).not.toContain('gemini-2.5-pro');
     expect(textModels).not.toContain('gemini-3.1-flash-lite-preview');
-    expect(textModels[0]).toBe('gemini-3.8-flash');
+    expect(textModels).toEqual([
+      'gemini-3.5-flash-lite',
+      'gemini-3.6-flash',
+      'gemini-3.1-flash-lite',
+      'gemini-2.5-flash-lite',
+      'gemini-3.8-flash',
+    ]);
 
     process.env.GEMINI_IMAGE_MODEL = 'gemini-2.5-flash-image';
     process.env.GEMINI_IMAGE_FALLBACK_MODELS = 'gemini-3.1-flash-image-preview,imagen-3.0-generate-002';

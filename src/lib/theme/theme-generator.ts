@@ -12,6 +12,7 @@ import {
 import {
   getGenAIClient,
   getTextModelCandidates,
+  isGeminiModelUnavailableError,
   markGeminiKeyCooldown,
   resolveGeminiAttemptClients,
 } from '../gemini/client';
@@ -1090,6 +1091,10 @@ ${excludeInstruction ? `\n${excludeInstruction}` : ''}`;
             return result;
           }
         } catch (err) {
+          if (isGeminiModelUnavailableError(err)) {
+            console.warn(`Gemini theme model unavailable (${candidateModel}); trying the next model.`);
+            break;
+          }
           const msg = String((err as any)?.message || err || '').toLowerCase();
           const status = Number((err as any)?.status ?? (err as any)?.statusCode ?? 0);
           if (
