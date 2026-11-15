@@ -34,3 +34,11 @@ Run date: 2026-11-15
 1. Deploy the three routes, then request indexing through authorized Search Console access.
 2. Populate keyword positions and search demand from GSC or a connected keyword provider; leave unavailable values blank.
 3. Build a free QR menu generator or menu pricing calculator before outreach.
+
+## Ranking diagnosis — 2026-11-16
+
+- Crawl/index signals checked: PASS. The homepage and new pages return HTTP 200, contain `index, follow`, self-referencing canonicals, and the new URLs are present in the sitemap.
+- Brand query problem: `Menzy` is ambiguous. Public results are dominated by unrelated fitness/crypto, music, and other Menzy entities, while the restaurant SaaS is not yet an established entity in the result set.
+- Non-brand query problem: the sampled café QR-ordering SERP is occupied by dedicated café ordering products with stronger topical authority and link profiles. Menzy has no observed result for the sampled query.
+- Authority problem: this tracker contains 0 verified acquired backlinks and only 6 researched prospects. There is no evidence yet of the external mentions needed to disambiguate the brand or compete for broad commercial terms.
+- Measurement limit: exact Google positions, impressions, and indexing state require Search Console; public search sampling cannot provide those metrics.
