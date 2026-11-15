@@ -3,6 +3,7 @@ import { PlanTier, NutritionSource, AssetType, ThemePreset, LayoutMode, Publicat
 import crypto from 'crypto';
 import prisma from '../src/lib/db/prisma';
 import { seedAcaiTheoryDemo } from '../scripts/seed-acai-theory';
+import { seedTheGravityDemo } from '../scripts/seed-the-gravity';
 import { seedCafeSpecialties } from '../scripts/seed-cafe-specialties';
 
 function hashStaffPassword(plainText: string): string {
@@ -1146,7 +1147,10 @@ async function main() {
   // 7. Seed Founder Demo Menu: "Açaí Theory"
   await seedAcaiTheoryDemo();
 
-  // 8. Seed 12 Curated Cafe Specialties into Canonical Library
+  // 8. Seed Founder Demo Menu: "The Gravity" (Rich Dark Aesthetic)
+  await seedTheGravityDemo();
+
+  // 9. Seed 12 Curated Cafe Specialties into Canonical Library
   await seedCafeSpecialties();
 
   console.log('🎉 Menzy database seeding complete!');

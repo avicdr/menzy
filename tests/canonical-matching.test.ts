@@ -82,10 +82,10 @@ describe('Shared Canonical Knowledge Matching', () => {
     }
   });
 
-  it('contains all 655 curated catalog dishes across all 17 categories with clean display metadata', () => {
-    expect(CANONICAL_GALLERY_CATALOG).toHaveLength(655);
+  it('contains all 667 curated catalog dishes across all categories with clean display metadata', () => {
+    expect(CANONICAL_GALLERY_CATALOG).toHaveLength(667);
     const uniqueNames = new Set(CANONICAL_GALLERY_CATALOG.map((item) => item.normalizedName));
-    expect(uniqueNames.size).toBe(655);
+    expect(uniqueNames.size).toBe(667);
 
     const byCategory = CANONICAL_GALLERY_CATALOG.reduce<Record<string, number>>((acc, item) => {
       acc[item.category] = (acc[item.category] || 0) + 1;
@@ -93,6 +93,18 @@ describe('Shared Canonical Knowledge Matching', () => {
     }, {});
 
     expect(byCategory).toEqual({
+      'Cold Coffee': 1,
+      'Shakes': 1,
+      'Mojitos': 1,
+      'Pasta': 1,
+      'Wraps': 1,
+      'Momos': 1,
+      'Sandwiches': 1,
+      'Snacks': 1,
+      'Pizza': 1,
+      'Tea & Bun': 1,
+      'Maggi': 1,
+      'Burgers': 1,
       'Hot & Iced Coffees': 35,
       'Teas, Matcha & Hot Infusions': 25,
       'Shakes, Smoothies, Juices & Mocktails': 30,
@@ -144,12 +156,12 @@ describe('Shared Canonical Knowledge Matching', () => {
       ['Single Espresso', 'espresso'],
       ['Double Espresso', 'doppio double espresso'],
       ['V60 Pour-Over Coffee', 'pour-over coffee'],
-      ['Hazelnut Cold Coffee', 'frappe cold coffee'],
+      ['Hazelnut Cold Coffee', 'hazelnut cold coffee'],
       ['South Indian Filter Coffee', 'south indian filter coffee'],
       ['Butterfly Blue Pea Tea', 'butterfly blue pea tea'],
       ['Blueberry Matcha Latte', 'blueberry iced matcha latte'],
       ['Vanilla Latte', 'cafe latte'],
-      ['Oreo Thick Shake', 'thick shake'],
+      ['Oreo Thick Shake', 'oreo shake'],
       ['Berry Smoothie Bowl', 'smoothie bowl'],
       ['Chili Guava Cooler', 'fruit soda cooler'],
       ['Blue Lagoon Cooler', 'blue lagoon cooler'],
@@ -163,7 +175,7 @@ describe('Shared Canonical Knowledge Matching', () => {
       ['Lucknowi Basket (Tokri) Chaat', 'lucknowi basket tokri chaat'],
       ['Peri-Peri Fries', 'peri peri fries'],
       ['Red Sauce Pasta', 'arrabbiata pasta'],
-      ['White Sauce Pasta', 'alfredo pasta'],
+      ['White Sauce Pasta', 'white sauce pasta'],
       ['Pink Sauce (Rosa) Pasta', 'pink sauce pasta'],
       ['Wood-Fired Pizza', 'thin-crust wood-fired pizza'],
       ['Fresh Burrata & Arugula Pizza', 'fresh burrata arugula pizza'],

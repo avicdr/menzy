@@ -16,6 +16,7 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "seed:acai": "tsx scripts/seed-acai-theory.ts",
+    "seed:gravity": "tsx scripts/seed-the-gravity.ts",
     "seed:cafe": "tsx scripts/seed-cafe-specialties.ts",
     "assets:import-realistic": "tsx scripts/import-realistic-food-assets.ts",
     "assets:upload-realistic": "tsx scripts/upload-realistic-food-assets.ts",

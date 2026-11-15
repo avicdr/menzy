@@ -18,6 +18,7 @@ import { CONTINENTAL_MEDITERRANEAN_CATALOG } from './data/continental-mediterran
 import { PATISSERIE_FROZEN_CATALOG } from './data/patisserie-frozen';
 import { COCKTAILS_CRAFT_DRINKS_CATALOG } from './data/cocktails-craft-drinks';
 import { CAFE_SPECIALTIES_CATALOG } from './data/cafe-specialties';
+import { REALISTIC_FOOD_ASSET_MANIFEST } from './data/realistic-food-assets';
 
 export {
   CANONICAL_CATEGORY_ORDER,
@@ -85,6 +86,17 @@ export function getCanonicalDisplayMeta(normalizedName: string, dbCuisine?: stri
       displayName: catalogMatch.displayName,
       category: catalogMatch.category,
       cuisine: dbCuisine || catalogMatch.cuisine,
+    };
+  }
+
+  const realisticMatch = REALISTIC_FOOD_ASSET_MANIFEST.find(
+    (item) => item.normalizedName === key
+  );
+  if (realisticMatch) {
+    return {
+      displayName: realisticMatch.displayName,
+      category: realisticMatch.category,
+      cuisine: dbCuisine || realisticMatch.cuisine,
     };
   }
 

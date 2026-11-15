@@ -239,7 +239,7 @@ export function DashboardIllustrationTab({
         <div>
           <h2 className="font-serif text-xl font-bold text-espresso-900">Illustration Lab</h2>
           <p className="text-xs sm:text-sm text-taupe-500 mt-1">
-            Preview dishes, upload your own photos, reuse Canonical Gallery art at zero credit cost, or generate AI food photos.
+            Preview dishes, upload your own photos, reuse Image Gallery art at zero credit cost, or generate AI food photos.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
@@ -263,7 +263,7 @@ export function DashboardIllustrationTab({
             className="px-3.5 py-1.5 rounded-xl bg-sage-50 hover:bg-sage-100 text-sage-800 border border-sage-200 font-semibold text-xs flex items-center gap-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
           >
             <ImageIcon className="w-3.5 h-3.5 text-sage-700" />
-            Browse Canonical Gallery
+            Browse Image Gallery
           </button>
           <span className="px-3 py-1.5 rounded-xl bg-terracotta-50 text-terracotta-700 font-bold text-xs border border-terracotta-200">
             {remainingImageCredits} Generation Credits Remaining
@@ -388,7 +388,7 @@ export function DashboardIllustrationTab({
                     type="button"
                     onClick={() => handleOpenCanonicalGallery(item)}
                     className="py-2 px-3 rounded-xl bg-cream-100 hover:bg-cream-200 text-espresso-800 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 border border-cream-200 shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-                    title="Choose free image from Canonical Gallery"
+                    title="Choose free image from Image Gallery"
                   >
                     <ImageIcon className="w-3.5 h-3.5 text-sage-700" />
                     Gallery

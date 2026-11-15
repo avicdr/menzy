@@ -7,8 +7,8 @@ import {
 
 describe('realistic food asset catalog', () => {
   it('has a unique food label and source file for every imported asset', () => {
-    expect(REALISTIC_FOOD_ASSET_MANIFEST).toHaveLength(36);
-    expect(new Set(REALISTIC_FOOD_ASSET_MANIFEST.map((item) => item.file)).size).toBe(36);
+    expect(REALISTIC_FOOD_ASSET_MANIFEST).toHaveLength(42);
+    expect(new Set(REALISTIC_FOOD_ASSET_MANIFEST.map((item) => item.file)).size).toBe(42);
     for (const item of REALISTIC_FOOD_ASSET_MANIFEST) {
       expect(item.normalizedName).toMatch(/^[a-z0-9][a-z0-9 -]*$/);
       expect(item.displayName.length).toBeGreaterThan(2);

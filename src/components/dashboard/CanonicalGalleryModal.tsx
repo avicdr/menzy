@@ -32,7 +32,6 @@ export function CanonicalGalleryModal({
   const [galleryItems, setGalleryItems] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
-  const [selectedStyle, setSelectedStyle] = useState('ALL');
   const [applyingCanonicalId, setApplyingCanonicalId] = useState<string | null>(null);
 
   const searchInputId = useId();
@@ -119,9 +118,6 @@ export function CanonicalGalleryModal({
   };
 
   const filteredGalleryItems = galleryItems.filter((entry) => {
-    if (selectedStyle !== 'ALL' && entry.style !== selectedStyle) {
-      return false;
-    }
     if (selectedCategory !== 'ALL' && entry.category !== selectedCategory) {
       return false;
     }
@@ -130,6 +126,7 @@ export function CanonicalGalleryModal({
     return (
       entry.dishName?.toLowerCase().includes(q) ||
       entry.normalizedName?.toLowerCase().includes(q) ||
+      entry.category?.toLowerCase().includes(q) ||
       entry.description?.toLowerCase().includes(q) ||
       entry.cuisine?.toLowerCase().includes(q) ||
       (Array.isArray(entry.aliases) &&
@@ -141,8 +138,8 @@ export function CanonicalGalleryModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Canonical Image Library"
-      subtitle="Browse realistic food photos and 3D clay artwork by dish or category. Applying a library image costs no generation credits."
+      title="Image Gallery"
+      subtitle="Browse approved food photography by category or search. Applying a library image costs no generation credits."
       maxWidth="4xl"
       bodyClassName="space-y-4"
     >
@@ -198,33 +195,7 @@ export function CanonicalGalleryModal({
       )}
 
       {galleryItems.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex flex-wrap gap-1.5">
-            {[
-              ['ALL', 'All styles'],
-              ['REALISTIC', 'Realistic photos'],
-              ['CLAY', '3D clay artwork'],
-            ].map(([style, label]) => {
-              const count = style === 'ALL'
-                ? galleryItems.length
-                : galleryItems.filter((i) => i.style === style).length;
-              return (
-                <button
-                  key={style}
-                  type="button"
-                  onClick={() => setSelectedStyle(style)}
-                  className={`px-3 py-1 rounded-full text-[11px] font-semibold transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta ${
-                    selectedStyle === style
-                      ? 'bg-terracotta text-white'
-                      : 'bg-cream-100 text-taupe-700 hover:bg-cream-200'
-                  }`}
-                >
-                  {label} ({count})
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
           {[
             'ALL',
             ...sortCanonicalCategories(
@@ -233,10 +204,8 @@ export function CanonicalGalleryModal({
           ].map((cat) => {
             const count =
               cat === 'ALL'
-                ? galleryItems.filter((i) => selectedStyle === 'ALL' || i.style === selectedStyle).length
-                : galleryItems.filter((i) =>
-                    i.category === cat && (selectedStyle === 'ALL' || i.style === selectedStyle)
-                  ).length;
+                ? galleryItems.length
+                : galleryItems.filter((i) => i.category === cat).length;
             return (
               <button
                 key={cat}
@@ -252,20 +221,19 @@ export function CanonicalGalleryModal({
               </button>
             );
           })}
-          </div>
         </div>
       )}
 
       {loading ? (
         <div className="py-12 flex flex-col items-center justify-center text-taupe-500 text-xs gap-2">
           <RefreshCw className="w-6 h-6 animate-spin motion-reduce:animate-none text-terracotta" />
-          <span>Loading Canonical Gallery...</span>
+          <span>Loading Image Gallery...</span>
         </div>
       ) : loadError ? (
         <div className="py-12 text-center text-red-700 text-xs">{loadError}</div>
       ) : filteredGalleryItems.length === 0 ? (
         <div className="py-12 text-center text-taupe-500 text-xs">
-          No canonical dishes match your current filter or search query.
+          No images match your current filter or search query.
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5">
@@ -285,11 +253,6 @@ export function CanonicalGalleryModal({
                   {entry.category && (
                     <span className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-black/65 text-white backdrop-blur-xs max-w-[90%] truncate">
                       {entry.category}
-                    </span>
-                  )}
-                  {entry.styleLabel && (
-                    <span className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-white/90 text-espresso-900 shadow-sm max-w-[90%] truncate">
-                      {entry.styleLabel}
                     </span>
                   )}
                 </div>

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getCache, withSingleflight } from '@/lib/cache/redis';
 import { getCanonicalDisplayMeta } from '@/lib/canonical/catalog';
+import { REALISTIC_FOOD_ASSET_MANIFEST } from '@/lib/canonical/data/realistic-food-assets';
 import {
   getCanonicalVisualStyle,
   getCanonicalVisualStyleLabel,
@@ -15,6 +16,7 @@ const LIBRARY_CACHE_TTL_SECONDS = 300;
 async function queryCanonicalLibrary(query: string) {
   const assetSelect = {
     id: true,
+    storageKey: true,
     publicUrl: true,
     mime: true,
     width: true,
@@ -59,29 +61,67 @@ async function queryCanonicalLibrary(query: string) {
     take: 2000,
   });
 
-  return canonicalDishes.flatMap((d) => {
-      const meta = getCanonicalDisplayMeta(d.normalizedName, d.cuisine);
-      const assets = [
-        ...(d.imageAsset ? [d.imageAsset] : []),
-        ...d.canonicalAssets.map((entry) => entry.asset),
-      ].filter((asset, index, all) => all.findIndex((candidate) => candidate.id === asset.id) === index);
+  const rawItems = canonicalDishes.flatMap((d) => {
+    const meta = getCanonicalDisplayMeta(d.normalizedName, d.cuisine);
+    const allAssets = [
+      ...(d.imageAsset ? [d.imageAsset] : []),
+      ...d.canonicalAssets.map((entry) => entry.asset),
+    ].filter((asset, index, all) => all.findIndex((candidate) => candidate.id === asset.id) === index);
 
-      return assets.map((asset) => {
-        const style = getCanonicalVisualStyle(asset);
-        return {
-          canonicalId: d.id,
-          normalizedName: d.normalizedName,
-          dishName: meta.displayName,
-          category: meta.category,
-          cuisine: meta.cuisine,
-          description: d.generalizedDescription,
-          aliases: Array.isArray(d.aliases) ? d.aliases : [],
-          style,
-          styleLabel: getCanonicalVisualStyleLabel(style),
-          asset,
-        };
-      });
+    // Prefer uploaded R2 storage assets over local static placeholders
+    const hasStorageAsset = allAssets.some((a) => a.publicUrl?.startsWith('/api/storage/'));
+    const activeAssets = hasStorageAsset
+      ? allAssets.filter((a) => a.publicUrl?.startsWith('/api/storage/'))
+      : allAssets;
+
+    return activeAssets.map((asset) => {
+      const style = getCanonicalVisualStyle(asset);
+      const manifestEntry = REALISTIC_FOOD_ASSET_MANIFEST.find(
+        (m) =>
+          asset.storageKey?.includes(m.file) ||
+          asset.publicUrl?.includes(m.file) ||
+          asset.prompt?.includes(m.file)
+      );
+
+      const dishName = manifestEntry?.displayName || meta.displayName;
+      const category = manifestEntry?.category || meta.category;
+      const cuisine = manifestEntry?.cuisine || meta.cuisine;
+      const description =
+        manifestEntry?.generalizedDescription || d.generalizedDescription;
+      const aliases = manifestEntry?.aliases || (Array.isArray(d.aliases) ? d.aliases : []);
+
+      return {
+        canonicalId: d.id,
+        normalizedName: manifestEntry?.normalizedName || d.normalizedName,
+        dishName,
+        category,
+        cuisine,
+        description,
+        aliases,
+        style,
+        styleLabel: getCanonicalVisualStyleLabel(style),
+        asset,
+      };
     });
+  });
+
+  // Guarantee strict uniqueness: no duplicate dishName and no duplicate image URL
+  const seenUrls = new Set<string>();
+  const seenNames = new Set<string>();
+  const uniqueItems: typeof rawItems = [];
+
+  for (const item of rawItems) {
+    const urlKey = item.asset?.publicUrl;
+    const nameKey = item.dishName.toLowerCase().trim();
+    if (!urlKey || seenUrls.has(urlKey) || seenNames.has(nameKey)) {
+      continue;
+    }
+    seenUrls.add(urlKey);
+    seenNames.add(nameKey);
+    uniqueItems.push(item);
+  }
+
+  return uniqueItems;
 }
 
 export async function GET(req: Request) {

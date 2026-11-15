@@ -38,6 +38,17 @@ export async function loadDinerMenuPayload(rawSlug: string): Promise<DinerMenuLo
     }
   }
 
+  // Alias the-gravity to the-gravity-demo if requested
+  if (slug === 'the-gravity') {
+    const directMatch = await prisma.restaurant.findUnique({
+      where: { slug: 'the-gravity' },
+      select: { id: true },
+    });
+    if (!directMatch) {
+      slug = 'the-gravity-demo';
+    }
+  }
+
   const cache = getCache();
   const cacheKey = `menu:slug:${slug}`;
   const cached = await cache.get(cacheKey).catch(() => null);

@@ -424,7 +424,7 @@ export function DishPreviewModal({
                 Or Generate / Switch Dish Image
               </h4>
               <p className="text-[11px] text-taupe-500 mt-0.5">
-                Preview a realistic AI food photo before replacing, or pick curated artwork from our Canonical Gallery.
+                Preview a realistic AI food photo before replacing, or pick curated artwork from our Image Gallery.
               </p>
             </div>
 
@@ -478,7 +478,7 @@ export function DishPreviewModal({
                   className="py-2 px-3.5 rounded-xl bg-sage-50 hover:bg-sage-100 text-sage-900 border border-sage-200 text-xs font-semibold transition-colors inline-flex items-center gap-1.5 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
                 >
                   <ImageIcon className="w-3.5 h-3.5 text-sage-700" aria-hidden="true" />
-                  <span>Canonical Gallery</span>
+                  <span>Image Gallery</span>
                 </button>
               )}
 

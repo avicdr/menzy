@@ -22,6 +22,16 @@ async function importOne(entry: (typeof REALISTIC_FOOD_ASSET_MANIFEST)[number], 
     throw new Error(`Missing realistic food asset: ${sourcePath}`);
   }
 
+  // Ensure local public canonical copy exists
+  const publicCanonicalDir = path.join(process.cwd(), 'public', 'images', 'canonical');
+  if (!fs.existsSync(publicCanonicalDir)) {
+    fs.mkdirSync(publicCanonicalDir, { recursive: true });
+  }
+  const localCanonicalDest = path.join(publicCanonicalDir, entry.file);
+  if (!fs.existsSync(localCanonicalDest)) {
+    await fs.promises.copyFile(sourcePath, localCanonicalDest);
+  }
+
   const prompt = `Imported realistic food photo: ${entry.file}`;
   const catalogItem = CANONICAL_GALLERY_CATALOG.find(
     (item) => item.normalizedName === entry.normalizedName
@@ -87,12 +97,22 @@ async function importOne(entry: (typeof REALISTIC_FOOD_ASSET_MANIFEST)[number], 
     });
   }
 
-  const aliases = catalogItem?.aliases?.length
-    ? catalogItem.aliases
-    : [entry.normalizedName, entry.displayName.toLowerCase()];
-  const description = catalogItem?.generalizedDescription ||
+  const aliases = Array.from(new Set([
+    ...(catalogItem?.aliases || []),
+    ...(entry.aliases || []),
+    entry.normalizedName,
+    entry.displayName.toLowerCase(),
+  ]));
+  const description = entry.generalizedDescription || catalogItem?.generalizedDescription ||
     `Realistic food photo reference for ${entry.displayName}.`;
-  const cuisine = catalogItem?.cuisine || entry.cuisine;
+  const cuisine = catalogItem ? (catalogItem.category || entry.category) : entry.category;
+  const existingDish = await prisma.canonicalDish.findUnique({
+    where: { normalizedName: entry.normalizedName },
+    select: { imageAssetId: true, imageAsset: { select: { publicUrl: true } } },
+  });
+  const keepExistingPrimary = Boolean(existingDish?.imageAsset?.publicUrl?.startsWith('/images/canonical/'));
+  const targetImageAssetId = keepExistingPrimary ? existingDish!.imageAssetId : asset.id;
+
   const canonical = await prisma.canonicalDish.upsert({
     where: { normalizedName: entry.normalizedName },
     update: {
@@ -100,6 +120,7 @@ async function importOne(entry: (typeof REALISTIC_FOOD_ASSET_MANIFEST)[number], 
       cuisine,
       generalizedDescription: description,
       estimatedNutrition: catalogItem?.estimatedNutrition as any,
+      imageAssetId: targetImageAssetId,
       reviewState: ReviewState.APPROVED,
     },
     create: {
@@ -108,6 +129,7 @@ async function importOne(entry: (typeof REALISTIC_FOOD_ASSET_MANIFEST)[number], 
       cuisine,
       generalizedDescription: description,
       estimatedNutrition: catalogItem?.estimatedNutrition as any,
+      imageAssetId: asset.id,
       reviewState: ReviewState.APPROVED,
       provenance: 'SYSTEM_CURATED',
     },
@@ -116,6 +138,10 @@ async function importOne(entry: (typeof REALISTIC_FOOD_ASSET_MANIFEST)[number], 
   // A corrected manifest label must not leave the same image visible under its old dish.
   await prisma.canonicalAsset.deleteMany({
     where: { assetId: asset.id, canonicalId: { not: canonical.id } },
+  });
+  await prisma.canonicalDish.updateMany({
+    where: { imageAssetId: asset.id, id: { not: canonical.id } },
+    data: { imageAssetId: null },
   });
 
   await prisma.canonicalAsset.upsert({

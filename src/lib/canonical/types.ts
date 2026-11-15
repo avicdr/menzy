@@ -11,6 +11,10 @@ export type CanonicalGalleryCategory =
   | 'Tea & Bun'
   | 'Maggi'
   | 'Burgers'
+  | 'Mocktails'
+  | 'Beverages'
+  | 'Chai'
+  | 'Tandoori Starters'
   | 'Hot & Iced Coffees'
   | 'Teas, Matcha & Hot Infusions'
   | 'Shakes, Smoothies, Juices & Mocktails'
@@ -42,6 +46,10 @@ export const CANONICAL_CATEGORY_ORDER: CanonicalGalleryCategory[] = [
   'Tea & Bun',
   'Maggi',
   'Burgers',
+  'Mocktails',
+  'Beverages',
+  'Chai',
+  'Tandoori Starters',
   'Hot & Iced Coffees',
   'Teas, Matcha & Hot Infusions',
   'Shakes, Smoothies, Juices & Mocktails',

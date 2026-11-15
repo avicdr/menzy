@@ -33,7 +33,17 @@ export function FreeQrMenuGenerator() {
     <section className="free-tool-card" aria-label="Free QR code generator">
       <div className="free-tool-form">
         <label htmlFor="qr-value">Restaurant menu URL or text</label>
-        <input id="qr-value" type="text" value={value} onChange={(event) => setValue(event.target.value)} placeholder="https://yourrestaurant.com/menu" spellCheck={false} />
+        <input
+          id="qr-value"
+          type="text"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          onFocus={(event) => event.target.select()}
+          placeholder="https://yourrestaurant.com/menu"
+          spellCheck={false}
+          autoComplete="url"
+          title={value}
+        />
         <p className="free-tool-help">The QR code is generated in your browser. Do not enter private customer or payment data.</p>
         {error && <p className="free-tool-error" role="status">{error}</p>}
       </div>

@@ -21,15 +21,17 @@ export default function FreeQrMenuGeneratorPage() {
       <JsonLd data={[buildSoftwareApplicationSchema({ urlPath: '/free-qr-menu-generator', description: 'A browser-based QR code generator for restaurant menu URLs or text.' }), buildBreadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'Free QR Menu Generator', path: '/free-qr-menu-generator' }])]} />
       <MarketingHeader />
       <main id="main-content">
-        <section className="subpage-hero" data-enter>
-          <div className="marketing-frame subpage-hero-grid">
-            <div className="subpage-hero-copy">
+        <section className="subpage-hero free-tool-hero" data-enter>
+          <div className="marketing-frame free-tool-hero-inner">
+            <div className="subpage-hero-copy free-tool-hero-copy">
               <nav aria-label="Breadcrumb" className="subpage-breadcrumb"><Link href="/">Home</Link><ChevronRight size={13} aria-hidden="true" /><span>Free QR Menu Generator</span></nav>
               <p className="eyebrow"><span className="eyebrow-mark" /> Free restaurant tool</p>
               <h1>Generate a QR code for your restaurant menu.</h1>
               <p className="subpage-intro">Paste a menu URL or any short text, generate a QR code in your browser, and download it as a PNG. No account or Menzy subscription is required.</p>
             </div>
-            <FreeQrMenuGenerator />
+            <div className="free-tool-stage">
+              <FreeQrMenuGenerator />
+            </div>
           </div>
         </section>
         <section className="subpage-capabilities"><div className="marketing-frame"><div className="subpage-section-heading"><p className="section-kicker">How to use it</p><div><h2>Make a scannable menu link in three steps.</h2><p className="section-intro">Use the tool for a temporary menu link, a printed table card, or a quick QR prototype before setting up a complete digital menu.</p></div></div><div className="capability-list"><article className="capability-row"><span className="capability-index">01</span><h3>Paste your destination</h3><p>Use a public menu URL or short text that guests should see after scanning.</p></article><article className="capability-row"><span className="capability-index">02</span><h3>Check the preview</h3><p>Scan the generated code with a phone before printing so you can confirm the destination.</p></article><article className="capability-row"><span className="capability-index">03</span><h3>Download the PNG</h3><p>Place the downloaded image on a table card, poster, receipt, or menu insert.</p></article></div></div></section>
