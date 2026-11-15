@@ -31,12 +31,11 @@ Last updated: 2026-11-16
 
 - Search Console / Bing Webmaster authorization is unavailable in this workspace.
 - No deployment provider configuration is present in the repository; pushes are made to `origin/main`, then live propagation is checked.
-- After push `746e3ae`, production remained on the previous metadata: the live homepage still serves the older title and the café page does not yet contain the new café QR-ordering title. Deployment propagation/configuration is BLOCKED/UNVERIFIED.
+- Deployment propagation completed after pushes `746e3ae` and `ec469bc`. Live verification on 2026-11-16 confirmed the new homepage title, café QR-ordering title, Arenova attribution, and parent-organization schema.
 - External outreach and directory submissions remain unsent pending account/approval boundaries.
 
 ## Next priorities
 
-1. Deploy this entity and café-intent update, then verify live schema and rendered copy.
-2. Connect Search Console and inspect URL-level indexing for homepage, café page, and four new commercial pages.
-3. Add a flagship café QR ordering guide and begin approved directory submissions.
-4. Build verified internal links from existing blog posts to the café ordering page.
+1. Connect Search Console and inspect URL-level indexing for homepage, café page, and four new commercial pages.
+2. Add a flagship café QR ordering guide and begin approved directory submissions.
+3. Build verified internal links from existing blog posts to the café ordering page.
