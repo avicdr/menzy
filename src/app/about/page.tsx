@@ -41,7 +41,7 @@ export default function AboutPage() {
               Software designed to make every restaurant menu easier to see, ask about, and crave
             </h1>
             <p className="text-sm sm:text-base md:text-lg text-taupe-700 leading-relaxed">
-              Menzy was built to bridge the gap between printed paper hospitality menus and what modern dining guests actually need on their phones: appetizing food visuals, instant dietary clarity, reliable table-specific ordering, and grounded assistance that never slows down service.
+              Menzy is an AI-powered restaurant technology product developed by <a href="https://arenova.in" className="font-semibold text-terracotta-700 underline underline-offset-4">Arenova</a>. It bridges the gap between printed paper hospitality menus and what modern dining guests actually need on their phones: appetizing food visuals, instant dietary clarity, reliable table-specific ordering, and grounded assistance that never slows down service.
             </p>
           </div>
 
@@ -100,4 +100,3 @@ export default function AboutPage() {
     </div>
   );
 }
-

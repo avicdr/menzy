@@ -16,7 +16,7 @@ import { HOMEPAGE_FAQS } from '@/content/seo-pages';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = generateSEOMetadata({
-  title: 'Menzy — AI Digital Menu & QR Ordering Software',
+  title: 'Menzy by Arenova - AI Restaurant Menu & QR Ordering',
   description:
     'Turn paper or PDF restaurant menus into interactive visual QR menus with 3D dish visuals, table-specific QR ordering, a grounded AI waiter, and live kitchen order management.',
   path: '/',

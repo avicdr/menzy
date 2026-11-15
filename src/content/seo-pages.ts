@@ -758,15 +758,17 @@ export const SEO_LANDING_CONFIGS: Record<string, SeoLandingConfig> = {
     path: '/digital-menu-for-cafes',
     breadcrumbName: 'For Cafés & Bakeries',
     eyebrow: 'Cafés, Bakeries & Patisseries',
-    h1: 'Visual digital menus tailored for artisanal cafés & bakeries',
+    h1: 'A café QR ordering system made for busy coffee service',
     intro:
-      'Delight coffee & pastry guests with botanical themes, 3D-clay espresso and tart illustrations, milk/roast variants, and built-in Guest Wi-Fi QR cards.',
-    seoTitle: 'Digital Menu Software for Cafés & Bakeries — Menzy',
+      'Give café guests a mobile menu, table QR ordering, live availability, and a fast path from counter service to a second order—without forcing an app download.',
+    seoTitle: 'Café QR Ordering System & Digital Menu Software — Menzy',
     seoDescription:
-      'Create gorgeous visual café menus with milk & size variants, 3D pastry art, one-tap guest Wi-Fi QR cards, and table ordering.',
+      'Run a café QR ordering system with a visual digital menu, table-specific QR codes, live item availability, guest Wi-Fi, and staff order management.',
     keywords: [
       'digital menu for cafes',
       'cafe qr code menu',
+      'cafe qr ordering system',
+      'qr ordering software for cafes',
       'bakery digital menu software',
     ],
     primaryCtaLabel: 'Create Café Menu',

@@ -6,6 +6,8 @@ import {
   SITE_URL,
   DEFAULT_DESCRIPTION,
   buildCanonicalUrl,
+  PARENT_ORGANIZATION_NAME,
+  PARENT_ORGANIZATION_URL,
 } from './seo';
 
 export function buildOrganizationSchema() {
@@ -17,6 +19,11 @@ export function buildOrganizationSchema() {
     logo: new URL('/logo.png', SITE_URL).toString(),
     image: GLOBAL_OG_IMAGE,
     description: DEFAULT_DESCRIPTION,
+    parentOrganization: {
+      '@type': 'Organization',
+      name: PARENT_ORGANIZATION_NAME,
+      url: PARENT_ORGANIZATION_URL,
+    },
     areaServed: ['IN', 'US'],
     contactPoint: {
       '@type': 'ContactPoint',
@@ -37,6 +44,11 @@ export function buildWebSiteSchema() {
       '@type': 'Organization',
       name: SITE_NAME,
       url: SITE_URL,
+      parentOrganization: {
+        '@type': 'Organization',
+        name: PARENT_ORGANIZATION_NAME,
+        url: PARENT_ORGANIZATION_URL,
+      },
     },
   };
 }
@@ -64,10 +76,15 @@ export function buildSoftwareApplicationSchema(options?: {
       'Direct contactless table QR ordering with 30-minute session protection',
       'Real-time Kitchen Display System (KDS) and waiter service call alerts',
     ],
-    provider: {
-      '@type': 'Organization',
+    brand: {
+      '@type': 'Brand',
       name: SITE_NAME,
       url: SITE_URL,
+    },
+    provider: {
+      '@type': 'Organization',
+      name: PARENT_ORGANIZATION_NAME,
+      url: PARENT_ORGANIZATION_URL,
     },
   };
 

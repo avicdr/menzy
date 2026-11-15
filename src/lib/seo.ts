@@ -20,8 +20,10 @@ export const SITE_URL = normalizeSiteUrl(
 );
 
 export const SITE_NAME = 'Menzy';
+export const PARENT_ORGANIZATION_NAME = 'Arenova';
+export const PARENT_ORGANIZATION_URL = 'https://arenova.in';
 
-export const DEFAULT_TITLE = 'Menzy — AI Digital Menu & QR Ordering Software';
+export const DEFAULT_TITLE = 'Menzy by Arenova - AI Restaurant Menu & QR Ordering';
 
 export const DEFAULT_DESCRIPTION =
   'Transform printed or PDF menus into interactive digital restaurant menus with 3D dish visuals, table-specific QR ordering, a menu-grounded AI waiter, and kitchen order management.';
