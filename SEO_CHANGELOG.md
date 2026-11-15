@@ -5,3 +5,4 @@
 - 2026-11-15 — Confirmed local centralized SEO validation passed before this cycle.
 - 2026-11-15 — Revalidated SEO gate and production build after the new routes; both passed. Lint exited 0 with warnings. Full suite remains blocked by five unrelated existing failures.
 - 2026-11-15 — Added the free browser-based QR menu generator at `/free-qr-menu-generator`, with PNG download, metadata, schema, sitemap entry, and footer link.
+- 2026-11-16 — Verified deployed SEO routes return HTTP 200 with self-canonicals; public `site:` search did not yet show the four new URLs. Exact ranking remains unavailable without Search Console data.

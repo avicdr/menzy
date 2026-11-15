@@ -5,6 +5,7 @@ Run date: 2026-11-15
 ## Verified
 
 - `https://menzy.arenova.in/` returned HTTP 200 with server-rendered marketing content.
+- Deployed `/restaurant-ordering-system`, `/ai-waiter`, `/restaurant-menu-maker`, and `/free-qr-menu-generator` each returned HTTP 200 with self-referencing canonicals.
 - `robots.txt` returned HTTP 200 and allows public pages while disallowing `/api/`, `/admin`, `/dashboard`, `/orders`, `/claim`, `/login`, and `/signup`.
 - `sitemap.xml` returned HTTP 200 and contains the existing public marketing routes and blog URLs.
 - Local `npm.cmd run check:seo` passed after this cycle: 20 static routes and 5 blog guides.
@@ -22,6 +23,7 @@ Run date: 2026-11-15
 ## Not verified yet
 
 - Google Search Console index coverage, queries, clicks, impressions, CTR, and average position: no connected GSC data in this run.
+- Public `site:` search sample for all four new URLs: no results observed; this is not an exact ranking measurement.
 - Core Web Vitals field data: not collected.
 - External backlink acquisition: no submissions or outreach sent.
 - Production deployment of this local change: not performed.
