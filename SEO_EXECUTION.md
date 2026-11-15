@@ -31,6 +31,7 @@ Last updated: 2026-11-16
 
 - Search Console / Bing Webmaster authorization is unavailable in this workspace.
 - No deployment provider configuration is present in the repository; pushes are made to `origin/main`, then live propagation is checked.
+- After push `746e3ae`, production remained on the previous metadata: the live homepage still serves the older title and the café page does not yet contain the new café QR-ordering title. Deployment propagation/configuration is BLOCKED/UNVERIFIED.
 - External outreach and directory submissions remain unsent pending account/approval boundaries.
 
 ## Next priorities
