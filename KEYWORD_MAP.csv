@@ -1,0 +1,13 @@
+query,intent,monthly_volume,difficulty,target_url,status,current_position,last_checked,source
+AI restaurant menu,commercial,,,/ai-digital-menu,live,,2026-11-15,not connected
+QR code menu,commercial,,,/qr-code-menu,live,,2026-11-15,not connected
+QR code ordering system,commercial,,,/restaurant-ordering-system,live,,2026-11-15,not connected
+digital menu for restaurants,commercial,,,/digital-menu-for-restaurants,live,,2026-11-15,not connected
+digital menu for cafes,commercial,,,/digital-menu-for-cafes,live,,2026-11-15,not connected
+AI waiter for restaurants,commercial,,,/ai-waiter,live,,2026-11-15,not connected
+restaurant ordering system,commercial,,,/restaurant-ordering-system,live,,2026-11-15,not connected
+AI restaurant menu maker,commercial,,,/restaurant-menu-maker,live,,2026-11-15,not connected
+restaurant menu management software,commercial,,,/features,planned,,2026-11-15,not connected
+contactless restaurant ordering,commercial,,,/table-ordering,planned,,2026-11-15,not connected
+restaurant menu software for small businesses,commercial,,,/restaurant-menu-maker,planned,,2026-11-15,not connected
+best QR code menu for restaurants,commercial,,,/qr-code-menu,planned,,2026-11-15,not connected

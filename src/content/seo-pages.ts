@@ -934,5 +934,130 @@ export const SEO_LANDING_CONFIGS: Record<string, SeoLandingConfig> = {
       },
     ],
   },
-};
 
+  'restaurant-ordering-system': {
+    slug: 'restaurant-ordering-system',
+    path: '/restaurant-ordering-system',
+    breadcrumbName: 'Restaurant Ordering System',
+    eyebrow: 'Restaurant Ordering Software',
+    h1: 'A restaurant ordering system that keeps guests and staff in sync',
+    intro:
+      'Menzy connects a mobile menu, table-specific QR ordering, kitchen tickets, and service calls in one browser-based workflow for dine-in teams.',
+    seoTitle: 'Restaurant Ordering System with QR Ordering — Menzy',
+    seoDescription:
+      'Run dine-in ordering with Menzy: mobile menus, table QR codes, kitchen order management, staff alerts, and live availability in one restaurant system.',
+    keywords: ['restaurant ordering system', 'qr code ordering system', 'restaurant order management software', 'dine in ordering system'],
+    primaryCtaLabel: 'Start Your Ordering System',
+    primaryCtaHref: '/signup',
+    secondaryCtaLabel: 'See Order Management',
+    secondaryCtaHref: '/restaurant-order-management',
+    capabilitiesHeading: 'One order path from scan to service',
+    capabilitiesSubheading: 'Give guests a clear way to order while giving the floor and kitchen the context they need to act.',
+    capabilities: [
+      { title: 'Table-aware QR ordering', description: 'Signed table QR tokens identify the table at scan time, so guests can browse and order without downloading an app or typing a table number.' },
+      { title: 'Live kitchen ticket flow', description: 'Orders move through a browser-based terminal with line items, notes, totals, table identity, and clear preparation status.' },
+      { title: 'Availability and service controls', description: 'Update dish availability, receive waiter assistance calls, and keep the published menu aligned with what the team can serve.' },
+    ],
+    workflowHeading: 'Set up ordering around the way you already serve',
+    workflowSteps: [
+      { step: '01', title: 'Import the menu', detail: 'Upload a menu photo or PDF, review extracted dishes and prices, then publish the structured menu.' },
+      { step: '02', title: 'Assign tables and staff', detail: 'Create table-specific QR codes and give kitchen or floor staff role-scoped terminal access.' },
+      { step: '03', title: 'Run service', detail: 'Guests order from their phones while the team tracks tickets, calls, availability, and completion.' },
+    ],
+    checklistHeading: 'Useful for independent restaurants and growing teams',
+    checklistItems: ['No guest app download required', 'Table-specific signed QR tokens', 'Menu edits without reprinting QR cards', 'Kitchen and waiter roles with separate access', 'Regional INR and USD subscription plans'],
+    faqs: [
+      { question: 'Can guests order without installing an app?', answer: 'Yes. The Menzy menu and table ordering flow open in the guest’s mobile browser after scanning the restaurant QR code.' },
+      { question: 'Does Menzy support kitchen staff workflows?', answer: 'Yes. Staff can use the protected order terminal to review incoming orders and move them through preparation statuses.' },
+    ],
+    relatedLinks: [
+      { title: 'QR Code Menu', description: 'Create table-specific QR menus for dine-in service.', href: '/qr-code-menu' },
+      { title: 'Order Management & KDS', description: 'See the staff-side ticket workflow.', href: '/restaurant-order-management' },
+      { title: 'Pricing Plans', description: 'Review Menzy plans and regional billing.', href: '/pricing' },
+    ],
+  },
+
+  'ai-waiter': {
+    slug: 'ai-waiter',
+    path: '/ai-waiter',
+    breadcrumbName: 'AI Waiter',
+    eyebrow: 'Menu-Grounded AI Waiter',
+    h1: 'An AI waiter that answers from your actual menu',
+    intro:
+      'Help guests decide faster with menu-grounded answers about dishes, dietary labels, spice, pairings, and budget—without inventing items your restaurant does not serve.',
+    seoTitle: 'AI Waiter for Restaurants — Menu-Grounded Guest Assistant | Menzy',
+    seoDescription:
+      'Add a menu-grounded AI waiter to your restaurant menu. Menzy answers guest questions from your dishes, prices, variants, and dietary labels.',
+    keywords: ['AI waiter for restaurants', 'restaurant AI assistant', 'AI restaurant menu assistant', 'restaurant menu chatbot'],
+    primaryCtaLabel: 'Add an AI Waiter',
+    primaryCtaHref: '/signup',
+    secondaryCtaLabel: 'Explore AI Menus',
+    secondaryCtaHref: '/ai-digital-menu',
+    capabilitiesHeading: 'Helpful answers with the menu as the source of truth',
+    capabilitiesSubheading: 'The assistant supports discovery while the owner keeps control over the published catalog and dish notes.',
+    capabilities: [
+      { title: 'Dish and dietary questions', description: 'Guests can ask about vegetarian, vegan, egg, gluten-free, spice, and other labels that exist in the published menu.' },
+      { title: 'Budget and pairing guidance', description: 'The assistant can help guests compare available dishes and combinations using the menu’s actual prices and descriptions.' },
+      { title: 'Owner-controlled context', description: 'Owner-provided dish notes and structured variants give the assistant useful context without opening private dashboard data.' },
+    ],
+    workflowHeading: 'Give the assistant clean menu context',
+    workflowSteps: [
+      { step: '01', title: 'Structure your catalog', detail: 'Import a menu photo or PDF, then review names, descriptions, prices, variants, and dietary indicators.' },
+      { step: '02', title: 'Add the useful notes', detail: 'Keep dish details and service guidance current in the owner workspace.' },
+      { step: '03', title: 'Let guests ask naturally', detail: 'Guests use the AI waiter from the mobile menu while the assistant stays grounded in the published catalog.' },
+    ],
+    checklistHeading: 'A practical assistant for busy service',
+    checklistItems: ['Answers inside the mobile menu experience', 'Uses published dishes and prices as context', 'Supports dietary and preference questions', 'Keeps off-menu invention out of the guest flow', 'Works alongside QR ordering and staff service calls'],
+    faqs: [
+      { question: 'Can the AI waiter invent a dish that is not on my menu?', answer: 'Menzy’s AI waiter is designed to stay grounded in the restaurant’s published menu, variants, dietary labels, and owner-provided notes.' },
+      { question: 'Do I need a separate chatbot website?', answer: 'No. The assistant is part of the Menzy digital menu experience that guests open in their mobile browser.' },
+    ],
+    relatedLinks: [
+      { title: 'AI Digital Menu', description: 'Turn a paper or PDF menu into structured digital content.', href: '/ai-digital-menu' },
+      { title: 'QR Code Menu', description: 'Connect the guest experience to table QR codes.', href: '/qr-code-menu' },
+      { title: 'Features', description: 'See the complete Menzy platform.', href: '/features' },
+    ],
+  },
+
+  'restaurant-menu-maker': {
+    slug: 'restaurant-menu-maker',
+    path: '/restaurant-menu-maker',
+    breadcrumbName: 'Restaurant Menu Maker',
+    eyebrow: 'AI Restaurant Menu Maker',
+    h1: 'Make a restaurant menu your team can update in minutes',
+    intro:
+      'Build a polished digital menu from a photo or PDF, organize dishes and variants, add your brand, and publish one live menu that changes without reprinting.',
+    seoTitle: 'AI Restaurant Menu Maker — Build a Digital Menu | Menzy',
+    seoDescription:
+      'Create a digital restaurant menu from photos or PDFs with Menzy. Edit dishes, prices, variants, branding, availability, QR links, and guest ordering.',
+    keywords: ['restaurant menu maker', 'AI menu maker', 'digital menu maker for restaurants', 'online menu creator'],
+    primaryCtaLabel: 'Make Your Menu',
+    primaryCtaHref: '/signup',
+    secondaryCtaLabel: 'View a Live Menu',
+    secondaryCtaHref: '/demo',
+    capabilitiesHeading: 'A menu builder connected to service',
+    capabilitiesSubheading: 'Create the guest-facing menu and the operating details behind it in the same workspace.',
+    capabilities: [
+      { title: 'Photo and PDF extraction', description: 'Start with the menu you already have. Menzy extracts categories, dishes, prices, variants, and dietary indicators for review.' },
+      { title: 'Brand and visual control', description: 'Customize colors, typography, dish imagery, and menu presentation so the digital menu feels like your restaurant.' },
+      { title: 'Live publishing', description: 'Change prices, availability, dishes, and specials in the workspace while keeping printed QR links connected.' },
+    ],
+    workflowHeading: 'From menu file to a live guest experience',
+    workflowSteps: [
+      { step: '01', title: 'Upload what you have', detail: 'Use smartphone menu photos or PDF scans instead of rebuilding every item by hand.' },
+      { step: '02', title: 'Review and style', detail: 'Confirm extracted details, add variants and notes, then apply your restaurant’s visual direction.' },
+      { step: '03', title: 'Publish and share', detail: 'Share the menu through a public link or connect it to table-specific QR ordering.' },
+    ],
+    checklistHeading: 'Built for menus that change',
+    checklistItems: ['Edit prices without reprinting menu cards', 'Mark sold-out dishes unavailable', 'Add structured size, protein, and spice variants', 'Use your own photos or approved dish visuals', 'Link the menu to ordering and staff workflows'],
+    faqs: [
+      { question: 'Can I create a menu from a PDF?', answer: 'Yes. Menzy accepts PDF menu scans for AI-assisted extraction, followed by owner review before publishing.' },
+      { question: 'Can I keep using printed QR cards after editing the menu?', answer: 'Yes. Published table QR codes continue to point to the live menu while menu content changes in the workspace.' },
+    ],
+    relatedLinks: [
+      { title: 'Digital Menu for Restaurants', description: 'See the restaurant-focused menu workflow.', href: '/digital-menu-for-restaurants' },
+      { title: 'Digital Menu for Cafés', description: 'Explore the café and bakery use case.', href: '/digital-menu-for-cafes' },
+      { title: 'Pricing Plans', description: 'Review plans before you publish.', href: '/pricing' },
+    ],
+  },
+};
