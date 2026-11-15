@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 
-const DEFAULT_VALUE = 'https://menzy.arenova.in/qr-code-menu';
+const DEFAULT_VALUE = 'https://menzy.arenova.in/demo';
 
 export function FreeQrMenuGenerator() {
   const [value, setValue] = useState(DEFAULT_VALUE);
