@@ -290,9 +290,10 @@ export async function loadDinerMenuPayload(rawSlug: string): Promise<DinerMenuLo
     const wifiConfig = isWifiVisibleToDiners(notifSettings?.wifi) ? notifSettings.wifi : null;
     const tableSessionConfig = extractTableSessionConfig(notifSettings);
 
+    const { publishedSettings: _unusedPublishedSettings, ...themeClean } = (restaurant.theme || {}) as any;
     const normalizedTheme = restaurant.theme
       ? {
-          ...restaurant.theme,
+          ...themeClean,
           mobileGridColumns:
             (restaurant.theme.publishedSettings as Record<string, any> | null)?.mobileGridColumns ?? 1,
           headingFont: normalizeThemeFont(restaurant.theme.headingFont, 'Plus Jakarta Sans'),
