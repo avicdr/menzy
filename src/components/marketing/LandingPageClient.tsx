@@ -78,6 +78,7 @@ export function LandingPageClient({ authoritativeGeo, initialPlans, freeTrialEna
               <p className="eyebrow"><span className="eyebrow-mark" /> Digital menus for independent restaurants</p>
               <h1>Your menu. Their phone.<br /><em>A smoother service.</em></h1>
               <p className="hero-lede">Turn a printed menu into a branded digital experience. Guests scan their table QR code, explore dishes, ask the AI waiter questions, and send orders to your staff.</p>
+              <p className="hero-differentiator">Menzy helps guests choose, ask, and order from the table.</p>
               <div className="hero-actions"><Link href="/m/the-j-h-cafe-demo-2f3a" className="button button-primary">Try the interactive menu <ExternalLink size={16} /></Link><Link href="/signup" className="button button-secondary">Create your menu <ArrowRight size={16} /></Link></div>
               <p className="hero-note">{freeTrialEnabled ? '14-day free trial · no payment method required · ' : 'Choose a monthly plan after signup · '}<a href={SUPPORT_EMAIL_HREF}>{SUPPORT_EMAIL_DISPLAY}</a></p>
             </div>
@@ -93,6 +94,19 @@ export function LandingPageClient({ authoritativeGeo, initialPlans, freeTrialEna
             <p className="section-intro">Menzy keeps the experience simple for guests and legible for the people running service.</p>
           </div>
           <div className="marketing-frame ruled-list">{experience.map(([title, detail]) => <div className="ruled-row" key={title}><span className="row-label">{title}</span><p>{detail}</p><ArrowRight size={18} aria-hidden="true" /></div>)}</div>
+        </section>
+
+        <section className="statement-section" id="why-menzy">
+          <div className="marketing-frame statement-header">
+            <p className="section-kicker">Why Menzy</p>
+            <h2>A digital menu that does more than show a list.</h2>
+            <p className="section-intro">Guests get the help they need to choose. Your team gets the order in the right place.</p>
+          </div>
+          <div className="marketing-frame ruled-list">
+            <div className="ruled-row"><span className="row-label">See</span><p>Show dishes with clear photos, details, dietary labels, and options.</p><ArrowRight size={18} aria-hidden="true" /></div>
+            <div className="ruled-row"><span className="row-label">Ask</span><p>Let guests ask the AI waiter about ingredients, spice, and pairings.</p><ArrowRight size={18} aria-hidden="true" /></div>
+            <div className="ruled-row"><span className="row-label">Order</span><p>Send table orders and service requests straight to your staff.</p><ArrowRight size={18} aria-hidden="true" /></div>
+          </div>
         </section>
 
         <section className="setup-section"><div className="marketing-frame split-grid"><div className="split-copy"><p className="section-kicker">The owner setup</p><h2>From menu file to live service in one clear pass.</h2><p className="section-intro">Review what Menzy extracts, make the decisions that matter, then publish once. Your menu, prices, availability, and brand stay in one workspace.</p><Link href="/ai-digital-menu" className="text-link">See menu digitization <ArrowRight size={16} /></Link></div><div className="setup-visual"><div className="upload-sheet"><div className="upload-head"><span>Menu Studio</span><span className="upload-state">Ready to review</span></div><div className="upload-file"><div className="file-icon">PDF</div><div><b>summer-menu-2026.pdf</b><small>18 dishes · 4 categories · extracted</small></div><Check size={18} /></div><div className="upload-rule" /><div className="upload-item"><span className="dish-dot dish-dot-orange" /><div><b>Tandoori paneer tikka</b><small>₹380 · Veg · Small plates</small></div><span className="review-tag">Reviewed</span></div><div className="upload-item"><span className="dish-dot dish-dot-green" /><div><b>Classic masala chai</b><small>₹160 · Beverage · Variants</small></div><span className="review-tag">Reviewed</span></div><div className="upload-footer"><span>All changes saved locally</span><button type="button">Publish menu <ArrowRight size={14} /></button></div></div></div></div></section>

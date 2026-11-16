@@ -452,6 +452,7 @@ dialog::backdrop {
 .hero-copy h1 { max-width: 620px; margin: 0; color: var(--ink); font-size: clamp(3.65rem, 6.4vw, 6.8rem); line-height: .93; }
 .hero-copy h1 em { color: var(--accent); font-style: normal; }
 .hero-lede { max-width: 510px; margin: 30px 0 0; color: var(--muted); font-size: 17px; line-height: 1.6; }
+.hero-differentiator { max-width: 510px; margin: 14px 0 0; color: var(--ink); font-size: 15px; line-height: 1.5; font-weight: 600; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
 .hero-note { margin-top: 16px; color: var(--muted); font-size: 12px; }
 .hero-note a { color: var(--ink); text-decoration: underline; text-decoration-color: rgba(17,26,24,.35); text-underline-offset: 3px; }
