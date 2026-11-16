@@ -86,7 +86,11 @@ export function LandingPageClient({ authoritativeGeo, initialPlans }: LandingPag
         </section>
 
         <section className="statement-section" id="how-it-works">
-          <div className="marketing-frame statement-grid"><p className="section-kicker">The guest experience</p><div><h2>Less friction at the table. More room for hospitality.</h2><p className="section-intro">Menzy keeps the experience simple for guests and legible for the people running service.</p></div></div>
+          <div className="marketing-frame statement-header">
+            <p className="section-kicker">The guest experience</p>
+            <h2>Less friction at the table. More room for hospitality.</h2>
+            <p className="section-intro">Menzy keeps the experience simple for guests and legible for the people running service.</p>
+          </div>
           <div className="marketing-frame ruled-list">{experience.map(([title, detail]) => <div className="ruled-row" key={title}><span className="row-label">{title}</span><p>{detail}</p><ArrowRight size={18} aria-hidden="true" /></div>)}</div>
         </section>
 
