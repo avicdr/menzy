@@ -157,7 +157,16 @@ export function LandingPageClient({ authoritativeGeo, initialPlans, freeTrialEna
 
         <section className="operations-section"><div className="marketing-frame operations-grid"><div className="operations-copy"><p className="section-kicker section-kicker-light">The staff view</p><h2>Every order arrives with the context your team needs.</h2><p className="section-intro section-intro-light">Table identity, line items, notes, totals, and a clear status path — in a browser-based terminal built for service.</p><Link href="/restaurant-order-management" className="button button-inverse">See order management <ArrowRight size={16} /></Link></div><div className="operations-panel"><div className="ops-panel-head"><span>Order management</span><span className="ops-live"><i /> Live queue</span></div><div className="ops-stage"><span>New</span><b>02</b><span>Preparing</span><b>01</b><span>Ready</span><b>03</b><span>Served</span><b>08</b></div><div className="ops-ticket"><div><strong>#104 · Table 04</strong><small>Just now · 2 items</small></div><span className="ops-badge">PLACED</span><div className="ops-ticket-items"><span>1 × Tandoori paneer tikka</span><span>1 × Masala chai · regular</span></div><div className="ops-ticket-foot"><span>₹540 · INR</span><button type="button">Accept order</button></div></div><p className="ops-caption">Sample terminal view. Live staff access is protected at <Link href="/orders/login">Staff Terminal</Link>.</p></div></div></section>
 
-        <section className="pricing-section"><div className="marketing-frame pricing-intro"><p className="section-kicker">Plans for real service teams</p><h2>Start small. Keep the system clear.</h2><p className="section-intro">Regional monthly plans in INR and USD, with no per-order commission.</p></div><PricingCardsClient authoritativeGeo={authoritativeGeo} initialPlans={initialPlans} freeTrialEnabled={freeTrialEnabled} sectionId="pricing" eyebrow="" heading="" subheading="" /></section>
+        <section className="pricing-section">
+          <div className="marketing-frame">
+            <div className="statement-header pricing-intro">
+              <p className="section-kicker">Plans for real service teams</p>
+              <h2>Start small. Keep the system clear.</h2>
+              <p className="section-intro">Regional monthly plans in INR and USD, with no per-order commission.</p>
+            </div>
+          </div>
+          <PricingCardsClient authoritativeGeo={authoritativeGeo} initialPlans={initialPlans} freeTrialEnabled={freeTrialEnabled} sectionId="pricing" eyebrow="" heading="" subheading="" />
+        </section>
 
         <section className="faq-section"><div className="marketing-frame faq-grid"><div><p className="section-kicker">Practical answers</p><h2>Questions before you put a QR on the table?</h2><p className="section-intro">A few details owners usually want to know first.</p></div><div className="faq-list">{HOMEPAGE_FAQS.slice(0, 4).map((faq) => <details key={faq.question}><summary>{faq.question}<ChevronDown size={18} /></summary><p>{faq.answer}</p></details>)}</div></div></section>
 
