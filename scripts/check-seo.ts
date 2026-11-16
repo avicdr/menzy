@@ -36,6 +36,8 @@ if (!fs.existsSync(ogImagePath)) {
 for (const asset of [
   'favicon.ico',
   'icon.png',
+  'icon-48.png',
+  'icon-96.png',
   'icon-192.png',
   'icon-512.png',
   'apple-touch-icon.png',

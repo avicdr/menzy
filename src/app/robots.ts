@@ -17,6 +17,10 @@ export default function robots(): MetadataRoute.Robots {
           '/signup',
         ],
       },
+      {
+        userAgent: 'Googlebot-Image',
+        allow: ['/favicon.ico', '/icon.png', '/icon-*.png', '/apple-touch-icon.png', '/logo.png', '/og-image.png'],
+      },
     ],
     sitemap: `${SITE_URL}/sitemap.xml`,
     host: SITE_URL,

@@ -111,6 +111,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" data-type="software" data-site-kind="software" data-radius="soft" data-buttons="solid" data-motion="quiet" className={fontVariablesClass}>
+      <head>
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="icon" href="/icon-48.png" type="image/png" sizes="48x48" />
+        <link rel="icon" href="/icon-96.png" type="image/png" sizes="96x96" />
+        <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
+        <link rel="icon" href="/icon.png" type="image/png" sizes="512x512" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" type="image/png" />
+      </head>
       <body className="min-h-screen antialiased selection:bg-terracotta-200 selection:text-espresso-900">
         {children}
         <GoogleAnalytics />
