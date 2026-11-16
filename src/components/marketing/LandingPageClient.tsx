@@ -88,24 +88,28 @@ export function LandingPageClient({ authoritativeGeo, initialPlans, freeTrialEna
         </section>
 
         <section className="statement-section" id="how-it-works">
-          <div className="marketing-frame statement-header">
-            <p className="section-kicker">The guest experience</p>
-            <h2>Less friction at the table. More room for hospitality.</h2>
-            <p className="section-intro">Menzy keeps the experience simple for guests and legible for the people running service.</p>
+          <div className="marketing-frame">
+            <div className="statement-header">
+              <p className="section-kicker">The guest experience</p>
+              <h2>Less friction at the table. More room for hospitality.</h2>
+              <p className="section-intro">Menzy keeps the experience simple for guests and legible for the people running service.</p>
+            </div>
+            <div className="ruled-list">{experience.map(([title, detail]) => <div className="ruled-row" key={title}><span className="row-label">{title}</span><p>{detail}</p><ArrowRight size={18} aria-hidden="true" /></div>)}</div>
           </div>
-          <div className="marketing-frame ruled-list">{experience.map(([title, detail]) => <div className="ruled-row" key={title}><span className="row-label">{title}</span><p>{detail}</p><ArrowRight size={18} aria-hidden="true" /></div>)}</div>
         </section>
 
         <section className="statement-section" id="why-menzy">
-          <div className="marketing-frame statement-header">
-            <p className="section-kicker">Why Menzy</p>
-            <h2>A digital menu that does more than show a list.</h2>
-            <p className="section-intro">Guests get the help they need to choose. Your team gets the order in the right place.</p>
-          </div>
-          <div className="marketing-frame ruled-list">
-            <div className="ruled-row"><span className="row-label">See</span><p>Show dishes with clear photos, details, dietary labels, and options.</p><ArrowRight size={18} aria-hidden="true" /></div>
-            <div className="ruled-row"><span className="row-label">Ask</span><p>Let guests ask the AI waiter about ingredients, spice, and pairings.</p><ArrowRight size={18} aria-hidden="true" /></div>
-            <div className="ruled-row"><span className="row-label">Order</span><p>Send table orders and service requests straight to your staff.</p><ArrowRight size={18} aria-hidden="true" /></div>
+          <div className="marketing-frame">
+            <div className="statement-header">
+              <p className="section-kicker">Why Menzy</p>
+              <h2>A digital menu that does more than show a list.</h2>
+              <p className="section-intro">Guests get the help they need to choose. Your team gets the order in the right place.</p>
+            </div>
+            <div className="ruled-list">
+              <div className="ruled-row"><span className="row-label">See</span><p>Show dishes with clear photos, details, dietary labels, and options.</p><ArrowRight size={18} aria-hidden="true" /></div>
+              <div className="ruled-row"><span className="row-label">Ask</span><p>Let guests ask the AI waiter about ingredients, spice, and pairings.</p><ArrowRight size={18} aria-hidden="true" /></div>
+              <div className="ruled-row"><span className="row-label">Order</span><p>Send table orders and service requests straight to your staff.</p><ArrowRight size={18} aria-hidden="true" /></div>
+            </div>
           </div>
         </section>
 

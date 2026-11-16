@@ -494,7 +494,7 @@ dialog::backdrop {
 
 .statement-section, .setup-section, .visuals-section, .pricing-section, .faq-section { padding: 120px 0; }
 .statement-section { background: var(--surface); }
-.statement-header { max-width: 860px; }
+.statement-header { max-width: 860px; margin-inline: 0; }
 .statement-header .section-kicker { margin-bottom: 24px; }
 .statement-header h2 { max-width: 840px; margin: 0; font-size: clamp(2.6rem, 4.7vw, 5.2rem); line-height: .96; }
 .statement-header .section-intro { max-width: 52ch; margin: 24px 0 0; color: var(--muted); font-size: 16px; line-height: 1.65; }
