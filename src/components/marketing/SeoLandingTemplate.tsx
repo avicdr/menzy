@@ -30,7 +30,22 @@ export function SeoLandingTemplate({ config }: SeoLandingTemplateProps) {
               <p className="subpage-intro">{config.intro}</p>
               <div className="hero-actions"><Link href={config.primaryCtaHref} className="button button-primary">{config.primaryCtaLabel} <ArrowRight size={16} /></Link><Link href={config.secondaryCtaHref} className="button button-secondary">{config.secondaryCtaLabel} <ExternalLink size={15} /></Link></div>
             </div>
-            <div className="subpage-signal" aria-label={`${config.breadcrumbName} workflow overview`}><div className="signal-head"><span>Menzy workflow</span><span>Built for service</span></div><div className="signal-line" />{config.workflowSteps.slice(0, 3).map((step, index) => <div className="signal-row" key={step.step}><span className="signal-index">{String(index + 1).padStart(2, '0')}</span><div><b>{step.title}</b><small>{step.detail}</small></div><ArrowRight size={16} /></div>)}</div>
+            <div className="subpage-signal" aria-label={`${config.breadcrumbName} workflow overview`}>
+              <div className="signal-head"><span>Menzy workflow</span><span>Built for service</span></div>
+              <div className="signal-line" />
+              <div className="signal-cards-grid">
+                {config.workflowSteps.slice(0, 3).map((step, index) => (
+                  <div className="signal-card" key={step.step}>
+                    <div className="signal-card-top">
+                      <span className="signal-index">{String(index + 1).padStart(2, '0')}</span>
+                      <ArrowRight size={14} aria-hidden="true" />
+                    </div>
+                    <b>{step.title}</b>
+                    <small>{step.detail}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </section>
 

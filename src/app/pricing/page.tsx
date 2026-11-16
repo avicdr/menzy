@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronRight } from 'lucide-react';
 import { headers } from 'next/headers';
 import { getPlansForCountry, type PlanDefinition } from '@/lib/payments/plans';
 import { resolveVisitorRegion } from '@/lib/geo/region-server';
@@ -45,7 +45,46 @@ export default async function PricingPage() {
       <JsonLd data={[buildSoftwareApplicationSchema({ urlPath: '/pricing', pricingPlans: initialPlans || undefined }), buildBreadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'Pricing', path: '/pricing' }]), buildFaqSchema(PRICING_FAQS)]} />
       <MarketingHeader />
       <main id="main-content">
-        <section className="pricing-hero" data-enter><div className="marketing-frame pricing-hero-inner"><div className="pricing-hero-copy"><nav aria-label="Breadcrumb" className="subpage-breadcrumb"><Link href="/">Home</Link><ChevronRight size={13} aria-hidden="true" /><span>Pricing</span></nav><p className="eyebrow"><span className="eyebrow-mark" /> Plans for real service teams</p><h1>Start small.<br /><em>Keep the system clear.</em></h1><p>Regional monthly plans in INR and USD, with a 14-day trial and no per-order commission.</p></div></div></section>
+        <section className="pricing-hero" data-enter>
+          <div className="marketing-frame pricing-hero-grid">
+            <div className="pricing-hero-copy">
+              <nav aria-label="Breadcrumb" className="subpage-breadcrumb"><Link href="/">Home</Link><ChevronRight size={13} aria-hidden="true" /><span>Pricing</span></nav>
+              <p className="eyebrow"><span className="eyebrow-mark" /> Plans for real service teams</p>
+              <h1>Start small.<br /><em>Keep the system clear.</em></h1>
+              <p>Regional monthly plans in INR and USD, with a 14-day trial and no per-order commission.</p>
+            </div>
+            <div className="subpage-signal" aria-label="Menzy pricing overview">
+              <div className="signal-head"><span>Menzy pricing</span><span>Clear &amp; predictable</span></div>
+              <div className="signal-line" />
+              <div className="signal-cards-grid">
+                <div className="signal-card">
+                  <div className="signal-card-top">
+                    <span className="signal-index">01</span>
+                    <ArrowRight size={14} aria-hidden="true" />
+                  </div>
+                  <b>14-day free trial</b>
+                  <small>Instant access with zero card or payment method required.</small>
+                </div>
+                <div className="signal-card">
+                  <div className="signal-card-top">
+                    <span className="signal-index">02</span>
+                    <ArrowRight size={14} aria-hidden="true" />
+                  </div>
+                  <b>Zero commission</b>
+                  <small>Keep 100% of order revenue with flat monthly pricing.</small>
+                </div>
+                <div className="signal-card">
+                  <div className="signal-card-top">
+                    <span className="signal-index">03</span>
+                    <ArrowRight size={14} aria-hidden="true" />
+                  </div>
+                  <b>Predictable scaling</b>
+                  <small>Upgrade dish limits, custom themes &amp; AI capacity anytime.</small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
         <PricingCardsClient authoritativeGeo={geo.authoritative} initialPlans={initialPlans} sectionId="pricing-catalog" asH1 heading="" subheading="" eyebrow="" />
         <section className="pricing-tier-section"><div className="marketing-frame"><div className="subpage-section-heading"><p className="section-kicker">What changes as you grow</p><div><h2>One operating system, three sensible steps.</h2><p className="section-intro">Pick the allowance that matches the menu and service you run today.</p></div></div><div className="pricing-tier-list">{tierNotes.map(([name, detail], index) => <div key={name}><span>{String(index + 1).padStart(2, '0')}</span><h3>{name}</h3><p>{detail}</p></div>)}</div></div></section>
         <section className="pricing-faq"><div className="marketing-frame faq-grid"><div><p className="section-kicker">Pricing questions</p><h2>Clear answers before you commit.</h2></div><div className="faq-list">{PRICING_FAQS.map((faq) => <details key={faq.question}><summary>{faq.question}<ChevronDown size={18} /></summary><p>{faq.answer}</p></details>)}</div></div></section>
