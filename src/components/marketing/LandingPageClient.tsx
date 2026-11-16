@@ -105,10 +105,17 @@ export function LandingPageClient({ authoritativeGeo, initialPlans, freeTrialEna
               <h2>A digital menu that does more than show a list.</h2>
               <p className="section-intro">Guests get the help they need to choose. Your team gets the order in the right place.</p>
             </div>
-            <div className="ruled-list">
-              <div className="ruled-row"><span className="row-label">See</span><p>Show dishes with clear photos, details, dietary labels, and options.</p><ArrowRight size={18} aria-hidden="true" /></div>
-              <div className="ruled-row"><span className="row-label">Ask</span><p>Let guests ask the AI waiter about ingredients, spice, and pairings.</p><ArrowRight size={18} aria-hidden="true" /></div>
-              <div className="ruled-row"><span className="row-label">Order</span><p>Send table orders and service requests straight to your staff.</p><ArrowRight size={18} aria-hidden="true" /></div>
+            <div className="audience-grid">
+              <article className="audience-card">
+                <p className="section-kicker">For guests</p>
+                <h3>Choose with confidence.</h3>
+                <p>See dishes clearly, ask about ingredients and pairings, then order from the table.</p>
+              </article>
+              <article className="audience-card audience-card-dark">
+                <p className="section-kicker">For restaurant teams</p>
+                <h3>Run service with less friction.</h3>
+                <p>Receive table orders with the context your staff needs and keep the menu current in one place.</p>
+              </article>
             </div>
           </div>
         </section>

@@ -23,9 +23,64 @@ export default function DemoPage() {
       <JsonLd data={buildBreadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'Live Demo', path: '/demo' }])} />
       <MarketingHeader />
       <main id="main-content">
-        <section className="demo-hero" data-enter><div className="marketing-frame demo-hero-inner"><div><p className="eyebrow"><span className="eyebrow-mark" /> Working venue demo</p><h1>See the menu<br /><em>guests actually use.</em></h1><p>Open The J&amp;H Cafe to explore the live diner experience: visual dishes, dietary filters, grounded AI pairing answers, and table ordering in the browser.</p></div><div className="demo-meta"><span>Venue</span><strong>{demo.title}</strong><span>{demo.location} · {demo.theme}</span><span>{demo.currency}</span></div></div></section>
+        <section className="demo-hero" data-enter>
+          <div className="marketing-frame demo-hero-inner">
+            <div>
+              <p className="eyebrow"><span className="eyebrow-mark" /> Working venue demo</p>
+              <h1>See the menu<br /><em>guests actually use.</em></h1>
+              <p>Open The J&amp;H Cafe to explore the live diner experience: visual dishes, dietary filters, grounded AI pairing answers, and table ordering in the browser.</p>
+            </div>
+            <div className="subpage-signal" aria-label="Demo menu preview">
+              <div className="signal-head">
+                <span>Working demo</span>
+                <span>Live diner session</span>
+              </div>
+              <div className="signal-line" />
+              <div className="signal-cards-grid">
+                <div className="signal-card">
+                  <div className="signal-card-top">
+                    <span className="signal-index">01</span>
+                    <ArrowRight size={14} aria-hidden="true" />
+                  </div>
+                  <b>The J&amp;H Cafe</b>
+                  <small>{demo.location} · {demo.theme}</small>
+                </div>
+                <div className="signal-card">
+                  <div className="signal-card-top">
+                    <span className="signal-index">02</span>
+                    <ArrowRight size={14} aria-hidden="true" />
+                  </div>
+                  <b>{demo.currency}</b>
+                  <small>Table QR ordering live</small>
+                </div>
+                <div className="signal-card">
+                  <div className="signal-card-top">
+                    <span className="signal-index">03</span>
+                    <ArrowRight size={14} aria-hidden="true" />
+                  </div>
+                  <b>AI Waiter</b>
+                  <small>Menu-grounded answers</small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
         <section className="demo-stage"><div className="marketing-frame demo-stage-grid"><div className="demo-photo"><img src={demo.imageUrl} alt={`${demo.title} dining interior`} width={1200} height={800} /></div><div className="demo-panel"><p className="section-kicker">Live menu</p><h2>{demo.title}</h2><p>{demo.description}</p><div className="demo-facts"><span><b>01</b> Scan a table QR</span><span><b>02</b> Ask the AI waiter</span><span><b>03</b> Send an order to staff</span></div><Link href={`/m/${demo.slug}`} className="button button-primary">Open the diner menu <ExternalLink size={16} /></Link></div></div></section>
-        <section className="demo-lower"><div className="marketing-frame demo-lower-grid"><div><p className="section-kicker">A working example, not a mockup</p><h2>Bring the same clarity to your own menu.</h2></div><div><p className="section-intro">Create a workspace, upload your existing menu, and shape the experience around your venue. If you want help migrating a menu, the team can guide the setup.</p><div className="demo-actions"><Link href="/signup" className="button button-primary">Create your menu <ArrowRight size={16} /></Link><Link href="/contact" className="button button-secondary">Request a tailored demo <ArrowRight size={16} /></Link></div></div></div></section>
+        <section className="demo-lower">
+          <div className="marketing-frame demo-lower-inner">
+            <div className="demo-lower-copy">
+              <p className="section-kicker">A working example, not a mockup</p>
+              <h2>Bring the same clarity to your own menu.</h2>
+              <p className="section-intro">
+                Create a workspace, upload your existing menu, and shape the experience around your venue. If you want help migrating a menu, the team can guide the setup.
+              </p>
+            </div>
+            <div className="demo-actions">
+              <Link href="/signup" className="button button-primary">Create your menu <ArrowRight size={16} /></Link>
+              <Link href="/contact" className="button button-secondary">Request a tailored demo <ArrowRight size={16} /></Link>
+            </div>
+          </div>
+        </section>
       </main>
       <MarketingFooter />
     </div>
