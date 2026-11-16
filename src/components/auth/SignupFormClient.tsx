@@ -16,9 +16,10 @@ import { clearAllDashboardSessionCaches } from '@/lib/cache/dashboard-session-ca
 interface SignupFormClientProps {
   initialRegion: BillingRegion;
   authoritativeGeo: boolean;
+  freeTrialEnabled: boolean;
 }
 
-function SignupFormInner({ initialRegion, authoritativeGeo }: SignupFormClientProps) {
+function SignupFormInner({ initialRegion, authoritativeGeo, freeTrialEnabled }: SignupFormClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const claimToken = searchParams.get('claimToken')?.trim() || '';
@@ -140,12 +141,22 @@ function SignupFormInner({ initialRegion, authoritativeGeo }: SignupFormClientPr
         </p>
       </div>
 
+      {freeTrialEnabled ? (
       <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-2xl text-xs flex items-start gap-2.5">
         <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
         <div className="text-emerald-950 leading-relaxed">
           <span className="font-semibold">Includes 14-Day Free &quot;Trial&quot; Plan</span> — no payment method or card required. After 14 days, everything pauses until you choose a subscription inside Billing.
         </div>
       </div>
+
+      ) : (
+        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-xs flex items-start gap-2.5">
+          <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+          <div className="text-amber-950 leading-relaxed">
+            <span className="font-semibold">Free trials are currently paused.</span> Create your workspace, then choose a subscription in Billing to publish and operate your menu.
+          </div>
+        </div>
+      )}
 
       {claimToken && claimPreview && (
         claimPreview.valid && claimPreview.restaurant ? (
@@ -297,8 +308,12 @@ function SignupFormInner({ initialRegion, authoritativeGeo }: SignupFormClientPr
               ? 'Creating Account & Claiming Menu...'
               : 'Creating your workspace...'
             : claimToken
-            ? 'Create Account & Claim Menu'
-            : 'Start Creating Your Menu'}
+            ? freeTrialEnabled
+              ? 'Create Account & Claim Menu'
+              : 'Claim Menu & Choose a Plan'
+            : freeTrialEnabled
+            ? 'Start Creating Your Menu'
+            : 'Create Workspace & Choose a Plan'}
           <ArrowRight className="w-4 h-4" />
         </button>
       </form>
@@ -322,11 +337,11 @@ function SignupFormInner({ initialRegion, authoritativeGeo }: SignupFormClientPr
   );
 }
 
-export function SignupFormClient({ initialRegion, authoritativeGeo }: SignupFormClientProps) {
+export function SignupFormClient({ initialRegion, authoritativeGeo, freeTrialEnabled }: SignupFormClientProps) {
   return (
     <main className="min-h-screen bg-[#F7F3EC] flex items-center justify-center p-4">
       <Suspense fallback={<div className="w-8 h-8 border-4 border-terracotta border-t-transparent rounded-full animate-spin" />}>
-        <SignupFormInner initialRegion={initialRegion} authoritativeGeo={authoritativeGeo} />
+        <SignupFormInner initialRegion={initialRegion} authoritativeGeo={authoritativeGeo} freeTrialEnabled={freeTrialEnabled} />
       </Suspense>
     </main>
   );

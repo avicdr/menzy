@@ -12,6 +12,7 @@ import {
   buildWebSiteSchema,
 } from '@/lib/seo-schema';
 import { HOMEPAGE_FAQS } from '@/content/seo-pages';
+import { getFreeTrialEnabled } from '@/lib/billing/subscription-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +37,7 @@ export default async function MarketingLandingPage() {
   const initialPlans: PlanDefinition[] | null = geo.authoritative
     ? getPlansForCountry(geo.region)
     : null;
+  const freeTrialEnabled = await getFreeTrialEnabled();
 
   return (
     <>
@@ -53,6 +55,7 @@ export default async function MarketingLandingPage() {
       <LandingPageClient
         authoritativeGeo={geo.authoritative}
         initialPlans={initialPlans}
+        freeTrialEnabled={freeTrialEnabled}
       />
     </>
   );

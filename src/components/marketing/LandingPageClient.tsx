@@ -14,6 +14,7 @@ import { MarketingHeader } from './MarketingHeader';
 interface LandingPageClientProps {
   authoritativeGeo: boolean;
   initialPlans: PlanDefinition[] | null;
+  freeTrialEnabled: boolean;
 }
 
 function HeroPreview() {
@@ -66,7 +67,7 @@ const experience = [
   ['Order', 'A dine-in order arrives in the browser-based staff terminal with its table identity attached.'],
 ];
 
-export function LandingPageClient({ authoritativeGeo, initialPlans }: LandingPageClientProps) {
+export function LandingPageClient({ authoritativeGeo, initialPlans, freeTrialEnabled }: LandingPageClientProps) {
   return (
     <div className="marketing-site">
       <MarketingHeader />
@@ -77,8 +78,8 @@ export function LandingPageClient({ authoritativeGeo, initialPlans }: LandingPag
               <p className="eyebrow"><span className="eyebrow-mark" /> Digital menus for independent restaurants</p>
               <h1>Your menu. Their phone.<br /><em>A smoother service.</em></h1>
               <p className="hero-lede">Turn a printed menu into a branded digital experience. Guests scan their table QR code, explore dishes, ask the AI waiter questions, and send orders to your staff.</p>
-              <div className="hero-actions"><Link href="/m/the-peddler-s-cafe-demo-18f4" className="button button-primary">Try the interactive menu <ExternalLink size={16} /></Link><Link href="/signup" className="button button-secondary">Create your menu <ArrowRight size={16} /></Link></div>
-              <p className="hero-note">14-day free trial · no payment method required · <a href={SUPPORT_EMAIL_HREF}>{SUPPORT_EMAIL_DISPLAY}</a></p>
+              <div className="hero-actions"><Link href="/m/the-j-h-cafe-demo-2f3a" className="button button-primary">Try the interactive menu <ExternalLink size={16} /></Link><Link href="/signup" className="button button-secondary">Create your menu <ArrowRight size={16} /></Link></div>
+              <p className="hero-note">{freeTrialEnabled ? '14-day free trial · no payment method required · ' : 'Choose a monthly plan after signup · '}<a href={SUPPORT_EMAIL_HREF}>{SUPPORT_EMAIL_DISPLAY}</a></p>
             </div>
             <HeroPreview />
           </div>
@@ -138,7 +139,7 @@ export function LandingPageClient({ authoritativeGeo, initialPlans }: LandingPag
 
         <section className="operations-section"><div className="marketing-frame operations-grid"><div className="operations-copy"><p className="section-kicker section-kicker-light">The staff view</p><h2>Every order arrives with the context your team needs.</h2><p className="section-intro section-intro-light">Table identity, line items, notes, totals, and a clear status path — in a browser-based terminal built for service.</p><Link href="/restaurant-order-management" className="button button-inverse">See order management <ArrowRight size={16} /></Link></div><div className="operations-panel"><div className="ops-panel-head"><span>Order management</span><span className="ops-live"><i /> Live queue</span></div><div className="ops-stage"><span>New</span><b>02</b><span>Preparing</span><b>01</b><span>Ready</span><b>03</b><span>Served</span><b>08</b></div><div className="ops-ticket"><div><strong>#104 · Table 04</strong><small>Just now · 2 items</small></div><span className="ops-badge">PLACED</span><div className="ops-ticket-items"><span>1 × Tandoori paneer tikka</span><span>1 × Masala chai · regular</span></div><div className="ops-ticket-foot"><span>₹540 · INR</span><button type="button">Accept order</button></div></div><p className="ops-caption">Sample terminal view. Live staff access is protected at <Link href="/orders/login">Staff Terminal</Link>.</p></div></div></section>
 
-        <section className="pricing-section"><div className="marketing-frame pricing-intro"><p className="section-kicker">Plans for real service teams</p><h2>Start small. Keep the system clear.</h2><p className="section-intro">Regional monthly plans in INR and USD, with a 14-day trial and no per-order commission.</p></div><PricingCardsClient authoritativeGeo={authoritativeGeo} initialPlans={initialPlans} sectionId="pricing" eyebrow="" heading="" subheading="" /></section>
+        <section className="pricing-section"><div className="marketing-frame pricing-intro"><p className="section-kicker">Plans for real service teams</p><h2>Start small. Keep the system clear.</h2><p className="section-intro">Regional monthly plans in INR and USD, with no per-order commission.</p></div><PricingCardsClient authoritativeGeo={authoritativeGeo} initialPlans={initialPlans} freeTrialEnabled={freeTrialEnabled} sectionId="pricing" eyebrow="" heading="" subheading="" /></section>
 
         <section className="faq-section"><div className="marketing-frame faq-grid"><div><p className="section-kicker">Practical answers</p><h2>Questions before you put a QR on the table?</h2><p className="section-intro">A few details owners usually want to know first.</p></div><div className="faq-list">{HOMEPAGE_FAQS.slice(0, 4).map((faq) => <details key={faq.question}><summary>{faq.question}<ChevronDown size={18} /></summary><p>{faq.answer}</p></details>)}</div></div></section>
 

@@ -47,7 +47,9 @@ export async function POST(req: Request) {
       alreadyClaimedByUser: result.alreadyClaimedByUser,
       message: result.alreadyClaimedByUser
         ? 'You already own this restaurant menu. Opening your workspace...'
-        : 'Ownership claimed! Your 14-day Free Trial is active with no payment method required.',
+        : result.trialEnabled
+        ? 'Ownership claimed! Your 14-day Free Trial is active with no payment method required.'
+        : 'Ownership claimed. Choose a subscription in Billing to publish and operate your menu.',
       restaurant: {
         id: result.restaurant.id,
         slug: result.restaurant.slug,
@@ -55,16 +57,19 @@ export async function POST(req: Request) {
         isClaimed: result.restaurant.isClaimed,
         organizationId: result.organizationId,
       },
-      trial: {
-        planKey: TRIAL_PLAN_KEY,
-        name: TRIAL_PLAN.name,
-        days: FREE_TRIAL_DAYS,
-        requiresPaymentMethod: false,
-        trialCreated: result.trialCreated,
-        trialEndsAt: result.subscription?.paidThrough
-          ? result.subscription.paidThrough.toISOString()
-          : null,
-      },
+      trial: result.subscription
+        ? {
+            planKey: TRIAL_PLAN_KEY,
+            name: TRIAL_PLAN.name,
+            days: FREE_TRIAL_DAYS,
+            requiresPaymentMethod: false,
+            trialCreated: result.trialCreated,
+            trialEndsAt: result.subscription.paidThrough
+              ? result.subscription.paidThrough.toISOString()
+              : null,
+          }
+        : null,
+      subscriptionRequired: !result.subscription,
       supportEmail: SUPPORT_EMAIL,
     });
   } catch (error: any) {

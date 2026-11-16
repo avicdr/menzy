@@ -155,6 +155,7 @@ export default function SuperAdminPortalPage() {
   const [adminActionError, setAdminActionError] = useState<string | null>(null);
   const [deletingRestaurantId, setDeletingRestaurantId] = useState<string | null>(null);
   const [updatingSubscriptionId, setUpdatingSubscriptionId] = useState<string | null>(null);
+  const [updatingTrialAvailability, setUpdatingTrialAvailability] = useState(false);
 
   const fetchSection = useCallback(
     async (
@@ -378,6 +379,37 @@ export default function SuperAdminPortalPage() {
       setAdminActionError(error.message || 'Failed to update subscription.');
     } finally {
       setUpdatingSubscriptionId(null);
+    }
+  };
+
+  const handleToggleFreeTrials = async () => {
+    const currentlyEnabled = subscriptionData?.freeTrialEnabled !== false;
+    const nextEnabled = !currentlyEnabled;
+    const confirmed = window.confirm(
+      nextEnabled
+        ? 'Enable 14-day free trials for new signups and menu claims? Existing subscription rules are unchanged.'
+        : 'Disable 14-day free trials for new signups and menu claims? Existing active trials will continue until their current end date.'
+    );
+    if (!confirmed) return;
+
+    setUpdatingTrialAvailability(true);
+    setAdminActionError(null);
+    try {
+      const res = await fetch('/api/admin/subscriptions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'SET_FREE_TRIAL_ENABLED', enabled: nextEnabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to update free-trial availability.');
+      setSubscriptionData((current: any) => ({
+        ...(current || {}),
+        freeTrialEnabled: data.freeTrialEnabled,
+      }));
+    } catch (error: any) {
+      setAdminActionError(error.message || 'Failed to update free-trial availability.');
+    } finally {
+      setUpdatingTrialAvailability(false);
     }
   };
 
@@ -650,6 +682,33 @@ export default function SuperAdminPortalPage() {
         )}
         {activeSection === 'overview' && (
           <div className="space-y-6 sm:space-y-8 animate-fade-in">
+            <section className="p-5 bg-[#140E0A] rounded-2xl border border-espresso-800 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="font-serif text-lg font-bold text-cream-50">Free Trial Availability</h2>
+                <p className="text-xs text-taupe-400 mt-1 max-w-2xl">
+                  Controls whether new signups and newly claimed menus receive a 14-day trial. Existing trials keep their current end date; expired trials and non-subscribers remain paused.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={subscriptionData?.freeTrialEnabled !== false}
+                disabled={updatingTrialAvailability}
+                onClick={handleToggleFreeTrials}
+                className={`min-h-11 px-4 py-2 rounded-xl border text-xs font-semibold transition-colors shrink-0 disabled:opacity-50 ${
+                  subscriptionData?.freeTrialEnabled !== false
+                    ? 'bg-emerald-950 text-emerald-300 border-emerald-800 hover:bg-emerald-900'
+                    : 'bg-red-950 text-red-300 border-red-800 hover:bg-red-900'
+                }`}
+              >
+                {updatingTrialAvailability
+                  ? 'Updating...'
+                  : subscriptionData?.freeTrialEnabled !== false
+                  ? 'Free Trials: On'
+                  : 'Free Trials: Off'}
+              </button>
+            </section>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="p-5 bg-gradient-to-br from-[#160F0B] to-[#120C09] rounded-2xl border border-espresso-800 shadow-md relative overflow-hidden">
                 <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-500/70" />

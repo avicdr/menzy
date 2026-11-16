@@ -10,6 +10,7 @@ import { trackConversionEvent } from '@/lib/analytics/events';
 interface PricingCardsClientProps {
   authoritativeGeo: boolean;
   initialPlans: PlanDefinition[] | null;
+  freeTrialEnabled: boolean;
   sectionId?: string;
   eyebrow?: string;
   heading?: string;
@@ -26,6 +27,7 @@ const TIER_SUBTITLES: Record<PlanDefinition['tier'], string> = {
 export function PricingCardsClient({
   authoritativeGeo,
   initialPlans,
+  freeTrialEnabled,
   sectionId = 'pricing',
   eyebrow = 'Transparent Monthly Plans',
   heading = 'Predictable hospitality pricing',
@@ -112,6 +114,8 @@ export function PricingCardsClient({
         <p className="text-sm text-taupe-600 mx-auto menzy-copy-pretty">{subheading}</p>
       </div>
 
+      {freeTrialEnabled ? (
+      <>
       {/* 14-Day Free Trial Highlight */}
       <div className="mb-8 rounded-3xl bg-white border border-emerald-200 shadow-soft p-5 sm:p-7 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
         <div className="space-y-2 max-w-2xl">
@@ -151,6 +155,25 @@ export function PricingCardsClient({
           </Link>
         </div>
       </div>
+
+      </>
+      ) : (
+        <div className="mb-8 rounded-3xl bg-white border border-amber-200 shadow-soft p-5 sm:p-7 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+          <div className="space-y-2 max-w-2xl">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-[11px] font-bold uppercase tracking-wider text-amber-800">
+              <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+              Subscription required
+            </span>
+            <h3 className="font-serif text-2xl font-bold text-espresso-900">Choose the plan that matches your service.</h3>
+            <p className="text-xs sm:text-sm text-taupe-600 leading-relaxed">
+              Free trials are currently paused. Create or claim your workspace, then activate Starter, Growth, or Pro in Billing to publish your menu and use ordering.
+            </p>
+          </div>
+          <Link href="/signup" className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-espresso-900 hover:bg-espresso-800 text-white text-sm font-semibold transition-all shadow-md">
+            Create Workspace &amp; Choose Plan <ArrowRight className="w-4 h-4" aria-hidden="true" />
+          </Link>
+        </div>
+      )}
 
       <div className="menzy-card-grid" aria-busy={plans === null}>
         {plans === null

@@ -1480,6 +1480,7 @@ function RestaurantDashboardContent() {
   const handleToggleShowLogo = async (nextShow: boolean) => {
     if (!restaurant?.id) return;
     setSettingsForm((prev) => ({ ...prev, showLogo: nextShow }));
+    setRestaurant((prev: any) => (prev ? { ...prev, showLogo: nextShow } : prev));
     try {
       const res = await fetch('/api/restaurant/settings', {
         method: 'PATCH',
@@ -1491,8 +1492,11 @@ function RestaurantDashboardContent() {
       });
       const data = await res.json();
       if (res.ok) {
+        const finalShow = data.showLogo !== false;
+        setSettingsForm((prev) => ({ ...prev, showLogo: finalShow }));
+        setRestaurant((prev: any) => (prev ? { ...prev, showLogo: finalShow } : prev));
         invalidateRestaurantSessionCache(restaurant.id, ['restaurantSettings', 'authMe']);
-        setLogoToast(nextShow ? 'Logo view enabled on menu.' : 'Logo view disabled on menu.');
+        setLogoToast(finalShow ? 'Logo view enabled on menu.' : 'Logo view disabled on menu.');
         setTimeout(() => setLogoToast(null), 3000);
       }
     } catch {
@@ -2036,6 +2040,14 @@ function RestaurantDashboardContent() {
                 bannerToast={bannerToast}
                 onBannerUpload={handleBannerUpload}
                 onRemoveBanner={handleRemoveBanner}
+                showLogo={settingsForm.showLogo !== false && restaurant.showLogo !== false}
+                onToggleShowLogo={handleToggleShowLogo}
+                logoUrl={settingsForm.logoUrl || restaurant.logoUrl}
+                isUploadingLogo={isUploadingLogo}
+                onLogoUpload={handleLogoUpload}
+                onRemoveLogo={handleRemoveLogo}
+                logoError={logoError}
+                logoToast={logoToast}
                 onSubscriptionExpired={handleSubscriptionExpired}
               />
             )}

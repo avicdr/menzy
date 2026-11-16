@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import { resolveVisitorRegion } from '@/lib/geo/region-server';
 import { SignupFormClient } from '@/components/auth/SignupFormClient';
 import { generateSEOMetadata } from '@/lib/seo';
+import { getFreeTrialEnabled } from '@/lib/billing/subscription-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,11 +19,13 @@ export const metadata: Metadata = generateSEOMetadata({
 export default async function SignupPage() {
   const hdrs = await headers();
   const geo = await resolveVisitorRegion(hdrs);
+  const freeTrialEnabled = await getFreeTrialEnabled();
 
   return (
     <SignupFormClient
       initialRegion={geo.region}
       authoritativeGeo={geo.authoritative}
+      freeTrialEnabled={freeTrialEnabled}
     />
   );
 }

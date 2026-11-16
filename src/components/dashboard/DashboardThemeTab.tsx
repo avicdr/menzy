@@ -10,6 +10,7 @@ import {
   RefreshCw,
   RotateCcw,
   Sparkles,
+  Trash2,
   Upload,
   Wand2,
 } from 'lucide-react';
@@ -45,6 +46,14 @@ interface DashboardThemeTabProps {
   bannerToast: string | null;
   onBannerUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onRemoveBanner: () => void;
+  showLogo?: boolean;
+  onToggleShowLogo?: (nextVal: boolean) => void;
+  logoUrl?: string;
+  isUploadingLogo?: boolean;
+  onLogoUpload?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemoveLogo?: () => void;
+  logoError?: string | null;
+  logoToast?: string | null;
   onSubscriptionExpired: (payload?: any) => void;
 }
 
@@ -81,8 +90,17 @@ export function DashboardThemeTab({
   bannerToast,
   onBannerUpload,
   onRemoveBanner,
+  showLogo,
+  onToggleShowLogo,
+  logoUrl,
+  isUploadingLogo,
+  onLogoUpload,
+  onRemoveLogo,
+  logoError,
+  logoToast,
   onSubscriptionExpired,
 }: DashboardThemeTabProps) {
+  const isLogoVisible = showLogo !== undefined ? showLogo : restaurant?.showLogo !== false;
   const [themeState, setThemeState] = useState<ThemeConfig>(() => normalizeRawTheme(rawInitialTheme));
   const [, setThemeWarnings] = useState<string[]>([]);
   const [themeSavedToast, setThemeSavedToast] = useState(false);
@@ -835,6 +853,132 @@ export function DashboardThemeTab({
               </label>
             )}
           </div>
+
+          {/* Menu Logo & Brand Insignia */}
+          <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-taupe-500 uppercase tracking-wider">
+                  Menu Logo &amp; Brand Insignia
+                </label>
+                <p className="text-[11px] text-taupe-600 mt-1">
+                  Show or hide your logo or default initial badge beside your restaurant name on the visual menu.
+                </p>
+              </div>
+              {onToggleShowLogo && (
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={isLogoVisible}
+                    onChange={(e) => onToggleShowLogo(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-cream-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-cream-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-terracotta"></div>
+                  <span className="ml-2.5 text-xs font-semibold text-espresso-900">
+                    {isLogoVisible ? 'Visible on Menu' : 'Disabled / Hidden'}
+                  </span>
+                </label>
+              )}
+            </div>
+
+            {logoError && (
+              <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{logoError}</span>
+              </div>
+            )}
+            {logoToast && (
+              <div className="p-2.5 rounded-xl bg-sage-50 border border-sage-200 text-xs text-sage-800 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-sage-600" />
+                <span>{logoToast}</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-4 p-3.5 rounded-2xl bg-cream-50 border border-cream-200">
+              <div className={`relative shrink-0 ${!isLogoVisible ? 'opacity-40 grayscale' : ''}`}>
+                <div
+                  className="w-14 h-14 rounded-2xl overflow-hidden border border-cream-300 flex items-center justify-center font-bold text-lg shadow-xs"
+                  style={{
+                    backgroundColor: themeState.accentColor,
+                    color: pickContrastForeground(themeState.accentColor),
+                  }}
+                >
+                  {(logoUrl || restaurant.logoUrl) ? (
+                    <img
+                      src={logoUrl || restaurant.logoUrl}
+                      alt={restaurant.displayName || 'Logo'}
+                      className="w-full h-full object-cover block"
+                    />
+                  ) : (
+                    restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'
+                  )}
+                </div>
+                {!isLogoVisible && (
+                  <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap px-1.5 py-0.5 rounded-full bg-espresso-900 text-white text-[8px] font-mono font-bold uppercase tracking-wider shadow">
+                    Hidden
+                  </span>
+                )}
+              </div>
+
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-espresso-900 truncate">
+                    {isLogoVisible ? 'Logo view enabled on menu' : 'Logo view disabled on menu'}
+                  </span>
+                  {!isLogoVisible && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-taupe-200 text-taupe-700 font-semibold">
+                      Typography-first
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-taupe-500">
+                  {isLogoVisible
+                    ? (logoUrl || restaurant.logoUrl)
+                      ? 'Custom logo image is displayed beside your restaurant title.'
+                      : 'Default initial badge is displayed beside your restaurant title.'
+                    : 'The menu header renders cleanly with typography only; the logo icon is completely hidden.'}
+                </p>
+
+                {onLogoUpload && (
+                  <div className="pt-1 flex items-center gap-2">
+                    <label className="cursor-pointer px-3 py-1 rounded-lg bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors shadow-2xs">
+                      {isUploadingLogo ? (
+                        <RefreshCw className="w-3 h-3 animate-spin text-terracotta" />
+                      ) : (
+                        <Upload className="w-3 h-3 text-terracotta" />
+                      )}
+                      <span>
+                        {isUploadingLogo
+                          ? 'Uploading...'
+                          : (logoUrl || restaurant.logoUrl)
+                          ? 'Replace Logo'
+                          : 'Upload Custom Logo'}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        disabled={isUploadingLogo}
+                        onChange={onLogoUpload}
+                        className="hidden"
+                      />
+                    </label>
+
+                    {(logoUrl || restaurant.logoUrl) && onRemoveLogo && (
+                      <button
+                        type="button"
+                        disabled={isUploadingLogo}
+                        onClick={onRemoveLogo}
+                        className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-semibold transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Remove</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Right Live Phone Preview (Fully Reactive) */}
@@ -887,7 +1031,7 @@ export function DashboardThemeTab({
                 <img src={coverUrl} alt="" className="w-full aspect-[2/1] object-cover block" />
               )}
               <div className="p-4 flex items-center gap-3">
-                {restaurant.showLogo !== false && (
+                {isLogoVisible && (
                   <div
                     className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center font-bold text-base shrink-0 shadow-xs"
                     style={{
@@ -895,8 +1039,8 @@ export function DashboardThemeTab({
                       color: pickContrastForeground(themeState.accentColor),
                     }}
                   >
-                    {restaurant.logoUrl ? (
-                      <img src={restaurant.logoUrl} alt="" className="w-full h-full object-cover" />
+                    {(logoUrl || restaurant.logoUrl) ? (
+                      <img src={logoUrl || restaurant.logoUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
                       restaurant.displayName?.charAt(0)?.toUpperCase() || 'M'
                     )}

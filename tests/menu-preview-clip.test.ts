@@ -57,28 +57,27 @@ describe('Landing Page Menu Preview Clip', () => {
     expect(html).toContain('<figcaption');
     expect(html).toContain('Play menu preview clip');
     expect(html).toContain('Replay menu preview clip from start');
-    expect(html).toContain('/m/the-peddler-s-cafe-demo-18f4');
+    expect(html).toContain('/m/the-j-h-cafe-demo-2f3a');
     // Ensure Play/Pause toggle does not pair aria-pressed with changing label
     expect(html).not.toContain('aria-pressed');
   });
 
-  it('points all public demo & interactive menu CTAs and /demo strictly to The Peddler\'s Cafe', () => {
+  it('points all public demo & interactive menu CTAs and /demo strictly to The J&H Cafe', () => {
     const legacySlugs = ['chai-and-chutney', 'the-gilded-fork', 'bakehouse-72-demo'];
     const serializedSeo = JSON.stringify(SEO_LANDING_CONFIGS);
     for (const legacy of legacySlugs) {
       expect(serializedSeo).not.toContain(legacy);
     }
-    expect(SEO_LANDING_CONFIGS['qr-code-menu'].secondaryCtaHref).toBe('/m/the-peddler-s-cafe-demo-18f4');
-    expect(SEO_LANDING_CONFIGS['ai-digital-menu'].secondaryCtaHref).toBe('/m/the-peddler-s-cafe-demo-18f4');
-    expect(SEO_LANDING_CONFIGS['digital-menu-for-restaurants'].secondaryCtaHref).toBe('/m/the-peddler-s-cafe-demo-18f4');
-    expect(SEO_LANDING_CONFIGS['digital-menu-for-cafes'].secondaryCtaHref).toBe('/m/the-peddler-s-cafe-demo-18f4');
+    expect(SEO_LANDING_CONFIGS['qr-code-menu'].secondaryCtaHref).toBe('/m/the-j-h-cafe-demo-2f3a');
+    expect(SEO_LANDING_CONFIGS['ai-digital-menu'].secondaryCtaHref).toBe('/m/the-j-h-cafe-demo-2f3a');
+    expect(SEO_LANDING_CONFIGS['digital-menu-for-restaurants'].secondaryCtaHref).toBe('/m/the-j-h-cafe-demo-2f3a');
+    expect(SEO_LANDING_CONFIGS['digital-menu-for-cafes'].secondaryCtaHref).toBe('/m/the-j-h-cafe-demo-2f3a');
 
     const demoHtml = renderToStaticMarkup(React.createElement(DemoPage));
-    expect(demoHtml).toContain("The Peddler&#x27;s Cafe");
-    expect(demoHtml).toContain('/m/the-peddler-s-cafe-demo-18f4');
+    expect(demoHtml).toContain('The J&amp;H Cafe');
+    expect(demoHtml).toContain('/m/the-j-h-cafe-demo-2f3a');
     expect(demoHtml).not.toContain('Chai &amp; Chutney');
     expect(demoHtml).not.toContain('The Gilded Fork');
     expect(demoHtml).not.toContain('Bakehouse 72');
   });
 });
-

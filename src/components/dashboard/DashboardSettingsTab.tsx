@@ -190,7 +190,15 @@ export function DashboardSettingsTab({
       }
       if (res.ok) {
         const data = await res.json();
-        setRestaurant(data.restaurant);
+        const finalShowLogo = data.showLogo !== false;
+        setRestaurant({
+          ...data.restaurant,
+          showLogo: finalShowLogo,
+        });
+        setSettingsForm((prev: any) => ({
+          ...prev,
+          showLogo: finalShowLogo,
+        }));
         if (data.wifi) {
           setWifiForm({
             enabled: Boolean(data.wifi.enabled),

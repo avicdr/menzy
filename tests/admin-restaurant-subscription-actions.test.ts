@@ -11,6 +11,10 @@ const mocks = vi.hoisted(() => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
+    featureFlag: {
+      findUnique: vi.fn(),
+      upsert: vi.fn(),
+    },
   },
   logAdminAction: vi.fn(async () => undefined),
   cacheDel: vi.fn(async () => 1),
@@ -169,5 +173,40 @@ describe('founder restaurant and subscription controls', () => {
 
     expect(response.status).toBe(400);
     expect(mocks.prisma.subscription.update).not.toHaveBeenCalled();
+  });
+
+  it('turns new free-trial claims off and records the founder action', async () => {
+    mocks.prisma.featureFlag.findUnique.mockResolvedValueOnce(null);
+    mocks.prisma.featureFlag.upsert.mockResolvedValueOnce({
+      id: 'flag-1',
+      key: 'FREE_TRIAL_SIGNUPS',
+      name: 'Free Trial Signups',
+      description: 'Allows new free trials.',
+      isEnabled: false,
+    });
+
+    const response = await patchSubscription(
+      new Request('http://localhost/api/admin/subscriptions', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'SET_FREE_TRIAL_ENABLED', enabled: false }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ success: true, freeTrialEnabled: false });
+    expect(mocks.prisma.featureFlag.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { key: 'FREE_TRIAL_SIGNUPS' },
+        update: { isEnabled: false },
+      })
+    );
+    expect(mocks.logAdminAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'SET_FREE_TRIAL_ENABLED',
+        entityType: 'FEATURE_FLAG',
+        entityId: 'FREE_TRIAL_SIGNUPS',
+      })
+    );
   });
 });

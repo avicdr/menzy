@@ -21,6 +21,7 @@ import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact
 
 interface ClaimPreviewResponse {
   valid: boolean;
+  freeTrialEnabled?: boolean;
   state: 'UNCLAIMED' | 'ALREADY_CLAIMED_BY_YOU' | 'ALREADY_CLAIMED' | 'EXPIRED' | 'REVOKED' | 'INVALID';
   error?: string;
   expiresAt?: string;
@@ -419,6 +420,7 @@ export default function ClaimPage() {
           </div>
         )}
 
+        {preview?.freeTrialEnabled !== false ? (
         <div className="p-4 bg-emerald-50/80 rounded-2xl border border-emerald-200 text-xs flex items-start gap-2.5">
           <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
           <div className="text-emerald-950 leading-relaxed space-y-1">
@@ -430,6 +432,15 @@ export default function ClaimPage() {
             </p>
           </div>
         </div>
+
+        ) : (
+          <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-xs flex items-start gap-2.5">
+            <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            <div className="text-amber-950 leading-relaxed">
+              <strong className="font-semibold">Free trials are currently paused.</strong> Claim this menu, then choose a subscription in Billing to publish it and use table ordering.
+            </div>
+          </div>
+        )}
 
         {error && (
           <div

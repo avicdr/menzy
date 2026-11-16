@@ -66,9 +66,13 @@ export async function GET(req: Request) {
       bodyFont: normalizeThemeFont(rawTheme.bodyFont, 'Inter'),
     };
 
-    const { organization: _org, theme: _theme, ...restaurant } = restaurantRecord;
+    const { organization: _org, theme: _theme, ...restaurantBase } = restaurantRecord;
     const notifSettings = (orderingSettings?.notificationSettings as Record<string, any>) || {};
     const showLogo = notifSettings?.showLogo !== false;
+    const restaurant = {
+      ...restaurantBase,
+      showLogo,
+    };
     const wifi = notifSettings?.wifi || { enabled: false, ssid: '', password: '', security: 'WPA' };
     const tableSession = extractTableSessionConfig(notifSettings);
     const taxPercentage = resolveTaxPercentageValue(orderingSettings?.taxPercentage);
@@ -312,7 +316,10 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({
       success: true,
-      restaurant: updatedRestaurant,
+      restaurant: {
+        ...updatedRestaurant,
+        showLogo: finalShowLogo,
+      },
       showLogo: finalShowLogo,
       settings: updatedSettings,
       ...(savedWifi ? { wifi: savedWifi } : {}),

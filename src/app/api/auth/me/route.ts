@@ -67,6 +67,11 @@ export async function GET() {
                     isClaimed: true,
                     createdAt: true,
                     updatedAt: true,
+                    orderingSettings: {
+                      select: {
+                        notificationSettings: true,
+                      },
+                    },
                   },
                 },
                 subscriptions: {
@@ -136,7 +141,16 @@ export async function GET() {
                 role: m.role,
                 billingCountry: m.organization.billingCountry,
                 billingCurrency: m.organization.billingCurrency,
-                restaurants: m.organization.restaurants || [],
+                restaurants: (m.organization.restaurants || []).map((r: any) => {
+                  const notifSettings =
+                    (r.orderingSettings?.notificationSettings as Record<string, any>) || {};
+                  const showLogo = notifSettings?.showLogo !== false;
+                  const { orderingSettings: _os, ...restProps } = r;
+                  return {
+                    ...restProps,
+                    showLogo,
+                  };
+                }),
                 subscription,
                 access,
               };

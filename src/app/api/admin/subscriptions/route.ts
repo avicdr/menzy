@@ -3,6 +3,7 @@ import prisma from '@/lib/db/prisma';
 import { getAdminSession } from '@/lib/auth/admin-auth';
 import { logAdminAction } from '@/lib/auth/admin-auth';
 import { PLAN_CATALOG, PlanKey, TRIAL_PLAN_KEY } from '@/lib/payments/plans';
+import { FREE_TRIAL_FEATURE_KEY } from '@/lib/billing/subscription-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,7 +43,7 @@ export async function GET(req: Request) {
       };
     }
 
-    const [subscriptions, allActive, pastDueCount, activeTrialsCount, expiredTrialsCount] = await Promise.all([
+    const [subscriptions, allActive, pastDueCount, activeTrialsCount, expiredTrialsCount, freeTrialFlag] = await Promise.all([
       prisma.subscription.findMany({
         where: whereClause,
         select: {
@@ -90,6 +91,10 @@ export async function GET(req: Request) {
           OR: [{ status: 'EXPIRED' }, { status: 'TRIAL', paidThrough: { lte: now } }],
         },
       }),
+      prisma.featureFlag.findUnique({
+        where: { key: FREE_TRIAL_FEATURE_KEY },
+        select: { isEnabled: true },
+      }),
     ]);
 
     let inrMrr = 0;
@@ -112,6 +117,7 @@ export async function GET(req: Request) {
     return NextResponse.json(
       {
         subscriptions,
+        freeTrialEnabled: freeTrialFlag?.isEnabled ?? true,
         metrics: {
           totalActive: allActive.length,
           activeTrialsCount,
@@ -141,6 +147,40 @@ export async function PATCH(req: Request) {
 
   try {
     const body = await req.json().catch(() => null);
+    if (body?.action === 'SET_FREE_TRIAL_ENABLED') {
+      if (typeof body.enabled !== 'boolean') {
+        return NextResponse.json({ error: 'enabled must be a boolean.' }, { status: 400 });
+      }
+
+      const before = await prisma.featureFlag.findUnique({
+        where: { key: FREE_TRIAL_FEATURE_KEY },
+      });
+      const updated = await prisma.featureFlag.upsert({
+        where: { key: FREE_TRIAL_FEATURE_KEY },
+        update: { isEnabled: body.enabled },
+        create: {
+          key: FREE_TRIAL_FEATURE_KEY,
+          name: 'Free Trial Signups',
+          description: 'Allows new self-serve signups and menu claims to receive a 14-day free trial.',
+          isEnabled: body.enabled,
+        },
+      });
+
+      await logAdminAction({
+        adminEmail: session.email,
+        action: 'SET_FREE_TRIAL_ENABLED',
+        entityType: 'FEATURE_FLAG',
+        entityId: FREE_TRIAL_FEATURE_KEY,
+        beforeState: before,
+        afterState: updated,
+        reason: body.enabled
+          ? 'Founder enabled new free-trial claims.'
+          : 'Founder disabled new free-trial claims.',
+      });
+
+      return NextResponse.json({ success: true, freeTrialEnabled: updated.isEnabled });
+    }
+
     const subscriptionId =
       typeof body?.subscriptionId === 'string' ? body.subscriptionId.trim() : '';
     const planKey = typeof body?.planKey === 'string' ? body.planKey.trim() : '';

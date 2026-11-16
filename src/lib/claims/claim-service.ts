@@ -259,7 +259,7 @@ export async function redeemClaimWithinTransaction(
       },
     });
     if (callerMember) {
-      const { subscription, created: trialCreated } = await provisionTrialSubscriptionWithinTx(tx, {
+      const { subscription, created: trialCreated, trialEnabled } = await provisionTrialSubscriptionWithinTx(tx, {
         organizationId: claim.restaurant.organizationId,
         currency: claim.restaurant.currency,
       });
@@ -268,6 +268,7 @@ export async function redeemClaimWithinTransaction(
         organizationId: claim.restaurant.organizationId,
         subscription,
         trialCreated,
+        trialEnabled,
         alreadyClaimedByUser: true,
       };
     }
@@ -356,7 +357,7 @@ export async function redeemClaimWithinTransaction(
   });
 
   // Automatically provision a 14-day Free Trial with zero payment method required
-  const { subscription, created: trialCreated } = await provisionTrialSubscriptionWithinTx(tx, {
+  const { subscription, created: trialCreated, trialEnabled } = await provisionTrialSubscriptionWithinTx(tx, {
     organizationId: targetOrgId,
     currency: updatedRestaurant.currency,
   });
@@ -449,6 +450,7 @@ export async function redeemClaimWithinTransaction(
     organizationId: targetOrgId,
     subscription,
     trialCreated,
+    trialEnabled,
     alreadyClaimedByUser: false,
   };
 }

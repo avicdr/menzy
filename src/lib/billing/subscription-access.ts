@@ -12,6 +12,21 @@ import { SUPPORT_EMAIL } from '@/lib/support/contact';
 
 type PrismaTransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
+export const FREE_TRIAL_FEATURE_KEY = 'FREE_TRIAL_SIGNUPS';
+
+export async function getFreeTrialEnabled(): Promise<boolean> {
+  try {
+    const flag = await prisma.featureFlag.findUnique({
+      where: { key: FREE_TRIAL_FEATURE_KEY },
+      select: { isEnabled: true },
+    });
+    return flag?.isEnabled ?? true;
+  } catch (error) {
+    console.error('Failed to read free-trial availability:', error);
+    return false;
+  }
+}
+
 export type OrganizationAccessMode =
   | 'UNCLAIMED_DEMO'
   | 'TRIAL'
@@ -82,7 +97,7 @@ export function getDisplayPlanName(planKey?: string | null): string {
 
 /**
  * Idempotently provisions a 14-day Free Trial subscription for an organization
- * with zero payment method / checkout required. Never overwrites existing subscriptions.
+ * when founder-controlled trial claims are enabled. Never overwrites existing subscriptions.
  */
 export async function provisionTrialSubscriptionWithinTx(
   tx: PrismaTransactionClient,
@@ -97,7 +112,15 @@ export async function provisionTrialSubscriptionWithinTx(
   });
 
   if (existing) {
-    return { subscription: existing, created: false as const };
+    return { subscription: existing, created: false as const, trialEnabled: true as const };
+  }
+
+  const trialFlag = await tx.featureFlag.findUnique({
+    where: { key: FREE_TRIAL_FEATURE_KEY },
+    select: { isEnabled: true },
+  });
+  if (trialFlag?.isEnabled === false) {
+    return { subscription: null, created: false as const, trialEnabled: false as const };
   }
 
   const trialDays = params.trialDays ?? FREE_TRIAL_DAYS;
@@ -117,7 +140,7 @@ export async function provisionTrialSubscriptionWithinTx(
     },
   });
 
-  return { subscription, created: true as const };
+  return { subscription, created: true as const, trialEnabled: true as const };
 }
 
 /**
@@ -499,4 +522,3 @@ export function createSubscriptionExpiredResponse(
     headers: { 'Cache-Control': 'no-store, max-age=0' },
   });
 }
-

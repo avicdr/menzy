@@ -231,12 +231,12 @@ export async function POST(req: Request) {
         },
       });
 
-      const { subscription: trialSub } = await provisionTrialSubscriptionWithinTx(tx, {
+      const { subscription: trialSub, trialEnabled } = await provisionTrialSubscriptionWithinTx(tx, {
         organizationId: org.id,
         currency: selectedCurrency,
       });
 
-      return { user, restaurant, subscription: trialSub, claimed: false };
+      return { user, restaurant, subscription: trialSub, trialEnabled, claimed: false };
     }, { maxWait: 10_000, timeout: 20_000 });
 
     if (result.claimed) {
@@ -256,15 +256,18 @@ export async function POST(req: Request) {
         slug: result.restaurant.slug,
         name: result.restaurant.displayName,
       },
-      trial: {
-        planKey: TRIAL_PLAN_KEY,
-        name: TRIAL_PLAN.name,
-        days: FREE_TRIAL_DAYS,
-        requiresPaymentMethod: false,
-        trialEndsAt: result.subscription?.paidThrough
-          ? result.subscription.paidThrough.toISOString()
-          : null,
-      },
+      trial: result.subscription
+        ? {
+            planKey: TRIAL_PLAN_KEY,
+            name: TRIAL_PLAN.name,
+            days: FREE_TRIAL_DAYS,
+            requiresPaymentMethod: false,
+            trialEndsAt: result.subscription.paidThrough
+              ? result.subscription.paidThrough.toISOString()
+              : null,
+          }
+        : null,
+      subscriptionRequired: !result.subscription,
       supportEmail: SUPPORT_EMAIL,
     });
   } catch (error: any) {

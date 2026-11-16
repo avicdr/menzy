@@ -11,6 +11,7 @@ import { MarketingHeader } from '@/components/marketing/MarketingHeader';
 import { MarketingFooter } from '@/components/marketing/MarketingFooter';
 import { PricingCardsClient } from '@/components/marketing/PricingCardsClient';
 import { SUPPORT_EMAIL_DISPLAY } from '@/lib/support/contact';
+import { getFreeTrialEnabled } from '@/lib/billing/subscription-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,10 +40,17 @@ const tierNotes = [
 export default async function PricingPage() {
   const geo = await resolveVisitorRegion(await headers());
   const initialPlans: PlanDefinition[] | null = geo.authoritative ? getPlansForCountry(geo.region) : null;
+  const freeTrialEnabled = await getFreeTrialEnabled();
+  const pricingFaqs = freeTrialEnabled
+    ? PRICING_FAQS
+    : [
+        { question: 'Can I start a free trial?', answer: 'Free trials are currently paused. Create your workspace and choose Starter, Growth, or Pro in Billing to publish and operate your menu.' },
+        ...PRICING_FAQS.slice(1),
+      ];
 
   return (
     <div className="marketing-site pricing-page">
-      <JsonLd data={[buildSoftwareApplicationSchema({ urlPath: '/pricing', pricingPlans: initialPlans || undefined }), buildBreadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'Pricing', path: '/pricing' }]), buildFaqSchema(PRICING_FAQS)]} />
+      <JsonLd data={[buildSoftwareApplicationSchema({ urlPath: '/pricing', pricingPlans: initialPlans || undefined }), buildBreadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'Pricing', path: '/pricing' }]), buildFaqSchema(pricingFaqs)]} />
       <MarketingHeader />
       <main id="main-content">
         <section className="pricing-hero" data-enter>
@@ -51,7 +59,7 @@ export default async function PricingPage() {
               <nav aria-label="Breadcrumb" className="subpage-breadcrumb"><Link href="/">Home</Link><ChevronRight size={13} aria-hidden="true" /><span>Pricing</span></nav>
               <p className="eyebrow"><span className="eyebrow-mark" /> Plans for real service teams</p>
               <h1>Start small.<br /><em>Keep the system clear.</em></h1>
-              <p>Regional monthly plans in INR and USD, with a 14-day trial and no per-order commission.</p>
+              <p>Regional monthly plans in INR and USD, with no per-order commission.</p>
             </div>
             <div className="subpage-signal" aria-label="Menzy pricing overview">
               <div className="signal-head"><span>Menzy pricing</span><span>Clear &amp; predictable</span></div>
@@ -62,8 +70,8 @@ export default async function PricingPage() {
                     <span className="signal-index">01</span>
                     <ArrowRight size={14} aria-hidden="true" />
                   </div>
-                  <b>14-day free trial</b>
-                  <small>Instant access with zero card or payment method required.</small>
+                  <b>{freeTrialEnabled ? '14-day free trial' : 'Choose a monthly plan'}</b>
+                  <small>{freeTrialEnabled ? 'Instant access with zero card or payment method required.' : 'Free trials are paused; activate a plan from Billing.'}</small>
                 </div>
                 <div className="signal-card">
                   <div className="signal-card-top">
@@ -85,9 +93,9 @@ export default async function PricingPage() {
             </div>
           </div>
         </section>
-        <PricingCardsClient authoritativeGeo={geo.authoritative} initialPlans={initialPlans} sectionId="pricing-catalog" asH1 heading="" subheading="" eyebrow="" />
+        <PricingCardsClient authoritativeGeo={geo.authoritative} initialPlans={initialPlans} freeTrialEnabled={freeTrialEnabled} sectionId="pricing-catalog" asH1 heading="" subheading="" eyebrow="" />
         <section className="pricing-tier-section"><div className="marketing-frame"><div className="subpage-section-heading"><p className="section-kicker">What changes as you grow</p><div><h2>One operating system, three sensible steps.</h2><p className="section-intro">Pick the allowance that matches the menu and service you run today.</p></div></div><div className="pricing-tier-list">{tierNotes.map(([name, detail], index) => <div key={name}><span>{String(index + 1).padStart(2, '0')}</span><h3>{name}</h3><p>{detail}</p></div>)}</div></div></section>
-        <section className="pricing-faq"><div className="marketing-frame faq-grid"><div><p className="section-kicker">Pricing questions</p><h2>Clear answers before you commit.</h2></div><div className="faq-list">{PRICING_FAQS.map((faq) => <details key={faq.question}><summary>{faq.question}<ChevronDown size={18} /></summary><p>{faq.answer}</p></details>)}</div></div></section>
+        <section className="pricing-faq"><div className="marketing-frame faq-grid"><div><p className="section-kicker">Pricing questions</p><h2>Clear answers before you commit.</h2></div><div className="faq-list">{pricingFaqs.map((faq) => <details key={faq.question}><summary>{faq.question}<ChevronDown size={18} /></summary><p>{faq.answer}</p></details>)}</div></div></section>
       </main>
       <MarketingFooter />
     </div>
