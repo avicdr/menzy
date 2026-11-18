@@ -4,6 +4,7 @@ import prisma from '@/lib/db/prisma';
 import { createTenantAccessDeniedResponse, verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 import { buildSignedTableQrToken } from '@/lib/tables/table-service';
 import { normalizeSiteUrl } from '@/lib/seo';
+import { pickContrastForeground } from '@/lib/theme/theme-presets';
 import {
   createSubscriptionExpiredResponse,
   evaluateOrganizationAccess,
@@ -99,12 +100,14 @@ export async function GET(req: Request) {
     ? `${appUrl}/m/${restaurantSlug}?t=${encodeURIComponent(effectiveTableToken)}`
     : `${appUrl}/m/${restaurantSlug}`;
 
-  const darkColor = restaurant.theme?.primaryTextColor || '#35271F';
-  const lightColor = restaurant.theme?.surfaceColor || '#FFFFFF';
+  const rawPrimary = restaurant.theme?.primaryTextColor || '#35271F';
+  const darkColor = pickContrastForeground(rawPrimary) === '#FFFFFF' ? rawPrimary : '#1E1916';
+  const lightColor = '#FFFFFF';
 
   if (format === 'svg') {
     const svgString = await QRCode.toString(targetUrl, {
       type: 'svg',
+      errorCorrectionLevel: 'H',
       margin: 2,
       color: {
         dark: darkColor,
@@ -121,7 +124,8 @@ export async function GET(req: Request) {
   }
 
   const qrDataUrl = await QRCode.toDataURL(targetUrl, {
-    width: 600,
+    width: 640,
+    errorCorrectionLevel: 'H',
     margin: 2,
     color: {
       dark: darkColor,

@@ -2085,6 +2085,11 @@ function RestaurantDashboardContent() {
               <div className="animate-fade-in">
                 <TablesManagementView
                   restaurant={restaurant}
+                  theme={rawTheme}
+                  coverUrl={settingsForm.coverUrl}
+                  logoUrl={settingsForm.logoUrl}
+                  showLogo={settingsForm.showLogo !== false}
+                  wifi={wifiForm}
                   onSubscriptionExpired={handleSubscriptionExpired}
                 />
               </div>

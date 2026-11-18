@@ -20,6 +20,14 @@ import {
   Eye,
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { TableTentDesigner } from '@/components/dashboard/TableTentDesigner';
+import {
+  buildTableTentSvg,
+  fetchImageAsDataUrl,
+  getDefaultTableTentConfig,
+  openPrintSheetForTents,
+  type TableTentConfig,
+} from '@/lib/qr/table-tent-renderer';
 import {
   SESSION_CACHE_TTLS,
   cacheKeys,
@@ -33,10 +41,23 @@ import {
 
 interface TablesManagementViewProps {
   restaurant: any;
+  theme?: any;
+  coverUrl?: string | null;
+  logoUrl?: string | null;
+  showLogo?: boolean;
+  wifi?: { enabled?: boolean; ssid?: string; password?: string } | null;
   onSubscriptionExpired?: (payload: any) => void;
 }
 
-export function TablesManagementView({ restaurant, onSubscriptionExpired }: TablesManagementViewProps) {
+export function TablesManagementView({
+  restaurant,
+  theme,
+  coverUrl,
+  logoUrl,
+  showLogo,
+  wifi,
+  onSubscriptionExpired,
+}: TablesManagementViewProps) {
   const initialTablesEntry = restaurant?.id
     ? readSessionCache<any[]>(cacheKeys.tables(restaurant.id), SESSION_CACHE_TTLS.TABLES_MAX_MS)
     : null;
@@ -75,6 +96,69 @@ export function TablesManagementView({ restaurant, onSubscriptionExpired }: Tabl
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [exportData, setExportData] = useState<any | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
+
+  const effectiveLogoUrl = logoUrl || restaurant?.logoUrl || null;
+  const effectiveCoverUrl = coverUrl || restaurant?.coverUrl || null;
+  const effectiveWifiSsid = wifi?.enabled && wifi?.ssid ? wifi.ssid : null;
+  const effectiveWifiPass = wifi?.enabled && wifi?.password ? wifi.password : null;
+
+  // Shared Table Stand / A4 QR Designer configuration (persisted per restaurant)
+  const [tentConfig, setTentConfig] = useState<TableTentConfig>(() =>
+    getDefaultTableTentConfig({
+      showLogo: showLogo !== undefined ? showLogo : restaurant?.showLogo !== false,
+      hasBanner: Boolean(effectiveCoverUrl),
+      hasWifi: Boolean(effectiveWifiSsid),
+    })
+  );
+
+  const [bulkBrandAssets, setBulkBrandAssets] = useState<{
+    menzyLogoDataUrl: string | null;
+    logoDataUrl: string | null;
+    coverDataUrl: string | null;
+  }>({ menzyLogoDataUrl: null, logoDataUrl: null, coverDataUrl: null });
+
+  useEffect(() => {
+    if (!restaurant?.id) return;
+    try {
+      const saved = window.localStorage.getItem(`menzy_tent_config_${restaurant.id}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          setTentConfig((prev) => ({ ...prev, ...parsed }));
+        }
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, [restaurant?.id]);
+
+  const handleUpdateTentConfig = (next: TableTentConfig) => {
+    setTentConfig(next);
+    if (restaurant?.id) {
+      try {
+        window.localStorage.setItem(`menzy_tent_config_${restaurant.id}`, JSON.stringify(next));
+      } catch {
+        // Ignore storage errors
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!isExportOpen) return;
+    let active = true;
+    Promise.all([
+      fetchImageAsDataUrl('/logo.png'),
+      fetchImageAsDataUrl(effectiveLogoUrl),
+      fetchImageAsDataUrl(effectiveCoverUrl),
+    ]).then(([menzyLogoDataUrl, logoDataUrl, coverDataUrl]) => {
+      if (active) {
+        setBulkBrandAssets({ menzyLogoDataUrl, logoDataUrl, coverDataUrl });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [isExportOpen, effectiveLogoUrl, effectiveCoverUrl]);
 
   const loadTables = async (options?: { force?: boolean; silent?: boolean }) => {
     const targetRestaurantId = restaurant?.id;
@@ -883,91 +967,111 @@ export function TablesManagementView({ restaurant, onSubscriptionExpired }: Tabl
       </Modal>
 
       {/* =========================================================================
-          MODAL: VIEW QR & TABLE TENT PREVIEW
+          MODAL: VIEW QR & TABLE STAND / A4 DESIGNER
       ========================================================================= */}
       <Modal
         isOpen={Boolean(previewTable)}
         onClose={() => setPreviewTable(null)}
-        title={<span className="text-xs font-bold font-mono text-terracotta">Table Tent Preview</span>}
-        maxWidth="sm"
+        title={
+          <span className="text-xs font-bold font-mono text-terracotta">
+            QR Designer — Table Stand &amp; A4 Poster
+          </span>
+        }
+        subtitle={
+          previewTable
+            ? `Customize and download print-ready QR artwork for ${previewTable.name} with Menzy branding.`
+            : undefined
+        }
+        maxWidth="4xl"
         className="font-sans"
-        bodyClassName="text-center space-y-4"
       >
         {previewTable && (
-          <>
-            {/* Printable Table Tent Mockup */}
-            <div className="p-6 bg-cream-50 rounded-2xl border-2 border-dashed border-cream-300 space-y-3 shadow-inner">
-              <div className="font-serif text-lg font-bold text-espresso-900 tracking-tight">
-                {restaurant.displayName}
-              </div>
-              <div className="text-2xl font-bold text-terracotta font-serif">
-                {previewTable.name}
-              </div>
-              <p className="text-[11px] text-taupe-500 max-w-[200px] mx-auto">
-                Scan to explore our visual interactive menu & send orders directly to the kitchen.
-              </p>
-
-              {previewLoading ? (
-                <div className="w-48 h-48 flex items-center justify-center mx-auto bg-white rounded-xl">
-                  <div className="w-6 h-6 border-2 border-terracotta border-t-transparent rounded-full animate-spin" />
-                </div>
-              ) : previewQrDataUrl ? (
-                <img
-                  src={previewQrDataUrl}
-                  alt={`QR for ${previewTable.name}`}
-                  className="w-48 h-48 mx-auto rounded-xl shadow-xs border border-cream-200 bg-white p-2"
-                />
-              ) : null}
-
-              <div className="text-[10px] font-mono text-taupe-400 uppercase tracking-widest pt-1">
-                Powered by Menzy
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <a
-                href={`/api/qr/generate?slug=${restaurant.slug}&tableId=${previewTable.id}&format=svg`}
-                download={`${previewTable.name}-qr.svg`}
-                className="py-2.5 px-3 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Save SVG</span>
-              </a>
-
-              <a
-                href={previewScanUrl || previewTable.scanUrl || `/m/${restaurant.slug}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="py-2.5 px-3 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Test Menu</span>
-              </a>
-            </div>
-          </>
+          <TableTentDesigner
+            restaurant={restaurant}
+            table={previewTable}
+            qrDataUrl={previewQrDataUrl}
+            scanUrl={previewScanUrl}
+            loading={previewLoading}
+            config={tentConfig}
+            onChangeConfig={handleUpdateTentConfig}
+            brandTheme={theme || restaurant?.theme}
+            coverUrl={effectiveCoverUrl}
+            logoUrl={effectiveLogoUrl}
+            wifiSsid={effectiveWifiSsid}
+            wifiPassword={effectiveWifiPass}
+          />
         )}
       </Modal>
 
       {/* =========================================================================
-          MODAL: BULK PRINTABLE TABLE TENTS
+          MODAL: BULK PRINTABLE TABLE STANDS & A4 POSTERS
       ========================================================================= */}
       <Modal
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
-        title="Bulk Printable Table Tents"
-        subtitle={`Ready to print for all ${tables.length} tables in ${restaurant.displayName}.`}
+        title="Bulk Printable QR Cards"
+        subtitle={`Uses your saved QR Designer style for all ${tables.length} tables in ${restaurant.displayName}.`}
         maxWidth="5xl"
         className="font-sans"
         headerActions={
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="px-3.5 py-1.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Print All Tents</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-xl bg-cream-100 border border-cream-200 p-0.5 text-[11px] font-semibold">
+              <button
+                type="button"
+                onClick={() => handleUpdateTentConfig({ ...tentConfig, format: 'TABLE_STAND' })}
+                className={`px-2.5 py-1 rounded-lg transition-colors ${
+                  tentConfig.format === 'TABLE_STAND'
+                    ? 'bg-espresso-900 text-white shadow-2xs'
+                    : 'text-espresso-800 hover:bg-cream-200'
+                }`}
+              >
+                Table Stand (4/sheet)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleUpdateTentConfig({ ...tentConfig, format: 'A4_POSTER' })}
+                className={`px-2.5 py-1 rounded-lg transition-colors ${
+                  tentConfig.format === 'A4_POSTER'
+                    ? 'bg-espresso-900 text-white shadow-2xs'
+                    : 'text-espresso-800 hover:bg-cream-200'
+                }`}
+              >
+                A4 Poster (1/page)
+              </button>
+            </div>
+            <button
+              type="button"
+              disabled={!exportData?.tables?.length}
+              onClick={() => {
+                if (!exportData?.tables?.length) return;
+                const svgs = exportData.tables.map((t: any) =>
+                  buildTableTentSvg(tentConfig, {
+                    restaurantName: exportData.restaurantName || restaurant.displayName,
+                    tableName: t.name,
+                    tableSection: t.section || null,
+                    qrDataUrl: t.qrDataUrl,
+                    menzyLogoDataUrl: bulkBrandAssets.menzyLogoDataUrl,
+                    logoDataUrl: bulkBrandAssets.logoDataUrl,
+                    coverDataUrl: bulkBrandAssets.coverDataUrl,
+                    wifiSsid: effectiveWifiSsid,
+                    wifiPassword: effectiveWifiPass,
+                    brandTheme: theme || restaurant?.theme || null,
+                  })
+                );
+                openPrintSheetForTents(
+                  svgs,
+                  tentConfig.format,
+                  `${exportData.restaurantName || restaurant.displayName} — All Table QRs`
+                );
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow disabled:opacity-50"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>
+                {tentConfig.format === 'A4_POSTER' ? 'Print All A4 Posters' : 'Print All Table Stands'}
+              </span>
+            </button>
+          </div>
         }
       >
         {exportLoading ? (
@@ -977,30 +1081,33 @@ export function TablesManagementView({ restaurant, onSubscriptionExpired }: Tabl
           </div>
         ) : exportData ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {exportData.tables.map((t: any) => (
-              <div
-                key={t.id}
-                className="p-5 bg-cream-50/70 border-2 border-dashed border-cream-300 rounded-2xl text-center space-y-2.5 shadow-xs"
-              >
-                <div className="font-serif text-sm font-bold text-espresso-900">
-                  {exportData.restaurantName}
+            {exportData.tables.map((t: any) => {
+              const cardSvg = buildTableTentSvg(tentConfig, {
+                restaurantName: exportData.restaurantName || restaurant.displayName,
+                tableName: t.name,
+                tableSection: t.section || null,
+                qrDataUrl: t.qrDataUrl,
+                menzyLogoDataUrl: bulkBrandAssets.menzyLogoDataUrl,
+                logoDataUrl: bulkBrandAssets.logoDataUrl,
+                coverDataUrl: bulkBrandAssets.coverDataUrl,
+                wifiSsid: effectiveWifiSsid,
+                wifiPassword: effectiveWifiPass,
+                brandTheme: theme || restaurant?.theme || null,
+              });
+              const dataUri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(cardSvg)}`;
+              return (
+                <div
+                  key={t.id}
+                  className="p-3 bg-cream-50/80 border border-cream-200 rounded-2xl flex flex-col items-center gap-2 shadow-xs"
+                >
+                  <img
+                    src={dataUri}
+                    alt={`${exportData.restaurantName} — ${t.name}`}
+                    className="w-full max-w-[240px] rounded-xl shadow-sm border border-black/10 block"
+                  />
                 </div>
-                <div className="text-2xl font-bold font-serif text-terracotta">
-                  {t.name}
-                </div>
-                <p className="text-[10px] text-taupe-500 max-w-[180px] mx-auto">
-                  Scan to explore our visual interactive menu & send orders directly to the kitchen.
-                </p>
-                <img
-                  src={t.qrDataUrl}
-                  alt={t.name}
-                  className="w-40 h-40 mx-auto rounded-xl border border-cream-200 bg-white p-2 shadow-xs"
-                />
-                <div className="text-[9px] font-mono uppercase tracking-widest text-taupe-400">
-                  Powered by Menzy
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : null}
       </Modal>

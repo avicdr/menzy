@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { createTenantAccessDeniedResponse, verifyRestaurantOwnerAccess } from '@/lib/auth/tenant-verify';
 import { buildSignedTableQrToken } from '@/lib/tables/table-service';
 import { normalizeSiteUrl } from '@/lib/seo';
+import { pickContrastForeground } from '@/lib/theme/theme-presets';
 
 export async function GET(
   req: Request,
@@ -25,8 +26,9 @@ export async function GET(
     });
 
     const appUrl = normalizeSiteUrl(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-    const darkColor = auth.restaurant.theme?.primaryTextColor || '#35271F';
-    const lightColor = auth.restaurant.theme?.surfaceColor || '#FFFFFF';
+    const rawPrimary = auth.restaurant.theme?.primaryTextColor || '#35271F';
+    const darkColor = pickContrastForeground(rawPrimary) === '#FFFFFF' ? rawPrimary : '#1E1916';
+    const lightColor = '#FFFFFF';
 
     const qrItems = await Promise.all(
       tables.map(async (table) => {
@@ -35,7 +37,8 @@ export async function GET(
         const scanUrl = `${appUrl}/m/${auth.restaurant.slug}?t=${encodeURIComponent(signedToken)}`;
 
         const qrDataUrl = await QRCode.toDataURL(scanUrl, {
-          width: 500,
+          width: 600,
+          errorCorrectionLevel: 'H',
           margin: 2,
           color: {
             dark: darkColor,

@@ -1221,10 +1221,18 @@ export function OrdersManagementView({
         const activeOrdersList = liveOrders.filter((o) => !['CANCELLED', 'REJECTED', 'COMPLETED'].includes(o.status));
         const ongoingPrepCount = activeOrdersList.filter((o) => ['PLACED', 'ACCEPTED', 'PREPARING'].includes(o.status)).length;
         const readyServeCount = activeOrdersList.filter((o) => o.status === 'READY').length;
-        const activeTableIds = new Set([
-          ...activeOrdersList.map((o) => getOrderTableId(o)).filter(Boolean),
-          ...serviceCalls.map((c) => c.tableId),
-        ]);
+        const activeOrderTableIds = new Set(
+          activeOrdersList.map((o) => getOrderTableId(o)).filter(Boolean)
+        );
+        const activeOrdersByTable = new Map<string, any[]>();
+        for (const order of activeOrdersList) {
+          const tableId = getOrderTableId(order);
+          if (!tableId) continue;
+          const tableOrders = activeOrdersByTable.get(tableId);
+          if (tableOrders) tableOrders.push(order);
+          else activeOrdersByTable.set(tableId, [order]);
+        }
+        const tablesWithCalls = new Set(serviceCalls.map((call) => call.tableId));
         const openCheckMinor = activeOrdersList.reduce((acc, o) => acc + (o.totalMinor || 0), 0);
         const filteredOrders = selectedTableFilter
           ? liveOrders.filter((o) => getOrderTableId(o) === selectedTableFilter)
@@ -1240,10 +1248,10 @@ export function OrdersManagementView({
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               </div>
               <div className="text-2xl font-serif font-bold text-espresso-900 mt-1">
-                {activeTableIds.size} <span className="text-sm font-sans font-normal text-taupe-400">/ {tables.length}</span>
+                {activeOrderTableIds.size} <span className="text-sm font-sans font-normal text-taupe-400">/ {tables.length}</span>
               </div>
               <div className="text-[11px] text-taupe-500 mt-0.5">
-                {tables.length > 0 ? `${Math.round((activeTableIds.size / tables.length) * 100)}% floor occupancy` : 'No tables yet'}
+                {tables.length > 0 ? `${Math.round((activeOrderTableIds.size / tables.length) * 100)}% floor occupancy` : 'No tables yet'}
               </div>
             </div>
 
@@ -1331,62 +1339,95 @@ export function OrdersManagementView({
           {/* Live Floor Status Map */}
           {tables.length > 0 && (
             <div className="bg-white rounded-2xl p-4 sm:p-5 border border-cream-200 shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="text-xs font-bold uppercase tracking-wider text-taupe-600 flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-terracotta" />
-                  <span>Live Floor Table Map</span>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-taupe-600 flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-terracotta" />
+                    <span>All Tables</span>
+                  </div>
+                  <p className="mt-1 text-xs text-taupe-500">
+                    Select a table to filter its live orders.
+                  </p>
                 </div>
-                {selectedTableFilter && (
-                  <button
-                    onClick={() => setSelectedTableFilter(null)}
-                    className="text-xs font-semibold text-terracotta hover:underline"
-                  >
-                    Show All Tables
-                  </button>
-                )}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[10px] font-semibold text-taupe-600">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-terracotta" /> Active order
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-rose-500" /> Service call
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" /> Available
+                  </span>
+                  {selectedTableFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTableFilter(null)}
+                      className="font-bold text-terracotta hover:underline"
+                    >
+                      Clear filter
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2.5">
                 {tables.map((t) => {
-                  const hasCall = serviceCalls.some((c) => c.tableId === t.id);
-                  const tableOrders = activeOrdersList.filter((o) => getOrderTableId(o) === t.id);
+                  const hasCall = tablesWithCalls.has(t.id);
+                  const tableOrders = activeOrdersByTable.get(t.id) || [];
                   const isActive = tableOrders.length > 0;
                   const isSelected = selectedTableFilter === t.id;
+                  const statusLabel = hasCall
+                    ? 'Service requested'
+                    : isActive
+                      ? `${tableOrders.length} active order${tableOrders.length === 1 ? '' : 's'}`
+                      : !t.isActive
+                        ? 'Ordering disabled'
+                        : 'Available';
 
                   return (
                     <button
                       key={t.id}
+                      type="button"
                       onClick={() => setSelectedTableFilter(isSelected ? null : t.id)}
-                      className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                      aria-pressed={isSelected}
+                      aria-label={`${t.name}, ${statusLabel}`}
+                      className={`min-h-24 p-3 rounded-xl border text-left transition-all flex flex-col justify-between hover:-translate-y-0.5 active:translate-y-0 ${
                         isSelected
-                          ? 'ring-2 ring-terracotta border-terracotta bg-cream-50'
+                          ? 'ring-2 ring-espresso-900 border-espresso-900 bg-cream-50 shadow-sm'
                           : hasCall
-                          ? 'bg-rose-50 border-rose-300 shadow-xs'
+                          ? 'bg-rose-50 border-rose-400 shadow-sm'
                           : isActive
-                          ? 'bg-amber-50/70 border-amber-300'
-                          : 'bg-emerald-50/40 border-emerald-200/70 hover:bg-cream-50'
+                          ? 'bg-terracotta/10 border-terracotta/70 shadow-sm'
+                          : !t.isActive
+                          ? 'bg-taupe-50 border-taupe-200 opacity-70'
+                          : 'bg-emerald-50/40 border-emerald-200/70 hover:bg-emerald-50'
                       }`}
                     >
                       <div className="flex items-center justify-between w-full">
-                        <span className="font-bold text-xs text-espresso-900 truncate">
-                          {t.name}
-                        </span>
+                        <div className="min-w-0">
+                          <span className="block font-bold text-xs text-espresso-900 truncate">
+                            {t.name}
+                          </span>
+                          <span className="block mt-0.5 text-[10px] text-taupe-500 truncate">
+                            {t.section || 'Main floor'}
+                          </span>
+                        </div>
                         <span
                           className={`w-2 h-2 rounded-full shrink-0 ${
                             hasCall
-                              ? 'bg-rose-500 animate-ping'
+                              ? 'bg-rose-500 animate-pulse'
                               : isActive
-                              ? 'bg-amber-500'
+                              ? 'bg-terracotta'
+                              : !t.isActive
+                              ? 'bg-taupe-400'
                               : 'bg-emerald-500'
                           }`}
                         />
                       </div>
                       <div className="text-[10px] mt-1.5 font-medium text-taupe-600">
-                        {hasCall
-                          ? '🔔 Waiter Called!'
-                          : isActive
-                          ? `${tableOrders.length} Active Order${tableOrders.length > 1 ? 's' : ''}`
-                          : `Free • ${t.capacity || 4} seats`}
+                        {statusLabel}
+                        {!hasCall && !isActive && t.isActive ? ` · ${t.capacity || 4} seats` : ''}
                       </div>
                     </button>
                   );
