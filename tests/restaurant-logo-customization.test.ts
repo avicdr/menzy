@@ -240,5 +240,61 @@ describe('Restaurant Logo Customization & Diner Menu Visibility', () => {
       const patchBody = await patchRes.json();
       expect(patchBody.restaurant.logoUrl).toBeNull();
     });
+
+    it('lets the owner change the public URL endpoint when it is available', async () => {
+      const previousSlug = testRestaurant.slug;
+      const nextSlug = `renamed-logo-cafe-${Date.now()}`;
+      const patchRes = await restaurantSettingsPatch(
+        new Request('http://localhost:3000/api/restaurant/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            restaurantId: testRestaurant.id,
+            slug: nextSlug,
+          }),
+        })
+      );
+
+      expect(patchRes.status).toBe(200);
+      const patchBody = await patchRes.json();
+      expect(patchBody.restaurant.slug).toBe(nextSlug);
+      await expect(loadDinerMenuPayload(previousSlug)).resolves.toEqual({ status: 'NOT_FOUND' });
+      await expect(loadDinerMenuPayload(nextSlug)).resolves.toMatchObject({ status: 'OK' });
+      testRestaurant.slug = nextSlug;
+    });
+
+    it('rejects a public URL endpoint already used by another restaurant', async () => {
+      const occupiedSlug = `occupied-logo-cafe-${Date.now()}`;
+      const occupiedRestaurant = await prisma.restaurant.create({
+        data: {
+          slug: occupiedSlug,
+          displayName: 'Occupied Cafe',
+          organizationId: testOrg.id,
+        },
+      });
+
+      try {
+        const patchRes = await restaurantSettingsPatch(
+          new Request('http://localhost:3000/api/restaurant/settings', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              restaurantId: testRestaurant.id,
+              slug: occupiedSlug,
+            }),
+          })
+        );
+
+        expect(patchRes.status).toBe(409);
+        await expect(patchRes.json()).resolves.toMatchObject({
+          error: expect.stringContaining('already in use'),
+        });
+        await expect(
+          prisma.restaurant.findUnique({ where: { id: testRestaurant.id }, select: { slug: true } })
+        ).resolves.toEqual({ slug: testRestaurant.slug });
+      } finally {
+        await prisma.restaurant.delete({ where: { id: occupiedRestaurant.id } });
+      }
+    });
   });
 });

@@ -1,4 +1,7 @@
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { DashboardThemeTab } from '../src/components/dashboard/DashboardThemeTab';
 import * as geminiClient from '../src/lib/gemini/client';
 import * as openAiFallback from '../src/lib/ai/openai-fallback';
 import * as ownerAuth from '../src/lib/auth/owner-auth';
@@ -272,5 +275,48 @@ describe('Hospitality Nice Theme Generator & Contrast Guarantees', () => {
     expect(typeof data.themeName).toBe('string');
     expect(typeof data.rationale).toBe('string');
     expect(validateThemeAccessibility(data.theme).isValid).toBe(true);
+  });
+
+  it('DashboardThemeTab live phone preview reflects 1-column vs 2-column mobileGridColumns', () => {
+    const baseProps = {
+      restaurant: { id: 'rest-1', displayName: 'BimBim Go', showLogo: true },
+      menuItems: [
+        { id: 'i1', customName: 'Adrak Chai', priceMinor: 8000, currency: 'INR', restaurantDescription: 'Ginger tea' },
+        { id: 'i2', customName: 'Farm House Pizza', priceMinor: 29900, currency: 'INR', restaurantDescription: 'Stone baked' },
+      ],
+      coverUrl: '',
+      bannerDimensions: null,
+      isUploadingBanner: false,
+      bannerError: null,
+      bannerToast: null,
+      onBannerUpload: () => {},
+      onRemoveBanner: () => {},
+      onSubscriptionExpired: () => {},
+    };
+
+    const oneColHtml = renderToStaticMarkup(
+      React.createElement(DashboardThemeTab, {
+        ...baseProps,
+        rawInitialTheme: { ...THEME_PRESETS.WARM_EDITORIAL, layoutMode: 'GRID', mobileGridColumns: 1 },
+      })
+    );
+    expect(oneColHtml).toContain('Grid • 1/row');
+    expect(oneColHtml).toContain('grid grid-cols-1 gap-3');
+    expect(oneColHtml).not.toContain('grid grid-cols-2 gap-2.5');
+
+    const twoColHtml = renderToStaticMarkup(
+      React.createElement(DashboardThemeTab, {
+        ...baseProps,
+        rawInitialTheme: {
+          ...THEME_PRESETS.WARM_EDITORIAL,
+          layoutMode: 'GRID',
+          mobileGridColumns: undefined,
+          publishedSettings: { mobileGridColumns: 2 },
+        },
+      })
+    );
+    expect(twoColHtml).toContain('Grid • 2/row');
+    expect(twoColHtml).toContain('grid grid-cols-2 gap-2.5');
+    expect(twoColHtml).not.toContain('grid grid-cols-1 gap-3');
   });
 });

@@ -34,9 +34,15 @@ import {
   normalizeTaxPercentageInput,
 } from '@/lib/orders/tax-config';
 import {
+  cacheKeys,
   clearAllDashboardSessionCaches,
   invalidateRestaurantSessionCache,
+  removeSessionCache,
 } from '@/lib/cache/dashboard-session-cache';
+import {
+  MAX_RESTAURANT_SLUG_LENGTH,
+  normalizeRestaurantSlug,
+} from '@/lib/restaurant/restaurant-slug';
 
 const GooglePlacesModal = dynamic(
   () => import('@/components/dashboard/GooglePlacesModal').then((m) => m.GooglePlacesModal),
@@ -47,6 +53,7 @@ interface DashboardSettingsTabProps {
   restaurant: any;
   setRestaurant: React.Dispatch<React.SetStateAction<any>>;
   settingsForm: {
+    slug: string;
     displayName: string;
     description: string;
     address: string;
@@ -94,6 +101,7 @@ interface DashboardSettingsTabProps {
   supportEmail: string;
   supportMailHref: string;
   onSubscriptionExpired: (payload?: any) => void;
+  onSlugChanged?: () => void;
 }
 
 export function DashboardSettingsTab({
@@ -122,6 +130,7 @@ export function DashboardSettingsTab({
   supportEmail,
   supportMailHref,
   onSubscriptionExpired,
+  onSlugChanged,
 }: DashboardSettingsTabProps) {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSavedToast, setSettingsSavedToast] = useState(false);
@@ -190,6 +199,11 @@ export function DashboardSettingsTab({
       }
       if (res.ok) {
         const data = await res.json();
+        const slugChanged = data.restaurant.slug !== restaurant.slug;
+        if (slugChanged) {
+          removeSessionCache(cacheKeys.qrStudio(restaurant.slug));
+          onSlugChanged?.();
+        }
         const finalShowLogo = data.showLogo !== false;
         setRestaurant({
           ...data.restaurant,
@@ -197,6 +211,7 @@ export function DashboardSettingsTab({
         });
         setSettingsForm((prev: any) => ({
           ...prev,
+          slug: data.restaurant.slug,
           showLogo: finalShowLogo,
         }));
         if (data.wifi) {
@@ -309,6 +324,39 @@ export function DashboardSettingsTab({
                 className="w-full px-3.5 py-2 border border-cream-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-terracotta"
               />
             </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="restaurant-url-endpoint"
+              className="block text-xs font-semibold text-taupe-600 mb-1"
+            >
+              Public Menu URL
+            </label>
+            <div className="flex items-center border border-cream-300 rounded-xl overflow-hidden focus-within:ring-1 focus-within:ring-terracotta">
+              <span className="px-3.5 py-2 bg-cream-100 text-taupe-500 text-xs sm:text-sm border-r border-cream-300">
+                /m/
+              </span>
+              <input
+                id="restaurant-url-endpoint"
+                type="text"
+                required
+                maxLength={MAX_RESTAURANT_SLUG_LENGTH}
+                value={settingsForm.slug}
+                onChange={(e) =>
+                  setSettingsForm({
+                    ...settingsForm,
+                    slug: normalizeRestaurantSlug(e.target.value),
+                  })
+                }
+                placeholder="the-gravity"
+                className="min-w-0 flex-1 px-3.5 py-2 text-xs sm:text-sm focus:outline-none"
+              />
+            </div>
+            <p className="mt-1.5 text-[11px] text-taupe-500">
+              Use letters, numbers, and hyphens. Saving checks availability. Existing printed QR
+              codes must be replaced after changing this URL.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

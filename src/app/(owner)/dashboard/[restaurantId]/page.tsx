@@ -274,6 +274,7 @@ function RestaurantDashboardContent() {
 
   // Settings & Banner State (shared between Settings Tab & Theme Studio Banner section)
   const [settingsForm, setSettingsForm] = useState({
+    slug: '',
     displayName: '',
     description: '',
     address: '',
@@ -381,6 +382,7 @@ function RestaurantDashboardContent() {
     if (rsData.restaurant) {
       setRestaurant(rsData.restaurant);
       setSettingsForm({
+        slug: rsData.restaurant.slug || '',
         displayName: rsData.restaurant.displayName || '',
         description: rsData.restaurant.description || '',
         address: rsData.restaurant.address || '',
@@ -674,6 +676,7 @@ function RestaurantDashboardContent() {
             setCheckoutNotice(null);
             setRestaurant(cachedRest);
             setSettingsForm({
+              slug: cachedRest.slug || '',
               displayName: cachedRest.displayName || '',
               description: cachedRest.description || '',
               address: cachedRest.address || '',
@@ -767,6 +770,7 @@ function RestaurantDashboardContent() {
           setCheckoutNotice(null);
           setRestaurant(targetRest);
           setSettingsForm({
+            slug: targetRest.slug || '',
             displayName: targetRest.displayName || '',
             description: targetRest.description || '',
             address: targetRest.address || '',
@@ -2141,6 +2145,7 @@ function RestaurantDashboardContent() {
                 supportEmail={supportEmail}
                 supportMailHref={supportMailHref}
                 onSubscriptionExpired={handleSubscriptionExpired}
+                onSlugChanged={() => setQrData(null)}
               />
             )}
           </>

@@ -17,6 +17,7 @@ import {
   resolveServiceChargePercentageValue,
   resolveTaxPercentageValue,
 } from '@/lib/orders/tax-config';
+import { normalizeRestaurantSlug } from '@/lib/restaurant/restaurant-slug';
 
 export const dynamic = 'force-dynamic';
 
@@ -111,6 +112,7 @@ export async function PATCH(req: Request) {
     const body = await req.json();
     const {
       restaurantId,
+      slug,
       displayName,
       description,
       city,
@@ -148,6 +150,35 @@ export async function PATCH(req: Request) {
     }
 
     const targetRestaurantId = auth.restaurant.id;
+    const previousSlug = auth.restaurant.slug;
+
+    let savedSlug: string | undefined;
+    if (slug !== undefined) {
+      if (typeof slug !== 'string') {
+        return NextResponse.json({ error: 'URL endpoint must be text.' }, { status: 400 });
+      }
+
+      savedSlug = normalizeRestaurantSlug(slug);
+      if (!savedSlug) {
+        return NextResponse.json(
+          { error: 'Enter a URL endpoint using letters or numbers.' },
+          { status: 400 }
+        );
+      }
+
+      if (savedSlug !== previousSlug) {
+        const existingRestaurant = await prisma.restaurant.findUnique({
+          where: { slug: savedSlug },
+          select: { id: true },
+        });
+        if (existingRestaurant && existingRestaurant.id !== targetRestaurantId) {
+          return NextResponse.json(
+            { error: `/${savedSlug} is already in use. Choose another endpoint.` },
+            { status: 409 }
+          );
+        }
+      }
+    }
 
     // Validate tax & service charge percentages before mutating records
     let savedTaxPercentage: number | undefined;
@@ -202,6 +233,7 @@ export async function PATCH(req: Request) {
 
     // 1. Update Restaurant base attributes
     const restaurantUpdates: any = {};
+    if (savedSlug !== undefined) restaurantUpdates.slug = savedSlug;
     if (displayName !== undefined) restaurantUpdates.displayName = displayName;
     if (description !== undefined) restaurantUpdates.description = description;
     if (city !== undefined) restaurantUpdates.city = city;
@@ -301,9 +333,12 @@ export async function PATCH(req: Request) {
     // Invalidate public diner and restaurant cache
     const cache = getCache();
     await Promise.allSettled([
+      cache.del(`menu:slug:${previousSlug}`),
       cache.del(`menu:slug:${updatedRestaurant.slug}`),
       cache.del(`menzy:restaurant:${targetRestaurantId}`),
+      cache.del(`menzy:restaurant:slug:${previousSlug}`),
       cache.del(`menzy:restaurant:slug:${updatedRestaurant.slug}`),
+      cache.del(`menzy:diner:menu:${previousSlug}`),
       cache.del(`menzy:diner:menu:${updatedRestaurant.slug}`),
       cache.del(`menzy:diner:menu:${targetRestaurantId}`),
     ]);
@@ -335,6 +370,12 @@ export async function PATCH(req: Request) {
         : {}),
     });
   } catch (error: any) {
+    if (error?.code === 'P2002') {
+      return NextResponse.json(
+        { error: 'That URL endpoint is already in use. Choose another endpoint.' },
+        { status: 409 }
+      );
+    }
     console.error('Restaurant settings PATCH error:', error);
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }

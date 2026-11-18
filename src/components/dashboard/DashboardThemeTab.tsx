@@ -59,6 +59,10 @@ interface DashboardThemeTabProps {
 
 function normalizeRawTheme(rsTheme: any): ThemeConfig {
   if (!rsTheme) return THEME_PRESETS.WARM_EDITORIAL;
+  const resolvedMobileGridColumns =
+    rsTheme.mobileGridColumns ??
+    rsTheme.publishedSettings?.mobileGridColumns ??
+    rsTheme.draftSettings?.mobileGridColumns;
   return {
     presetKey: rsTheme.presetKey || 'WARM_EDITORIAL',
     backgroundColor: rsTheme.backgroundColor || '#F7F3EC',
@@ -70,7 +74,7 @@ function normalizeRawTheme(rsTheme: any): ThemeConfig {
     headingFont: normalizeThemeFont(rsTheme.headingFont, 'Plus Jakarta Sans'),
     bodyFont: normalizeThemeFont(rsTheme.bodyFont, 'Inter'),
     layoutMode: rsTheme.layoutMode || 'GRID',
-    mobileGridColumns: rsTheme.mobileGridColumns === 2 ? 2 : 1,
+    mobileGridColumns: resolvedMobileGridColumns === 2 ? 2 : 1,
     cardRadius: rsTheme.cardRadius || '16px',
     buttonStyle: rsTheme.buttonStyle || 'rounded',
     imageProportions: rsTheme.imageProportions || 'square',
@@ -623,7 +627,9 @@ export function DashboardThemeTab({
                 <button
                   key={columns}
                   type="button"
-                  onClick={() => updateThemeState({ ...themeState, mobileGridColumns: columns })}
+                  onClick={() =>
+                    updateThemeState({ ...themeState, layoutMode: 'GRID', mobileGridColumns: columns })
+                  }
                   className={`p-3 rounded-2xl border text-left transition-all ${
                     themeState.mobileGridColumns === columns
                       ? 'border-espresso-900 bg-espresso-900 text-white shadow-sm'
@@ -1065,7 +1071,9 @@ export function DashboardThemeTab({
                         fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
                       }}
                     >
-                      {themeState.layoutMode === 'GRID' ? 'Grid Mode' : 'List Mode'}
+                      {themeState.layoutMode === 'GRID'
+                        ? `Grid • ${themeState.mobileGridColumns === 2 ? '2/row' : '1/row'}`
+                        : 'List Mode'}
                     </span>
                     <span
                       className="text-[10px]"
@@ -1111,12 +1119,19 @@ export function DashboardThemeTab({
 
             <div className="p-3 overflow-y-auto space-y-2.5 flex-1">
               {themeState.layoutMode === 'GRID' ? (
-                <div className="grid grid-cols-2 gap-2.5">
+                <div
+                  className={
+                    themeState.mobileGridColumns === 2
+                      ? 'grid grid-cols-2 gap-2.5'
+                      : 'grid grid-cols-1 gap-3'
+                  }
+                >
                   {menuItems.slice(0, 4).map((item) => {
                     const img =
                       item.imageOverride?.publicUrl ||
                       item.canonical?.imageAsset?.publicUrl ||
                       '/placeholder-dish.svg';
+                    const isTwoCol = themeState.mobileGridColumns === 2;
                     return (
                       <div
                         key={item.id}
@@ -1127,7 +1142,11 @@ export function DashboardThemeTab({
                           borderRadius: themeState.cardRadius,
                         }}
                       >
-                        <div className="relative aspect-square w-full overflow-hidden bg-black/5">
+                        <div
+                          className={`relative w-full overflow-hidden bg-black/5 ${
+                            isTwoCol ? 'aspect-square' : 'aspect-[4/3]'
+                          }`}
+                        >
                           <img src={img} alt="" className="w-full h-full object-cover" />
                           {item.isPopular && (
                             <span
@@ -1142,9 +1161,11 @@ export function DashboardThemeTab({
                             </span>
                           )}
                         </div>
-                        <div className="p-2 space-y-1">
+                        <div className={isTwoCol ? 'p-2 space-y-1' : 'p-3 space-y-1.5'}>
                           <div
-                            className="font-semibold text-[11px] truncate"
+                            className={`font-semibold truncate ${
+                              isTwoCol ? 'text-[11px]' : 'text-xs'
+                            }`}
                             style={{
                               fontFamily: `'${themeState.headingFont}', Georgia, serif`,
                               color: themeState.primaryTextColor,
@@ -1153,7 +1174,7 @@ export function DashboardThemeTab({
                             {item.customName}
                           </div>
                           <div
-                            className="text-[9px] line-clamp-1"
+                            className={isTwoCol ? 'text-[9px] line-clamp-1' : 'text-[10px] line-clamp-2'}
                             style={{
                               fontFamily: `'${themeState.bodyFont}', -apple-system, sans-serif`,
                               color: themeState.secondaryTextColor,
