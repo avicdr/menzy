@@ -72,6 +72,7 @@ const GooglePlacesModal = dynamic(
 );
 
 const getOrderTableId = (order: any): string | null => order?.tableId || order?.table?.id || null;
+const ACTIVE_ORDER_STATUSES = new Set(['PLACED', 'ACCEPTED', 'PREPARING', 'READY', 'SERVED']);
 
 interface CachedLiveOrdersPayload {
   orders: any[];
@@ -120,6 +121,7 @@ const DEFAULT_ORDERING_SETTINGS_STATE: CachedOrderingSettingsPayload['orderingSe
 interface OrdersManagementViewProps {
   restaurant: any;
   initialSubTab?: 'live' | 'history' | 'analytics' | 'settings';
+  initialTableFilter?: string | null;
   onSubscriptionExpired?: (payload: any) => void;
   onTaxSettingsUpdated?: (taxPercentage: number, serviceChargePercentage: number) => void;
 }
@@ -127,6 +129,7 @@ interface OrdersManagementViewProps {
 export function OrdersManagementView({
   restaurant,
   initialSubTab = 'live',
+  initialTableFilter = null,
   onSubscriptionExpired,
   onTaxSettingsUpdated,
 }: OrdersManagementViewProps) {
@@ -181,7 +184,18 @@ export function OrdersManagementView({
   const [serviceCalls, setServiceCalls] = useState<any[]>(
     () => initialLiveEntry?.data?.calls ?? []
   );
-  const [selectedTableFilter, setSelectedTableFilter] = useState<string | null>(null);
+  const [selectedTableFilter, setSelectedTableFilter] = useState<string | null>(
+    () => initialTableFilter || null
+  );
+  const [floorFilter, setFloorFilter] = useState<'all' | 'active'>('all');
+
+  useEffect(() => {
+    setSelectedTableFilter(initialTableFilter || null);
+    if (initialTableFilter) {
+      setActiveSubTab('live');
+      setFloorFilter('all');
+    }
+  }, [initialTableFilter]);
   const [updatingOrders, setUpdatingOrders] = useState<Record<string, string>>({});
   const [resolvingCallId, setResolvingCallId] = useState<string | null>(null);
   const [subscriptionPaused, setSubscriptionPaused] = useState(false);
@@ -245,7 +259,8 @@ export function OrdersManagementView({
     if (!targetRestaurantId) return;
 
     if (loadedRestaurantIdRef.current && loadedRestaurantIdRef.current !== targetRestaurantId) {
-      setSelectedTableFilter(null);
+      setSelectedTableFilter(initialTableFilter || null);
+      setFloorFilter('all');
       setSelectedOrderForDetail(null);
       setHistoryOrders([]);
       setHistoryStatusFilter('ALL');
@@ -1177,7 +1192,7 @@ export function OrdersManagementView({
         >
           Active Orders ({
             liveOrdersLoaded
-              ? liveOrders.filter((o) => ['PLACED', 'ACCEPTED', 'PREPARING', 'READY'].includes(o.status)).length
+              ? liveOrders.filter((o) => ACTIVE_ORDER_STATUSES.has(o.status)).length
               : (analyticsData?.summary?.activeOrdersCount ?? 0)
           })
         </button>
@@ -1218,7 +1233,7 @@ export function OrdersManagementView({
 
       {/* SUB-TAB 1: LIVE ORDERS & FLOOR METRICS */}
       {activeSubTab === 'live' && (() => {
-        const activeOrdersList = liveOrders.filter((o) => !['CANCELLED', 'REJECTED', 'COMPLETED'].includes(o.status));
+        const activeOrdersList = liveOrders.filter((o) => ACTIVE_ORDER_STATUSES.has(o.status));
         const ongoingPrepCount = activeOrdersList.filter((o) => ['PLACED', 'ACCEPTED', 'PREPARING'].includes(o.status)).length;
         const readyServeCount = activeOrdersList.filter((o) => o.status === 'READY').length;
         const activeOrderTableIds = new Set(
@@ -1234,6 +1249,14 @@ export function OrdersManagementView({
         }
         const tablesWithCalls = new Set(serviceCalls.map((call) => call.tableId));
         const openCheckMinor = activeOrdersList.reduce((acc, o) => acc + (o.totalMinor || 0), 0);
+        const activeTablesCount = tables.filter((t) => activeOrdersByTable.has(t.id)).length;
+        const visibleTables =
+          floorFilter === 'active'
+            ? tables.filter((t) => activeOrdersByTable.has(t.id))
+            : tables;
+        const selectedTableName = selectedTableFilter
+          ? tables.find((t) => t.id === selectedTableFilter)?.name || null
+          : null;
         const filteredOrders = selectedTableFilter
           ? liveOrders.filter((o) => getOrderTableId(o) === selectedTableFilter)
           : liveOrders;
@@ -1338,107 +1361,213 @@ export function OrdersManagementView({
 
           {/* Live Floor Status Map */}
           {tables.length > 0 && (
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-cream-200 shadow-sm space-y-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-cream-200 shadow-sm space-y-3.5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-xs font-bold uppercase tracking-wider text-taupe-600 flex items-center gap-2">
+                  <div className="text-xs font-bold uppercase tracking-wider text-taupe-600 flex flex-wrap items-center gap-2">
                     <MapPin className="w-4 h-4 text-terracotta" />
                     <span>All Tables</span>
-                  </div>
-                  <p className="mt-1 text-xs text-taupe-500">
-                    Select a table to filter its live orders.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[10px] font-semibold text-taupe-600">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-terracotta" /> Active order
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-rose-500" /> Service call
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500" /> Available
-                  </span>
-                  {selectedTableFilter && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedTableFilter(null)}
-                      className="font-bold text-terracotta hover:underline"
-                    >
-                      Clear filter
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2.5">
-                {tables.map((t) => {
-                  const hasCall = tablesWithCalls.has(t.id);
-                  const tableOrders = activeOrdersByTable.get(t.id) || [];
-                  const isActive = tableOrders.length > 0;
-                  const isSelected = selectedTableFilter === t.id;
-                  const statusLabel = hasCall
-                    ? 'Service requested'
-                    : isActive
-                      ? `${tableOrders.length} active order${tableOrders.length === 1 ? '' : 's'}`
-                      : !t.isActive
-                        ? 'Ordering disabled'
-                        : 'Available';
-
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setSelectedTableFilter(isSelected ? null : t.id)}
-                      aria-pressed={isSelected}
-                      aria-label={`${t.name}, ${statusLabel}`}
-                      className={`min-h-24 p-3 rounded-xl border text-left transition-all flex flex-col justify-between hover:-translate-y-0.5 active:translate-y-0 ${
-                        isSelected
-                          ? 'ring-2 ring-espresso-900 border-espresso-900 bg-cream-50 shadow-sm'
-                          : hasCall
-                          ? 'bg-rose-50 border-rose-400 shadow-sm'
-                          : isActive
-                          ? 'bg-terracotta/10 border-terracotta/70 shadow-sm'
-                          : !t.isActive
-                          ? 'bg-taupe-50 border-taupe-200 opacity-70'
-                          : 'bg-emerald-50/40 border-emerald-200/70 hover:bg-emerald-50'
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold normal-case tracking-normal ${
+                        activeTablesCount > 0
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                          : 'bg-cream-100 text-taupe-600 border border-cream-200'
                       }`}
                     >
-                      <div className="flex items-center justify-between w-full">
-                        <div className="min-w-0">
-                          <span className="block font-bold text-xs text-espresso-900 truncate">
-                            {t.name}
-                          </span>
-                          <span className="block mt-0.5 text-[10px] text-taupe-500 truncate">
-                            {t.section || 'Main floor'}
-                          </span>
-                        </div>
-                        <span
-                          className={`w-2 h-2 rounded-full shrink-0 ${
-                            hasCall
-                              ? 'bg-rose-500 animate-pulse'
-                              : isActive
-                              ? 'bg-terracotta'
-                              : !t.isActive
-                              ? 'bg-taupe-400'
-                              : 'bg-emerald-500'
-                          }`}
-                        />
-                      </div>
-                      <div className="text-[10px] mt-1.5 font-medium text-taupe-600">
-                        {statusLabel}
-                        {!hasCall && !isActive && t.isActive ? ` · ${t.capacity || 4} seats` : ''}
-                      </div>
+                      {activeTablesCount > 0 && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-terracotta animate-pulse motion-reduce:animate-none" />
+                      )}
+                      {activeTablesCount} active / {tables.length} total
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-taupe-500">
+                    Tables with active orders are highlighted. Select a table to filter its live orders.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <div
+                    role="group"
+                    aria-label="Filter floor tables"
+                    className="inline-flex items-center rounded-xl bg-cream-100 p-0.5 border border-cream-200 text-xs font-semibold"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setFloorFilter('all')}
+                      className={`px-2.5 py-1 rounded-lg transition-colors ${
+                        floorFilter === 'all'
+                          ? 'bg-espresso-900 text-cream-50 shadow-2xs'
+                          : 'text-taupe-600 hover:text-espresso-900'
+                      }`}
+                    >
+                      All ({tables.length})
                     </button>
-                  );
-                })}
+                    <button
+                      type="button"
+                      onClick={() => setFloorFilter('active')}
+                      className={`px-2.5 py-1 rounded-lg transition-colors ${
+                        floorFilter === 'active'
+                          ? 'bg-terracotta text-white shadow-2xs'
+                          : 'text-taupe-600 hover:text-espresso-900'
+                      }`}
+                    >
+                      Active Only ({activeTablesCount})
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] font-semibold text-taupe-600">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-terracotta" /> Active order
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-rose-500" /> Service call
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" /> Available
+                    </span>
+                    {selectedTableFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTableFilter(null)}
+                        className="font-bold text-terracotta hover:underline"
+                      >
+                        Clear filter
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
+
+              {visibleTables.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-cream-300 bg-cream-50/70 px-4 py-5 text-center text-xs text-taupe-600 flex flex-col sm:flex-row items-center justify-center gap-2">
+                  <span>No tables currently have active orders.</span>
+                  <button
+                    type="button"
+                    onClick={() => setFloorFilter('all')}
+                    className="font-semibold text-terracotta hover:underline"
+                  >
+                    Show all {tables.length} tables
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
+                  {visibleTables.map((t) => {
+                    const hasCall = tablesWithCalls.has(t.id);
+                    const tableOrders = activeOrdersByTable.get(t.id) || [];
+                    const isActive = tableOrders.length > 0;
+                    const tableOpenBillMinor = tableOrders.reduce(
+                      (sum, o) => sum + (o.totalMinor || 0),
+                      0
+                    );
+                    const isSelected = selectedTableFilter === t.id;
+                    const statusLabel = hasCall && isActive
+                      ? `${tableOrders.length} active order${tableOrders.length === 1 ? '' : 's'}, service requested`
+                      : hasCall
+                      ? 'Service requested'
+                      : isActive
+                      ? `${tableOrders.length} active order${tableOrders.length === 1 ? '' : 's'}, ${formatPrice(tableOpenBillMinor)}`
+                      : !t.isActive
+                      ? 'Ordering disabled'
+                      : 'Available';
+
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setSelectedTableFilter(isSelected ? null : t.id)}
+                        aria-pressed={isSelected}
+                        aria-label={`${t.name}, ${statusLabel}`}
+                        className={`min-h-24 p-3 rounded-xl border text-left transition-all flex flex-col justify-between hover:-translate-y-0.5 active:translate-y-0 ${
+                          isSelected
+                            ? isActive || hasCall
+                              ? 'ring-2 ring-espresso-900 border-espresso-900 bg-amber-50 shadow-md'
+                              : 'ring-2 ring-espresso-900 border-espresso-900 bg-cream-50 shadow-sm'
+                            : hasCall
+                            ? 'bg-rose-50 border-rose-400 ring-1 ring-rose-300/70 shadow-sm'
+                            : isActive
+                            ? 'bg-gradient-to-br from-amber-50 to-terracotta/15 border-terracotta/80 ring-1 ring-terracotta/30 shadow-sm hover:border-terracotta'
+                            : !t.isActive
+                            ? 'bg-taupe-50 border-taupe-200 opacity-65'
+                            : 'bg-white border-cream-200 hover:border-emerald-300 hover:bg-emerald-50/40'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2 w-full">
+                          <div className="min-w-0">
+                            <span className="block font-bold text-xs text-espresso-900 truncate">
+                              {t.name}
+                            </span>
+                            <span className="block mt-0.5 text-[10px] text-taupe-500 truncate">
+                              {t.section || 'Main floor'}
+                            </span>
+                          </div>
+                          {hasCall ? (
+                            <span className="relative flex h-2.5 w-2.5 shrink-0 mt-0.5">
+                              <span className="animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500" />
+                            </span>
+                          ) : isActive ? (
+                            <span className="relative flex h-2.5 w-2.5 shrink-0 mt-0.5">
+                              <span className="animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full bg-terracotta/70 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-terracotta" />
+                            </span>
+                          ) : (
+                            <span
+                              className={`w-2 h-2 rounded-full shrink-0 mt-1 ${
+                                !t.isActive ? 'bg-taupe-400' : 'bg-emerald-500'
+                              }`}
+                            />
+                          )}
+                        </div>
+
+                        {isActive ? (
+                          <div className="mt-2 pt-1.5 border-t border-terracotta/20 flex items-center justify-between gap-1.5 w-full">
+                            <span className="text-[10px] font-bold text-terracotta truncate">
+                              {tableOrders.length} active
+                              {hasCall ? ' · Call' : ''}
+                            </span>
+                            <span className="text-[11px] font-bold text-espresso-900 tabular-nums shrink-0">
+                              {formatPrice(tableOpenBillMinor)}
+                            </span>
+                          </div>
+                        ) : (
+                          <div
+                            className={`text-[10px] mt-2 font-medium ${
+                              hasCall ? 'text-rose-700 font-semibold' : 'text-taupe-500'
+                            }`}
+                          >
+                            {hasCall
+                              ? 'Service requested'
+                              : !t.isActive
+                              ? 'Ordering disabled'
+                              : `Available · ${t.capacity || 4} seats`}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
           <div className="flex items-center justify-between pt-2">
-            <div className="text-sm text-taupe-600 font-medium">
-              {selectedTableFilter ? 'Filtered table orders' : 'Real-time feed from dine-in tables'}
+            <div className="flex flex-wrap items-center gap-2 text-sm text-taupe-600 font-medium">
+              <span>
+                {selectedTableFilter
+                  ? selectedTableName
+                    ? `Filtered orders for ${selectedTableName}`
+                    : 'Filtered table orders'
+                  : 'Real-time feed from dine-in tables'}
+              </span>
+              {selectedTableFilter && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedTableFilter(null)}
+                  className="text-xs font-semibold text-terracotta hover:underline"
+                >
+                  Show all orders
+                </button>
+              )}
             </div>
             <button
               type="button"

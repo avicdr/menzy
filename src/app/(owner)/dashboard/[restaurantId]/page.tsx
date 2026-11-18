@@ -18,6 +18,7 @@ import {
   Lock,
   Mail,
   CreditCard,
+  MapPin,
 } from 'lucide-react';
 import { Portal } from '@/components/ui/Portal';
 import {
@@ -111,6 +112,17 @@ const DashboardCustomersTab = dynamic(
   { ssr: false, loading: TabLoadingFallback }
 );
 
+interface OverviewTableSummary {
+  id: string;
+  name: string;
+  section?: string | null;
+  capacity?: number | null;
+  isActive: boolean;
+  activeOrderCount?: number;
+  activeOrdersTotalMinor?: number;
+  hasActiveOrders?: boolean;
+}
+
 export default function RestaurantDashboardPage() {
   return (
     <React.Suspense
@@ -135,6 +147,7 @@ function RestaurantDashboardContent() {
   const currentTabRef = React.useRef(currentTab);
   currentTabRef.current = currentTab;
   const rawSubTab = searchParams.get('subtab');
+  const initialTableFilter = searchParams.get('tableId');
   const initialOrdersSubTab: 'live' | 'history' | 'analytics' | 'settings' =
     rawSubTab === 'analytics' || rawSubTab === 'history' || rawSubTab === 'settings'
       ? rawSubTab
@@ -211,6 +224,10 @@ function RestaurantDashboardContent() {
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const analyticsRequestRef = React.useRef(0);
+
+  // Overview Live Floor State (reuses cached /api/restaurants/[id]/tables payload)
+  const [overviewTables, setOverviewTables] = useState<OverviewTableSummary[]>([]);
+  const [overviewTablesLoading, setOverviewTablesLoading] = useState(false);
 
   const loadAnalytics = useCallback(
     async (targetRestaurantId: string, options?: { force?: boolean }) => {
@@ -978,6 +995,76 @@ function RestaurantDashboardContent() {
       loadAnalytics(restaurant.id);
     }
   }, [currentTab, restaurant?.id, loadAnalytics, expiredGate, targetOrgAccess?.expired]);
+
+  // Load lightweight table status summary once when viewing Overview tab
+  useEffect(() => {
+    if (currentTab !== 'overview' || !restaurant?.id || expiredGate || targetOrgAccess?.expired) {
+      return;
+    }
+
+    const targetRestaurantId = restaurant.id as string;
+    const tablesCacheKey = cacheKeys.tables(targetRestaurantId);
+    const cachedTables = readSessionCache<OverviewTableSummary[]>(
+      tablesCacheKey,
+      SESSION_CACHE_TTLS.TABLES_MAX_MS
+    );
+
+    if (Array.isArray(cachedTables?.data)) {
+      setOverviewTables(cachedTables.data);
+      setOverviewTablesLoading(false);
+    } else {
+      setOverviewTables([]);
+      setOverviewTablesLoading(true);
+    }
+
+    let cancelled = false;
+    dedupeClientRequest(`overviewTables:${targetRestaurantId}`, async () => {
+      const res = await fetch(`/api/restaurants/${targetRestaurantId}/tables`, {
+        cache: 'no-store',
+      });
+      if (res.status === 402) {
+        const payload = await res.json().catch(() => ({}));
+        return { expired: true as const, payload };
+      }
+      if (res.status === 401 || res.status === 403) {
+        clearAllDashboardSessionCaches();
+        return { expired: false as const, tables: null };
+      }
+      if (!res.ok) return { expired: false as const, tables: null };
+      const data = await res.json().catch(() => ({}));
+      const nextTables: OverviewTableSummary[] = Array.isArray(data?.tables) ? data.tables : [];
+      writeSessionCache(tablesCacheKey, nextTables);
+      return { expired: false as const, tables: nextTables };
+    })
+      .then((result) => {
+        if (cancelled) return;
+        if (result.expired) {
+          handleSubscriptionExpired(result.payload);
+          return;
+        }
+        if (result.tables) {
+          setOverviewTables(result.tables);
+        }
+      })
+      .catch((err) => {
+        console.error('Overview tables load error:', err);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setOverviewTablesLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentTab,
+    restaurant?.id,
+    expiredGate,
+    targetOrgAccess?.expired,
+    handleSubscriptionExpired,
+  ]);
 
   // Keep table session timers, Wi-Fi & profile settings fresh whenever owner navigates to Settings tab
   useEffect(() => {
@@ -1832,6 +1919,177 @@ function RestaurantDashboardContent() {
                   </div>
                 </div>
 
+                {/* Live Floor — All Tables */}
+                {(() => {
+                  const activeTablesCount = overviewTables.filter(
+                    (t) => Boolean(t.hasActiveOrders) || (t.activeOrderCount ?? 0) > 0
+                  ).length;
+
+                  return (
+                    <div className="p-5 sm:p-6 bg-white rounded-3xl border border-cream-200 shadow-soft space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <MapPin className="w-4 h-4 text-terracotta shrink-0" />
+                            <h3 className="font-serif text-lg font-bold text-espresso-900">
+                              Live Floor — All Tables
+                            </h3>
+                            {overviewTables.length > 0 && (
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                                  activeTablesCount > 0
+                                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                    : 'bg-cream-100 text-taupe-600 border border-cream-200'
+                                }`}
+                              >
+                                {activeTablesCount > 0 && (
+                                  <span className="h-1.5 w-1.5 rounded-full bg-terracotta animate-pulse motion-reduce:animate-none" />
+                                )}
+                                {activeTablesCount} active / {overviewTables.length} total
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-taupe-500 mt-0.5">
+                            Click any table to jump straight to its live orders.
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-3 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => router.push(`/dashboard/${restaurant.id}?tab=orders`)}
+                            className="text-xs font-semibold text-espresso-800 hover:text-terracotta transition-colors"
+                          >
+                            Live Orders
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => router.push(`/dashboard/${restaurant.id}?tab=tables`)}
+                            className="text-xs font-semibold text-terracotta hover:underline"
+                          >
+                            Manage Tables &rarr;
+                          </button>
+                        </div>
+                      </div>
+
+                      {overviewTablesLoading && overviewTables.length === 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
+                          {[0, 1, 2, 3, 4, 5].map((idx) => (
+                            <div
+                              key={idx}
+                              className="h-20 rounded-xl bg-cream-50 border border-cream-200 p-3 animate-pulse motion-reduce:animate-none flex flex-col justify-between"
+                            >
+                              <div className="h-3.5 w-2/3 bg-cream-200 rounded" />
+                              <div className="h-3 w-1/2 bg-cream-200 rounded" />
+                            </div>
+                          ))}
+                        </div>
+                      ) : overviewTables.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-cream-300 bg-cream-50/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <p className="text-xs text-taupe-600">
+                            No tables set up yet. Add your dining tables to print QR codes and track live orders at a glance.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => router.push(`/dashboard/${restaurant.id}?tab=tables`)}
+                            className="px-3.5 py-2 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold shrink-0 transition-colors"
+                          >
+                            Set Up Tables
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
+                          {overviewTables.map((t) => {
+                            const activeCount = t.activeOrderCount ?? 0;
+                            const hasActive = Boolean(t.hasActiveOrders) || activeCount > 0;
+                            const openBillMinor =
+                              typeof t.activeOrdersTotalMinor === 'number'
+                                ? t.activeOrdersTotalMinor
+                                : null;
+
+                            return (
+                              <button
+                                key={t.id}
+                                type="button"
+                                onClick={() =>
+                                  router.push(
+                                    `/dashboard/${restaurant.id}?tab=orders&tableId=${encodeURIComponent(t.id)}`
+                                  )
+                                }
+                                aria-label={`${t.name}, ${
+                                  hasActive
+                                    ? `${activeCount} active order${activeCount === 1 ? '' : 's'}${
+                                        openBillMinor && openBillMinor > 0
+                                          ? `, ${formatCurrencyMinor(openBillMinor, restaurant.currency || 'INR')}`
+                                          : ''
+                                      }`
+                                    : t.isActive
+                                    ? 'Available'
+                                    : 'Disabled'
+                                }`}
+                                className={`min-h-20 p-3 rounded-xl border text-left transition-all flex flex-col justify-between hover:-translate-y-0.5 active:translate-y-0 ${
+                                  hasActive
+                                    ? 'bg-gradient-to-br from-amber-50 to-terracotta/15 border-terracotta/80 ring-1 ring-terracotta/30 shadow-sm hover:border-terracotta'
+                                    : !t.isActive
+                                    ? 'bg-taupe-50 border-taupe-200 opacity-65 hover:opacity-85'
+                                    : 'bg-cream-50/70 border-cream-200 hover:border-emerald-300 hover:bg-emerald-50/40'
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-2 w-full">
+                                  <div className="min-w-0">
+                                    <span className="block font-bold text-xs text-espresso-900 truncate">
+                                      {t.name}
+                                    </span>
+                                    {t.section && (
+                                      <span className="block text-[10px] text-taupe-500 truncate mt-0.5">
+                                        {t.section}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {hasActive ? (
+                                    <span className="relative flex h-2.5 w-2.5 shrink-0 mt-0.5">
+                                      <span className="animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full bg-terracotta/70 opacity-75" />
+                                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-terracotta" />
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className={`w-2 h-2 rounded-full shrink-0 mt-1 ${
+                                        t.isActive ? 'bg-emerald-500' : 'bg-taupe-400'
+                                      }`}
+                                    />
+                                  )}
+                                </div>
+
+                                {hasActive ? (
+                                  <div className="mt-2 pt-1.5 border-t border-terracotta/20 flex items-center justify-between gap-1 w-full">
+                                    <span className="text-[10px] font-bold text-terracotta truncate">
+                                      {activeCount > 0
+                                        ? `${activeCount} active`
+                                        : 'Active'}
+                                    </span>
+                                    {openBillMinor !== null && openBillMinor > 0 && (
+                                      <span className="text-[11px] font-bold text-espresso-900 tabular-nums shrink-0">
+                                        {formatCurrencyMinor(
+                                          openBillMinor,
+                                          restaurant.currency || 'INR'
+                                        )}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="text-[10px] mt-2 font-medium text-taupe-500">
+                                    {t.isActive ? 'Available' : 'Disabled'}
+                                  </div>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 <div className="p-5 sm:p-6 bg-gradient-to-r from-cream-100 to-cream-50 rounded-3xl border border-cream-300 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                   <div>
                     <h3 className="font-serif text-lg font-bold text-espresso-900">
@@ -2100,6 +2358,7 @@ function RestaurantDashboardContent() {
                 <OrdersManagementView
                   restaurant={restaurant}
                   initialSubTab={initialOrdersSubTab}
+                  initialTableFilter={initialTableFilter}
                   onSubscriptionExpired={handleSubscriptionExpired}
                   onTaxSettingsUpdated={handleTaxSettingsUpdated}
                 />
