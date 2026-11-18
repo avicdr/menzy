@@ -79,6 +79,7 @@ export async function PATCH(
       taxPercentage,
       serviceChargePercentage,
       maxActiveOrders,
+      customerCreditEnabled,
       wifi,
       tableSession,
       scanTimeoutMinutes,
@@ -89,6 +90,7 @@ export async function PATCH(
     if (orderingEnabled !== undefined) data.orderingEnabled = Boolean(orderingEnabled);
     if (acceptsNewOrders !== undefined) data.acceptsNewOrders = Boolean(acceptsNewOrders);
     if (allowSpecialInstructions !== undefined) data.allowSpecialInstructions = Boolean(allowSpecialInstructions);
+    if (customerCreditEnabled !== undefined) data.customerCreditEnabled = Boolean(customerCreditEnabled);
     if (paymentMode !== undefined) {
       const valid = ['PAY_AT_COUNTER', 'PAY_AT_TABLE', 'BOTH'];
       if (valid.includes(paymentMode)) data.paymentMode = paymentMode;

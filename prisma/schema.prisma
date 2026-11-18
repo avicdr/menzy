@@ -109,6 +109,8 @@ model Restaurant {
   tables           RestaurantTable[]
   staff            RestaurantStaff[]
   orders           Order[]
+  customers        Customer[]
+  customerCreditLedgers CustomerCreditLedger[]
   orderingSettings RestaurantOrderingSettings?
   menus            Menu[]
   menuItems        RestaurantMenuItem[]
@@ -957,6 +959,7 @@ enum OrderStatus {
 
 enum PaymentStatus {
   PENDING
+  PARTIAL
   PAID
   REFUNDED
 }
@@ -972,6 +975,9 @@ model Order {
   restaurantId        String
   tableId             String
   dinerSessionId      String?
+  customerId             String?
+  customerNameSnapshot   String?
+  customerMobileSnapshot String?
   orderNumber         String
   status              OrderStatus          @default(PLACED)
   currency            String               @default("INR")
@@ -979,6 +985,8 @@ model Order {
   taxMinor            Int                  @default(0)
   serviceChargeMinor  Int                  @default(0)
   totalMinor          Int
+  paidMinor           Int                  @default(0)
+  dueMinor            Int                  @default(0)
   paymentMethod       String               @default("PAY_AT_COUNTER")
   paymentStatus       PaymentStatus        @default(PENDING)
   specialInstructions String?
@@ -995,14 +1003,17 @@ model Order {
   restaurant          Restaurant           @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   table               RestaurantTable      @relation(fields: [tableId], references: [id], onDelete: Restrict)
   dinerSession        DinerSession?        @relation(fields: [dinerSessionId], references: [id], onDelete: SetNull)
+  customer            Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
   items               OrderItem[]
   statusHistory       OrderStatusHistory[]
   events              OrderEvent[]
+  ledgerEntries       CustomerCreditLedger[]
 
   @@unique([restaurantId, orderNumber])
   @@index([restaurantId, status, placedAt])
   @@index([restaurantId, tableId, placedAt])
   @@index([restaurantId, dinerSessionId, placedAt])
+  @@index([restaurantId, customerId, placedAt])
   @@index([restaurantId, createdAt])
   @@index([restaurantId, updatedAt])
 }
@@ -1085,6 +1096,7 @@ model RestaurantOrderingSettings {
   autoRejectWhenClosed     Boolean    @default(false)
   taxPercentage            Float      @default(5.0)
   serviceChargePercentage  Float      @default(0.0)
+  customerCreditEnabled    Boolean    @default(false)
   createdAt                DateTime   @default(now())
   updatedAt                DateTime   @updatedAt
 
@@ -1105,3 +1117,69 @@ model OrderEvent {
   @@index([orderId])
 }
 
+// ----------------------------------------------------
+// 11. Restaurant Customer CRM & Credit / Loan Ledger
+// ----------------------------------------------------
+
+enum CustomerLedgerType {
+  CREDIT_ADDED
+  PAYMENT_RECEIVED
+  ADJUSTMENT
+}
+
+model Customer {
+  id                 String   @id @default(uuid())
+  restaurantId       String
+  name               String
+  mobile             String
+  creditBalanceMinor Int      @default(0)
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  restaurant    Restaurant             @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orders        Order[]
+  ledgerEntries CustomerCreditLedger[]
+
+  @@unique([restaurantId, mobile])
+  @@index([restaurantId, updatedAt])
+  @@index([restaurantId, creditBalanceMinor])
+}
+
+model CustomerCreditLedger {
+  id                String             @id @default(uuid())
+  restaurantId      String
+  customerId        String
+  orderId           String?
+  type              CustomerLedgerType
+  amountMinor       Int
+  balanceAfterMinor Int
+  note              String?
+  recordedBy        String?
+  createdAt         DateTime           @default(now())
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  customer   Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order      Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([restaurantId, customerId, createdAt])
+  @@index([orderId])
+}
+
+// Kept as a Prisma model so migration history preserves the waiter-call table.
+// Runtime access remains raw SQL in service-call-service.ts.
+model TableServiceCall {
+  id           String    @id @db.VarChar(64)
+  restaurantId String    @db.VarChar(64)
+  tableId      String    @db.VarChar(64)
+  tableName    String    @db.VarChar(128)
+  tableSection String?   @db.VarChar(128)
+  callType     String    @default("ASSISTANCE") @db.VarChar(32)
+  notes        String?
+  status       String    @default("PENDING") @db.VarChar(32)
+  requestedAt  DateTime  @default(now()) @db.Timestamptz(6)
+  attendedAt   DateTime? @db.Timestamptz(6)
+  attendedBy   String?   @db.VarChar(128)
+
+  @@index([restaurantId, status, requestedAt(sort: Desc)], map: "idx_service_call_rest_status")
+}

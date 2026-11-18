@@ -72,6 +72,8 @@ export async function GET(
     if (search) {
       where.OR = [
         { orderNumber: { contains: search, mode: 'insensitive' } },
+        { customerNameSnapshot: { contains: search, mode: 'insensitive' } },
+        { customerMobileSnapshot: { contains: search, mode: 'insensitive' } },
         { items: { some: { dishNameSnapshot: { contains: search, mode: 'insensitive' } } } },
       ];
     }
@@ -98,8 +100,13 @@ export async function GET(
           taxMinor: true,
           serviceChargeMinor: true,
           totalMinor: true,
+          paidMinor: true,
+          dueMinor: true,
           paymentMethod: true,
           paymentStatus: true,
+          customerId: true,
+          customerNameSnapshot: true,
+          customerMobileSnapshot: true,
           placedAt: true,
           completedAt: true,
           table: { select: { id: true, name: true, section: true } },
@@ -134,8 +141,13 @@ export async function GET(
       taxMinor: o.taxMinor,
       serviceChargeMinor: o.serviceChargeMinor,
       totalMinor: o.totalMinor,
+      paidMinor: o.paidMinor,
+      dueMinor: o.dueMinor,
       paymentMethod: o.paymentMethod,
       paymentStatus: o.paymentStatus,
+      customerId: o.customerId,
+      customerName: o.customerNameSnapshot || null,
+      customerMobile: o.customerMobileSnapshot || null,
       placedAt: o.placedAt,
       completedAt: o.completedAt,
       tableName: o.table.name,

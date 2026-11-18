@@ -12,6 +12,8 @@ import {
   AlertCircle,
   QrCode,
   Clock,
+  User,
+  Phone,
 } from 'lucide-react';
 import { useCart } from '@/lib/diner/cart-context';
 import {
@@ -30,6 +32,8 @@ interface CartSheetProps {
   sessionId?: string;
   sessionToken?: string;
   defaultTimeoutMinutes?: number;
+  initialCustomerProfile?: { name: string; mobile: string } | null;
+  onSaveCustomerProfile?: (profile: { name: string; mobile: string }) => void;
   onOrderPlaced: (
     order: any,
     tableSession?: {
@@ -52,6 +56,8 @@ export function CartSheet({
   sessionId,
   sessionToken,
   defaultTimeoutMinutes = DEFAULT_SCAN_TIMEOUT_MINUTES,
+  initialCustomerProfile = null,
+  onSaveCustomerProfile,
   onOrderPlaced,
   onRequestRescan,
   onMenuPaused,
@@ -72,9 +78,20 @@ export function CartSheet({
     setIsCartOpen,
   } = useCart();
 
+  const [customerName, setCustomerName] = useState(initialCustomerProfile?.name || '');
+  const [customerMobile, setCustomerMobile] = useState(initialCustomerProfile?.mobile || '');
   const [specialInstructions, setSpecialInstructions] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialCustomerProfile?.name && !customerName) {
+      setCustomerName(initialCustomerProfile.name);
+    }
+    if (initialCustomerProfile?.mobile && !customerMobile) {
+      setCustomerMobile(initialCustomerProfile.mobile);
+    }
+  }, [customerMobile, customerName, initialCustomerProfile]);
 
   // Server quote calculation state
   const [quoteLoading, setQuoteLoading] = useState(false);
@@ -193,6 +210,19 @@ export function CartSheet({
 
     if (items.length === 0 || !tableInfo) return;
 
+    const cleanName = customerName.replace(/\s+/g, ' ').trim();
+    const digitsOnly = customerMobile.replace(/\D/g, '');
+    if (cleanName.length < 2) {
+      setError('Please enter your name (at least 2 characters) before placing your order.');
+      return;
+    }
+    if (digitsOnly.length < 7 || digitsOnly.length > 15) {
+      setError('Please enter a valid mobile number (7–15 digits) before placing your order.');
+      return;
+    }
+
+    onSaveCustomerProfile?.({ name: cleanName, mobile: customerMobile.trim() });
+
     setSubmitting(true);
     setError(null);
 
@@ -217,6 +247,8 @@ export function CartSheet({
           sessionToken: sessionToken || null,
           items: orderItems,
           specialInstructions,
+          customerName: cleanName,
+          customerMobile: customerMobile.trim(),
           idempotencyKey,
         }),
       });
@@ -445,6 +477,43 @@ export function CartSheet({
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* Customer Name & Mobile */}
+            {items.length > 0 && (
+              <div className="p-3.5 bg-cream-50/90 rounded-2xl border border-cream-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-espresso-900">Your Details</span>
+                  <span className="text-[10px] text-taupe-500">Saved for faster future orders</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="relative">
+                    <User className="w-3.5 h-3.5 text-taupe-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      required
+                      autoComplete="name"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      placeholder="Your Name *"
+                      className="w-full pl-8 pr-3 py-2 rounded-xl bg-white border border-cream-300 text-xs text-espresso-900 placeholder:text-taupe-400 focus:outline-none focus:ring-1 focus:ring-[var(--dishora-accent,#B86D52)]"
+                    />
+                  </div>
+                  <div className="relative">
+                    <Phone className="w-3.5 h-3.5 text-taupe-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="tel"
+                      required
+                      inputMode="tel"
+                      autoComplete="tel"
+                      value={customerMobile}
+                      onChange={(e) => setCustomerMobile(e.target.value)}
+                      placeholder="Mobile Number *"
+                      className="w-full pl-8 pr-3 py-2 rounded-xl bg-white border border-cream-300 text-xs text-espresso-900 placeholder:text-taupe-400 focus:outline-none focus:ring-1 focus:ring-[var(--dishora-accent,#B86D52)]"
+                    />
+                  </div>
+                </div>
               </div>
             )}
 

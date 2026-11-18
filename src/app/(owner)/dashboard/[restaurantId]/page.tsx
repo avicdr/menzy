@@ -105,6 +105,11 @@ const StaffManagementView = dynamic(
   () => import('@/components/dashboard/StaffManagementView').then((m) => m.StaffManagementView),
   { ssr: false, loading: TabLoadingFallback }
 );
+const DashboardCustomersTab = dynamic(
+  () =>
+    import('@/components/dashboard/DashboardCustomersTab').then((m) => m.DashboardCustomersTab),
+  { ssr: false, loading: TabLoadingFallback }
+);
 
 export default function RestaurantDashboardPage() {
   return (
@@ -2092,6 +2097,16 @@ function RestaurantDashboardContent() {
                   initialSubTab={initialOrdersSubTab}
                   onSubscriptionExpired={handleSubscriptionExpired}
                   onTaxSettingsUpdated={handleTaxSettingsUpdated}
+                />
+              </div>
+            )}
+
+            {currentTab === 'customers' && restaurant && (
+              <div className="animate-fade-in">
+                <DashboardCustomersTab
+                  restaurantId={restaurant.id}
+                  currency={restaurant.currency || 'INR'}
+                  onSubscriptionExpired={handleSubscriptionExpired}
                 />
               </div>
             )}

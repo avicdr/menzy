@@ -59,7 +59,7 @@ export async function GET(
       }
     }
 
-    const [orders, calls, rawTables] = await Promise.all([
+    const [orders, calls, rawTables, orderingSettings] = await Promise.all([
       prisma.order.findMany({
         where,
         orderBy: { placedAt: 'desc' },
@@ -73,8 +73,13 @@ export async function GET(
           taxMinor: true,
           serviceChargeMinor: true,
           totalMinor: true,
+          paidMinor: true,
+          dueMinor: true,
           paymentMethod: true,
           paymentStatus: true,
+          customerId: true,
+          customerNameSnapshot: true,
+          customerMobileSnapshot: true,
           specialInstructions: true,
           placedAt: true,
           acceptedAt: true,
@@ -85,6 +90,9 @@ export async function GET(
           updatedAt: true,
           table: {
             select: { id: true, name: true, section: true },
+          },
+          customer: {
+            select: { id: true, name: true, mobile: true, creditBalanceMinor: true },
           },
           items: {
             select: {
@@ -145,6 +153,10 @@ export async function GET(
             },
           })
         : Promise.resolve(undefined),
+      prisma.restaurantOrderingSettings.findUnique({
+        where: { restaurantId: auth.restaurant.id },
+        select: { customerCreditEnabled: true },
+      }),
     ]);
 
     const counts = {
@@ -173,8 +185,14 @@ export async function GET(
         taxMinor: o.taxMinor,
         serviceChargeMinor: o.serviceChargeMinor,
         totalMinor: o.totalMinor,
+        paidMinor: o.paidMinor,
+        dueMinor: o.dueMinor,
         paymentMethod: o.paymentMethod,
         paymentStatus: o.paymentStatus,
+        customerId: o.customerId,
+        customerName: o.customer?.name || o.customerNameSnapshot || null,
+        customerMobile: o.customer?.mobile || o.customerMobileSnapshot || null,
+        customerCreditBalanceMinor: o.customer?.creditBalanceMinor ?? 0,
         specialInstructions: o.specialInstructions,
         placedAt: o.placedAt,
         acceptedAt: o.acceptedAt,
@@ -245,6 +263,7 @@ export async function GET(
         restaurantName: auth.restaurant.displayName,
         restaurantSlug: auth.restaurant.slug,
         restaurantTheme,
+        customerCreditEnabled: Boolean(orderingSettings?.customerCreditEnabled),
         actor: { role: auth.role, name: auth.actorName },
         counts,
         orders: formatted,

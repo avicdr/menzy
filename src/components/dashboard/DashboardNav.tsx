@@ -20,6 +20,7 @@ import {
   X,
   ChefHat,
   Users,
+  BookUser,
   Lock,
   Mail,
 } from 'lucide-react';
@@ -46,6 +47,7 @@ const NAV_ITEMS = [
   { label: 'AI Waiter', icon: Bot, tab: 'ai' },
   { label: 'Tables & QR Codes', icon: QrCode, tab: 'tables' },
   { label: 'Live Orders & POS', icon: ChefHat, tab: 'orders' },
+  { label: 'Customers & Credit', icon: BookUser, tab: 'customers' },
   { label: 'Staff & Access', icon: Users, tab: 'staff' },
   { label: 'Analytics', icon: BarChart3, tab: 'analytics' },
   { label: 'Settings', icon: Settings, tab: 'settings' },

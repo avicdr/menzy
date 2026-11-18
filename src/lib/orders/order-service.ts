@@ -1,6 +1,7 @@
 import prisma from '../db/prisma';
-import { OrderStatus, StaffRole, OrderActorType } from '@prisma/client';
+import { OrderStatus, PaymentStatus, StaffRole, OrderActorType } from '@prisma/client';
 import { isAllowedStatusTransition } from '../auth/staff-auth';
+import { upsertRestaurantCustomer } from '../customers/customer-service';
 import {
   resolveServiceChargePercentageValue,
   resolveTaxPercentageValue,
@@ -370,6 +371,8 @@ export async function placeTableOrder(data: {
   items: CartItemInput[];
   specialInstructions?: string | null;
   idempotencyKey?: string | null;
+  customerName?: string | null;
+  customerMobile?: string | null;
   preverifiedTable?: { id: string; name: string } | null;
   preverifiedDinerSessionId?: string | null;
 }) {
@@ -467,11 +470,23 @@ export async function placeTableOrder(data: {
         }
 
         const orderPlacedAt = new Date();
+        let linkedCustomer: { id: string; name: string; mobile: string } | null = null;
+        if (data.customerName?.trim() && data.customerMobile?.trim()) {
+          linkedCustomer = await upsertRestaurantCustomer(tx, {
+            restaurantId: data.restaurantId,
+            name: data.customerName,
+            mobile: data.customerMobile,
+          });
+        }
+
         const createdOrder = await tx.order.create({
           data: {
             restaurantId: data.restaurantId,
             tableId: data.tableId,
             dinerSessionId: confirmedSessionId,
+            customerId: linkedCustomer?.id ?? null,
+            customerNameSnapshot: linkedCustomer?.name ?? (data.customerName?.trim() || null),
+            customerMobileSnapshot: linkedCustomer?.mobile ?? null,
             orderNumber,
             status: 'PLACED',
             currency: quote.currency,
@@ -513,6 +528,8 @@ export async function placeTableOrder(data: {
                   tableName: table.name,
                   totalMinor: quote.totalMinor,
                   itemCount: quote.items.length,
+                  customerName: linkedCustomer?.name ?? null,
+                  customerMobile: linkedCustomer?.mobile ?? null,
                 },
               },
             },
@@ -520,6 +537,9 @@ export async function placeTableOrder(data: {
           include: {
             items: true,
             table: true,
+            customer: {
+              select: { id: true, name: true, mobile: true, creditBalanceMinor: true },
+            },
             statusHistory: true,
           },
         });
@@ -593,6 +613,10 @@ export async function updateOrderStatus(data: {
       id: true,
       orderNumber: true,
       status: true,
+      totalMinor: true,
+      paidMinor: true,
+      dueMinor: true,
+      paymentStatus: true,
       table: {
         select: { name: true },
       },
@@ -635,7 +659,13 @@ export async function updateOrderStatus(data: {
   else if (target === 'PREPARING') timestampUpdates.preparingAt = now;
   else if (target === 'READY') timestampUpdates.readyAt = now;
   else if (target === 'SERVED') timestampUpdates.servedAt = now;
-  else if (target === 'COMPLETED') timestampUpdates.completedAt = now;
+  else if (target === 'COMPLETED') {
+    timestampUpdates.completedAt = now;
+    if (order.dueMinor === 0 && order.paymentStatus === PaymentStatus.PENDING) {
+      timestampUpdates.paidMinor = order.totalMinor;
+      timestampUpdates.paymentStatus = PaymentStatus.PAID;
+    }
+  }
   else if (target === 'CANCELLED' || target === 'REJECTED') timestampUpdates.cancelledAt = now;
 
   // Nested Prisma update already executes in an atomic DB transaction without interactive tx overhead

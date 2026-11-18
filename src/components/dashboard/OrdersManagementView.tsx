@@ -169,6 +169,14 @@ export function OrdersManagementView({
   // Live Orders & Live Floor State
   const [liveOrders, setLiveOrders] = useState<any[]>(() => initialLiveEntry?.data?.orders ?? []);
   const [liveOrdersLoaded, setLiveOrdersLoaded] = useState<boolean>(() => Boolean(initialLiveEntry));
+  const [customerCreditEnabled, setCustomerCreditEnabled] = useState<boolean>(false);
+  const [settleModalOrder, setSettleModalOrder] = useState<any | null>(null);
+  const [settlePaidMajor, setSettlePaidMajor] = useState('');
+  const [settleCustomerName, setSettleCustomerName] = useState('');
+  const [settleCustomerMobile, setSettleCustomerMobile] = useState('');
+  const [settleNote, setSettleNote] = useState('');
+  const [settleSubmitting, setSettleSubmitting] = useState(false);
+  const [settleError, setSettleError] = useState<string | null>(null);
   const [tables, setTables] = useState<any[]>(() => initialTablesEntry?.data ?? []);
   const [serviceCalls, setServiceCalls] = useState<any[]>(
     () => initialLiveEntry?.data?.calls ?? []
@@ -409,6 +417,9 @@ export function OrdersManagementView({
       liveOrdersRef.current = merged;
       setLiveOrders(merged);
       setLiveOrdersLoaded(true);
+      if (ordersData.customerCreditEnabled !== undefined) {
+        setCustomerCreditEnabled(Boolean(ordersData.customerCreditEnabled));
+      }
 
       if (Array.isArray(ordersData.calls)) {
         serviceCallsRef.current = nextCalls;
@@ -851,6 +862,63 @@ export function OrdersManagementView({
         delete next[orderId];
         return next;
       });
+    }
+  };
+
+  const handleOpenSettleModal = (order: any) => {
+    setSettleModalOrder(order);
+    const defaultPaid = order.paidMinor > 0 ? order.paidMinor / 100 : order.totalMinor / 100;
+    setSettlePaidMajor(String(Number(defaultPaid.toFixed(2))));
+    setSettleCustomerName(order.customerName || '');
+    setSettleCustomerMobile(order.customerMobile || '');
+    setSettleNote('');
+    setSettleError(null);
+  };
+
+  const handleSubmitSettleModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!settleModalOrder || !restaurant?.id) return;
+    const paidMajor = Number(settlePaidMajor);
+    if (!Number.isFinite(paidMajor) || paidMajor < 0) {
+      setSettleError('Enter a valid amount paid.');
+      return;
+    }
+
+    setSettleSubmitting(true);
+    setSettleError(null);
+    try {
+      const res = await fetch(
+        `/api/restaurants/${restaurant.id}/orders/${settleModalOrder.id}/settle`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            paidMajor,
+            markCompleted: true,
+            customerName: settleCustomerName.trim() || undefined,
+            customerMobile: settleCustomerMobile.trim() || undefined,
+            note: settleNote.trim() || undefined,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Could not settle order payment.');
+      }
+
+      const settledOrderNum = settleModalOrder.orderNumber;
+      const remDue = data.order?.dueMinor ?? 0;
+      setSettleModalOrder(null);
+      showNotification(
+        remDue > 0
+          ? `Order #${settledOrderNum} closed: ${formatPrice(data.order.paidMinor)} paid, ${formatPrice(remDue)} added to customer tab.`
+          : `Order #${settledOrderNum} paid in full & closed out.`
+      );
+      await loadLiveOrders(true);
+    } catch (err: any) {
+      setSettleError(err?.message || 'Could not settle order payment.');
+    } finally {
+      setSettleSubmitting(false);
     }
   };
 
@@ -1403,13 +1471,25 @@ export function OrdersManagementView({
                     </div>
 
                     {/* Table & Diner Info */}
-                    <div className="py-2.5 flex items-center justify-between text-xs text-espresso-800">
-                      <div className="font-semibold bg-terracotta/10 text-terracotta px-2.5 py-1 rounded-md">
+                    <div className="py-2.5 flex items-start justify-between gap-2 text-xs text-espresso-800">
+                      <div className="font-semibold bg-terracotta/10 text-terracotta px-2.5 py-1 rounded-md shrink-0">
                         {order.table?.name || 'Unassigned Table'}
                         {order.table?.section ? ` (${order.table.section})` : ''}
                       </div>
-                      <div className="text-taupe-500">
-                        {order.customerName ? `Guest: ${order.customerName}` : 'Dine-in Guest'}
+                      <div className="text-right min-w-0">
+                        <div className="font-semibold text-espresso-900 truncate">
+                          {order.customerName || 'Dine-in Guest'}
+                        </div>
+                        {order.customerMobile && (
+                          <div className="text-[10px] font-mono text-taupe-500">
+                            {order.customerMobile}
+                          </div>
+                        )}
+                        {order.customerCreditBalanceMinor > 0 && (
+                          <div className="text-[10px] font-mono font-bold text-amber-800">
+                            Tab Due: {formatPrice(order.customerCreditBalanceMinor)}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1522,14 +1602,26 @@ export function OrdersManagementView({
                       )}
 
                       {order.status === 'SERVED' && (
-                        <button
-                          onClick={() => handleStatusTransition(order.id, 'COMPLETED')}
-                          disabled={isSyncing}
-                          className="flex-1 py-1.5 px-3 rounded-lg bg-espresso-900 hover:bg-espresso-800 text-cream-100 font-medium text-xs transition-colors shadow-sm disabled:opacity-60 inline-flex items-center justify-center gap-1.5"
-                        >
-                          {isSyncing && <RefreshCw className="w-3 h-3 animate-spin motion-reduce:animate-none" />}
-                          {isSyncing ? 'Closing...' : 'Close Out'}
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleStatusTransition(order.id, 'COMPLETED')}
+                            disabled={isSyncing}
+                            className="flex-1 py-1.5 px-3 rounded-lg bg-espresso-900 hover:bg-espresso-800 text-cream-100 font-medium text-xs transition-colors shadow-sm disabled:opacity-60 inline-flex items-center justify-center gap-1.5"
+                          >
+                            {isSyncing && <RefreshCw className="w-3 h-3 animate-spin motion-reduce:animate-none" />}
+                            {isSyncing ? 'Closing...' : 'Paid & Close'}
+                          </button>
+                          {customerCreditEnabled && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenSettleModal(order)}
+                              disabled={isSyncing}
+                              className="py-1.5 px-2.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 font-semibold text-xs transition-colors disabled:opacity-60 whitespace-nowrap"
+                            >
+                              Split / Tab
+                            </button>
+                          )}
+                        </>
                       )}
 
                       {order.status === 'COMPLETED' && (
@@ -2422,6 +2514,123 @@ export function OrdersManagementView({
               </div>
             </div>
           </div>
+        )}
+      </Modal>
+
+      {/* Split Payment / Customer Credit Tab Modal */}
+      <Modal
+        isOpen={Boolean(settleModalOrder)}
+        onClose={() => !settleSubmitting && setSettleModalOrder(null)}
+        title={
+          settleModalOrder
+            ? `Split / Credit Payment — Order #${settleModalOrder.orderNumber}`
+            : 'Split / Credit Payment'
+        }
+      >
+        {settleModalOrder && (
+          <form onSubmit={handleSubmitSettleModal} className="space-y-4 text-xs">
+            <div className="p-3.5 rounded-xl bg-cream-50 border border-cream-200 flex items-center justify-between">
+              <span className="text-taupe-600 font-medium">Total Bill Amount</span>
+              <span className="font-mono font-bold text-base text-espresso-900">
+                {formatPrice(settleModalOrder.totalMinor)}
+              </span>
+            </div>
+
+            {settleError && (
+              <div
+                role="alert"
+                className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs"
+              >
+                {settleError}
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="block font-semibold text-espresso-900">
+                Amount Paid Now ({restaurant.currency || 'INR'})
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max={settleModalOrder.totalMinor / 100}
+                required
+                value={settlePaidMajor}
+                onChange={(e) => setSettlePaidMajor(e.target.value)}
+                placeholder="e.g. 200"
+                className="w-full px-3 py-2.5 rounded-xl bg-white border border-cream-300 text-sm text-espresso-900 focus:outline-none focus:ring-1 focus:ring-terracotta"
+              />
+              {(() => {
+                const paidM = Math.max(
+                  0,
+                  Math.min(
+                    settleModalOrder.totalMinor,
+                    Math.round((Number(settlePaidMajor) || 0) * 100)
+                  )
+                );
+                const dueM = settleModalOrder.totalMinor - paidM;
+                return (
+                  <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between text-amber-950">
+                    <span>Remaining added to Customer Tab (Pay Later):</span>
+                    <strong className="font-mono text-sm">{formatPrice(dueM)}</strong>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {!settleModalOrder.customerId && (
+              <div className="p-3 rounded-xl bg-cream-50 border border-cream-200 space-y-2">
+                <div className="font-semibold text-espresso-900">
+                  Link Customer (required if balance &gt; 0)
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={settleCustomerName}
+                    onChange={(e) => setSettleCustomerName(e.target.value)}
+                    placeholder="Customer Name"
+                    className="px-3 py-2 rounded-lg bg-white border border-cream-300 text-xs text-espresso-900"
+                  />
+                  <input
+                    type="tel"
+                    value={settleCustomerMobile}
+                    onChange={(e) => setSettleCustomerMobile(e.target.value)}
+                    placeholder="Mobile Number"
+                    className="px-3 py-2 rounded-lg bg-white border border-cream-300 text-xs text-espresso-900"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <label className="block font-semibold text-taupe-600">Note (Optional)</label>
+              <input
+                type="text"
+                value={settleNote}
+                onChange={(e) => setSettleNote(e.target.value)}
+                placeholder="e.g. Paid 200 via UPI, 300 next visit"
+                className="w-full px-3 py-2 rounded-xl bg-white border border-cream-300 text-xs text-espresso-900"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={settleSubmitting}
+                onClick={() => setSettleModalOrder(null)}
+                className="px-4 py-2 rounded-xl bg-cream-100 hover:bg-cream-200 text-espresso-900 font-semibold text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={settleSubmitting}
+                className="px-4 py-2 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white font-semibold text-xs disabled:opacity-50"
+              >
+                {settleSubmitting ? 'Saving...' : 'Confirm Settlement & Close Order'}
+              </button>
+            </div>
+          </form>
         )}
       </Modal>
     </div>

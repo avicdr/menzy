@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { placeTableOrder } from '@/lib/orders/order-service';
 import {
+  CustomerServiceError,
+  validateCustomerInput,
+} from '@/lib/customers/customer-service';
+import {
   evaluateDeviceTableSession,
   getDinerSessionCookieName,
   readCookieFromRequest,
@@ -26,6 +30,8 @@ export async function POST(req: Request) {
       items,
       specialInstructions,
       idempotencyKey,
+      customerName,
+      customerMobile,
     } = body;
 
     if (!restaurantId || !tableId || !Array.isArray(items) || items.length === 0) {
@@ -33,6 +39,18 @@ export async function POST(req: Request) {
         { error: 'restaurantId, tableId, and items array are required.' },
         { status: 400 }
       );
+    }
+
+    const hasCustomerInput =
+      (typeof customerName === 'string' && customerName.trim().length > 0) ||
+      (typeof customerMobile === 'string' && customerMobile.trim().length > 0);
+    let validatedCustomer: { name: string; mobile: string } | null = null;
+    if (hasCustomerInput) {
+      const check = validateCustomerInput({ name: customerName, mobile: customerMobile });
+      if (!check.ok) {
+        return NextResponse.json({ error: check.error }, { status: 400 });
+      }
+      validatedCustomer = { name: check.name, mobile: check.mobile };
     }
 
     const cookieName = getDinerSessionCookieName(restaurantId);
@@ -87,6 +105,8 @@ export async function POST(req: Request) {
       items,
       specialInstructions,
       idempotencyKey,
+      customerName: validatedCustomer?.name ?? null,
+      customerMobile: validatedCustomer?.mobile ?? null,
       preverifiedTable: sessionCheck.table
         ? { id: sessionCheck.table.id, name: sessionCheck.table.name }
         : undefined,
@@ -127,6 +147,8 @@ export async function POST(req: Request) {
         totalMinor: order.totalMinor,
         placedAt: order.placedAt,
         tableName: order.table.name,
+        customerName: order.customerNameSnapshot,
+        customerMobile: order.customerMobileSnapshot,
         itemCount: order.items.length,
         items: order.items.map((it) => ({
           dishName: it.dishNameSnapshot,
@@ -137,6 +159,9 @@ export async function POST(req: Request) {
       },
     });
   } catch (error: any) {
+    if (error instanceof CustomerServiceError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Order creation error:', error);
     const rawMessage = String(error?.message || '');
     const isPrismaInternal =

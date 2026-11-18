@@ -19,6 +19,9 @@ import {
   QrCode,
   Clock,
   Mail,
+  User,
+  Phone,
+  X,
 } from 'lucide-react';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 import { DishCard } from '@/components/diner/DishCard';
@@ -187,6 +190,93 @@ export function DinerMenuClient({
   // Order Confirmation sheet
   const [placedOrder, setPlacedOrder] = useState<any | null>(null);
   const [isOrderConfirmationOpen, setIsOrderConfirmationOpen] = useState(false);
+
+  // Guest Name & Mobile profile (persisted in localStorage + saved to restaurant Customer DB)
+  const [dinerProfile, setDinerProfile] = useState<{ name: string; mobile: string } | null>(null);
+  const [isGuestPromptOpen, setIsGuestPromptOpen] = useState(false);
+  const [guestPromptName, setGuestPromptName] = useState('');
+  const [guestPromptMobile, setGuestPromptMobile] = useState('');
+  const [guestPromptError, setGuestPromptError] = useState<string | null>(null);
+  const [guestPromptSaving, setGuestPromptSaving] = useState(false);
+
+  const saveDinerProfile = useCallback((profile: { name: string; mobile: string }) => {
+    setDinerProfile(profile);
+    try {
+      window.localStorage.setItem('menzy_diner_profile', JSON.stringify(profile));
+    } catch {
+      // Ignore storage quota / privacy mode errors
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!data?.restaurant?.id || pausedState?.paused) return;
+    try {
+      const savedRaw = window.localStorage.getItem('menzy_diner_profile');
+      if (savedRaw) {
+        const parsed = JSON.parse(savedRaw);
+        if (parsed?.name && parsed?.mobile) {
+          setDinerProfile({ name: String(parsed.name), mobile: String(parsed.mobile) });
+          return;
+        }
+      }
+      const dismissedKey = `menzy_guest_prompt_dismissed_${data.restaurant.id}`;
+      if (!window.sessionStorage.getItem(dismissedKey)) {
+        setIsGuestPromptOpen(true);
+      }
+    } catch {
+      // Ignore storage access errors
+    }
+  }, [data?.restaurant?.id, pausedState?.paused]);
+
+  const handleGuestPromptSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = guestPromptName.replace(/\s+/g, ' ').trim();
+    const digitsOnly = guestPromptMobile.replace(/\D/g, '');
+    if (cleanName.length < 2) {
+      setGuestPromptError('Please enter your name (at least 2 characters).');
+      return;
+    }
+    if (digitsOnly.length < 7 || digitsOnly.length > 15) {
+      setGuestPromptError('Please enter a valid mobile number (7–15 digits).');
+      return;
+    }
+
+    setGuestPromptSaving(true);
+    setGuestPromptError(null);
+    try {
+      const res = await fetch('/api/diner/customer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: data?.restaurant?.id,
+          name: cleanName,
+          mobile: guestPromptMobile.trim(),
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setGuestPromptError(payload.error || 'Could not save your details. Please try again.');
+        return;
+      }
+      saveDinerProfile({ name: cleanName, mobile: guestPromptMobile.trim() });
+      setIsGuestPromptOpen(false);
+    } catch {
+      setGuestPromptError('Connection issue while saving details. Please try again.');
+    } finally {
+      setGuestPromptSaving(false);
+    }
+  };
+
+  const handleDismissGuestPrompt = () => {
+    setIsGuestPromptOpen(false);
+    if (data?.restaurant?.id) {
+      try {
+        window.sessionStorage.setItem(`menzy_guest_prompt_dismissed_${data.restaurant.id}`, '1');
+      } catch {
+        // Ignore
+      }
+    }
+  };
 
   const markMenuPaused = useCallback(
     (payload?: any) => {
@@ -1308,6 +1398,8 @@ export function DinerMenuClient({
           sessionId={sessionId}
           sessionToken={sessionToken}
           defaultTimeoutMinutes={configuredScanTimeoutMinutes}
+          initialCustomerProfile={dinerProfile}
+          onSaveCustomerProfile={saveDinerProfile}
           onOrderPlaced={handleOrderPlaced}
           onRequestRescan={(reason) => {
             setIsCartOpen(false);
@@ -1382,6 +1474,97 @@ export function DinerMenuClient({
           timeoutMinutes={effectiveExpiredTimeoutMinutes}
           timeoutKind={expiredTimeoutKind}
         />
+      )}
+
+      {isGuestPromptOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/55 backdrop-blur-xs animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="guest-welcome-title"
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-[var(--dishora-surface,#FFFFFF)] text-[var(--dishora-text,#2B231D)] border border-[var(--dishora-border,#E6DDD2)] shadow-2xl p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--dishora-accent,#B86D52)]">
+                  Welcome to {restaurant.displayName}
+                </p>
+                <h2
+                  id="guest-welcome-title"
+                  className="font-serif text-xl font-bold tracking-tight mt-0.5"
+                >
+                  Quick Guest Check-In
+                </h2>
+                <p className="text-xs text-[var(--dishora-muted-text,#7C695C)] mt-1 leading-relaxed">
+                  Enter your name and mobile number once so your table orders go straight to the kitchen.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleDismissGuestPrompt}
+                aria-label="Skip for now"
+                className="p-1.5 rounded-full hover:bg-black/5 text-[var(--dishora-muted-text,#7C695C)] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {guestPromptError && (
+              <div
+                role="alert"
+                className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs"
+              >
+                {guestPromptError}
+              </div>
+            )}
+
+            <form onSubmit={handleGuestPromptSubmit} className="space-y-3">
+              <div className="relative">
+                <User className="w-4 h-4 text-[var(--dishora-muted-text,#7C695C)] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  required
+                  autoComplete="name"
+                  value={guestPromptName}
+                  onChange={(e) => setGuestPromptName(e.target.value)}
+                  placeholder="Your Name"
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-[var(--dishora-bg,#FAF7F2)] border border-[var(--dishora-border,#E6DDD2)] text-sm text-[var(--dishora-text,#2B231D)] placeholder:text-[var(--dishora-muted-text,#7C695C)]/70 focus:outline-none focus:ring-2 focus:ring-[var(--dishora-accent,#B86D52)]/40"
+                />
+              </div>
+
+              <div className="relative">
+                <Phone className="w-4 h-4 text-[var(--dishora-muted-text,#7C695C)] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="tel"
+                  required
+                  inputMode="tel"
+                  autoComplete="tel"
+                  value={guestPromptMobile}
+                  onChange={(e) => setGuestPromptMobile(e.target.value)}
+                  placeholder="Mobile Number"
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-[var(--dishora-bg,#FAF7F2)] border border-[var(--dishora-border,#E6DDD2)] text-sm text-[var(--dishora-text,#2B231D)] placeholder:text-[var(--dishora-muted-text,#7C695C)]/70 focus:outline-none focus:ring-2 focus:ring-[var(--dishora-accent,#B86D52)]/40"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={guestPromptSaving}
+                className="w-full py-3 rounded-xl bg-[var(--dishora-accent,#B86D52)] text-[var(--dishora-accent-fg,#FFFFFF)] font-semibold text-sm hover:opacity-95 transition-opacity shadow-sm disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                <span>{guestPromptSaving ? 'Saving...' : 'Continue to Menu'}</span>
+                {!guestPromptSaving && <ArrowRight className="w-4 h-4" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDismissGuestPrompt}
+                className="w-full py-1.5 text-xs font-medium text-[var(--dishora-muted-text,#7C695C)] hover:underline"
+              >
+                Skip for now (you can enter before ordering)
+              </button>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
