@@ -12,10 +12,12 @@ import {
   Sparkles,
 } from 'lucide-react';
 import {
+  buildEmbeddedFontCssForTent,
   buildTableTentSvg,
   fetchImageAsDataUrl,
   getTentDimensions,
   openPrintSheetForTents,
+  resolveTentFonts,
   TABLE_TENT_HEADLINE_PRESETS,
   triggerPngDownload,
   triggerSvgDownload,
@@ -24,6 +26,11 @@ import {
   type TableTentFormat,
   type TableTentTemplateId,
 } from '@/lib/qr/table-tent-renderer';
+import {
+  BODY_FONT_OPTIONS,
+  HEADING_FONT_OPTIONS,
+  buildFontCssStack,
+} from '@/lib/theme/theme-presets';
 
 interface TableTentDesignerProps {
   restaurant: any;
@@ -94,11 +101,17 @@ export function TableTentDesigner({
   const [menzyLogoDataUrl, setMenzyLogoDataUrl] = useState<string | null>(null);
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
   const [coverDataUrl, setCoverDataUrl] = useState<string | null>(null);
-  const [exportingPng, setExportingPng] = useState(false);
+  const [exportingAction, setExportingAction] = useState<'png' | 'svg' | 'print' | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
   const effectiveLogoUrl = logoUrl || restaurant?.logoUrl || null;
   const effectiveCoverUrl = coverUrl || restaurant?.coverUrl || null;
+  const effectiveBrandTheme = brandTheme || restaurant?.theme || null;
+  const themeDefaultFonts = resolveTentFonts(
+    { headingFont: null, bodyFont: null },
+    effectiveBrandTheme
+  );
+  const resolvedFonts = resolveTentFonts(config, effectiveBrandTheme);
 
   useEffect(() => {
     let active = true;
@@ -138,7 +151,7 @@ export function TableTentDesigner({
     };
   }, [effectiveCoverUrl]);
 
-  const svgMarkup = useMemo(() => {
+  const previewSvg = useMemo(() => {
     if (!qrDataUrl) return '';
     return buildTableTentSvg(config, {
       restaurantName: restaurant?.displayName || 'Restaurant',
@@ -150,12 +163,14 @@ export function TableTentDesigner({
       coverDataUrl,
       wifiSsid: wifiSsid || null,
       wifiPassword: wifiPassword || null,
-      brandTheme: brandTheme || restaurant?.theme || null,
+      brandTheme: effectiveBrandTheme,
+      useInlineCssVars: true,
+      svgIdPrefix: 'designer-preview',
     });
   }, [
     config,
     restaurant?.displayName,
-    restaurant?.theme,
+    effectiveBrandTheme,
     table.name,
     table.section,
     qrDataUrl,
@@ -164,45 +179,86 @@ export function TableTentDesigner({
     coverDataUrl,
     wifiSsid,
     wifiPassword,
-    brandTheme,
   ]);
-
-  const previewDataUri = useMemo(() => {
-    if (!svgMarkup) return '';
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup)}`;
-  }, [svgMarkup]);
 
   const dim = getTentDimensions(config.format);
   const safeBaseName = `${(restaurant?.slug || 'menzy')}-${table.name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')}-${config.format === 'A4_POSTER' ? 'a4-poster' : 'table-stand'}`;
 
-  const handleDownloadSvg = () => {
-    if (!svgMarkup) return;
-    setExportError(null);
-    triggerSvgDownload(svgMarkup, `${safeBaseName}.svg`);
+  const buildExportSvg = async () => {
+    if (!qrDataUrl) return '';
+    const embeddedFontCss = await buildEmbeddedFontCssForTent([
+      resolvedFonts.headingFont,
+      resolvedFonts.bodyFont,
+    ]);
+    return buildTableTentSvg(config, {
+      restaurantName: restaurant?.displayName || 'Restaurant',
+      tableName: table.name,
+      tableSection: table.section || null,
+      qrDataUrl,
+      menzyLogoDataUrl,
+      logoDataUrl,
+      coverDataUrl,
+      wifiSsid: wifiSsid || null,
+      wifiPassword: wifiPassword || null,
+      brandTheme: effectiveBrandTheme,
+      embeddedFontCss,
+      useInlineCssVars: false,
+      svgIdPrefix: `export-${table.id}`,
+    });
   };
 
-  const handleDownloadPng = async () => {
-    if (!svgMarkup || exportingPng) return;
-    setExportingPng(true);
+  const handleDownloadSvg = async () => {
+    if (!qrDataUrl || exportingAction) return;
+    setExportingAction('svg');
     setExportError(null);
     try {
-      await triggerPngDownload(svgMarkup, config.format, `${safeBaseName}.png`);
+      const exportSvg = await buildExportSvg();
+      if (exportSvg) {
+        triggerSvgDownload(exportSvg, `${safeBaseName}.svg`);
+      }
     } catch (err: any) {
-      setExportError(err?.message || 'Could not export PNG. Try Save SVG or Print.');
+      setExportError(err?.message || 'Could not export SVG.');
     } finally {
-      setExportingPng(false);
+      setExportingAction(null);
     }
   };
 
-  const handlePrintSingle = () => {
-    if (!svgMarkup) return;
-    openPrintSheetForTents(
-      [svgMarkup],
-      config.format,
-      `${restaurant?.displayName || 'Menzy'} — ${table.name} (${dim.shortLabel})`
-    );
+  const handleDownloadPng = async () => {
+    if (!qrDataUrl || exportingAction) return;
+    setExportingAction('png');
+    setExportError(null);
+    try {
+      const exportSvg = await buildExportSvg();
+      if (exportSvg) {
+        await triggerPngDownload(exportSvg, config.format, `${safeBaseName}.png`);
+      }
+    } catch (err: any) {
+      setExportError(err?.message || 'Could not export PNG. Try Save SVG or Print.');
+    } finally {
+      setExportingAction(null);
+    }
+  };
+
+  const handlePrintSingle = async () => {
+    if (!qrDataUrl || exportingAction) return;
+    setExportingAction('print');
+    setExportError(null);
+    try {
+      const exportSvg = await buildExportSvg();
+      if (exportSvg) {
+        openPrintSheetForTents(
+          [exportSvg],
+          config.format,
+          `${restaurant?.displayName || 'Menzy'} — ${table.name} (${dim.shortLabel})`
+        );
+      }
+    } catch (err: any) {
+      setExportError(err?.message || 'Could not prepare print sheet.');
+    } finally {
+      setExportingAction(null);
+    }
   };
 
   const updateField = <K extends keyof TableTentConfig>(key: K, value: TableTentConfig[K]) => {
@@ -342,6 +398,85 @@ export function TableTentDesigner({
           )}
         </div>
 
+        {/* Typography (Heading & Body Fonts) */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-taupe-500">
+              Typography
+            </label>
+            {(config.headingFont || config.bodyFont) && (
+              <button
+                type="button"
+                onClick={() =>
+                  onChangeConfig({ ...config, headingFont: null, bodyFont: null })
+                }
+                className="text-[11px] font-semibold text-terracotta hover:underline inline-flex items-center gap-1"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset to Theme</span>
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div>
+              <label
+                htmlFor="tent-heading-font"
+                className="block text-[10px] font-semibold text-taupe-600 mb-1"
+              >
+                Heading Font
+              </label>
+              <select
+                id="tent-heading-font"
+                value={config.headingFont || ''}
+                onChange={(e) => updateField('headingFont', e.target.value || null)}
+                style={{
+                  fontFamily: buildFontCssStack(
+                    resolvedFonts.headingFont,
+                    'Playfair Display'
+                  ),
+                }}
+                className="w-full px-2.5 py-2 rounded-xl border border-cream-300 bg-white text-xs text-espresso-900 focus:outline-none focus:ring-1 focus:ring-terracotta"
+              >
+                <option value="">
+                  Match Theme ({themeDefaultFonts.headingFont})
+                </option>
+                {HEADING_FONT_OPTIONS.map((font) => (
+                  <option key={font.value} value={font.value}>
+                    {font.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="tent-body-font"
+                className="block text-[10px] font-semibold text-taupe-600 mb-1"
+              >
+                Body Font
+              </label>
+              <select
+                id="tent-body-font"
+                value={config.bodyFont || ''}
+                onChange={(e) => updateField('bodyFont', e.target.value || null)}
+                style={{
+                  fontFamily: buildFontCssStack(resolvedFonts.bodyFont, 'Inter'),
+                }}
+                className="w-full px-2.5 py-2 rounded-xl border border-cream-300 bg-white text-xs text-espresso-900 focus:outline-none focus:ring-1 focus:ring-terracotta"
+              >
+                <option value="">
+                  Match Theme ({themeDefaultFonts.bodyFont})
+                </option>
+                {BODY_FONT_OPTIONS.map((font) => (
+                  <option key={font.value} value={font.value}>
+                    {font.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
         {/* Headline & Subtitle */}
         <div className="space-y-2.5">
           <div>
@@ -456,13 +591,14 @@ export function TableTentDesigner({
               <div className="w-7 h-7 border-2 border-terracotta border-t-transparent rounded-full animate-spin" />
               <span className="text-xs text-taupe-500">Generating high-res QR...</span>
             </div>
-          ) : previewDataUri ? (
-            <img
-              src={previewDataUri}
-              alt={`${restaurant?.displayName || 'Menu'} — ${table.name} ${dim.shortLabel}`}
-              className={`w-full rounded-xl shadow-lifted border border-black/10 block ${
+          ) : previewSvg ? (
+            <div
+              role="img"
+              aria-label={`${restaurant?.displayName || 'Menu'} — ${table.name} ${dim.shortLabel}`}
+              className={`w-full rounded-xl shadow-lifted border border-black/10 overflow-hidden bg-white [&>svg]:w-full [&>svg]:h-auto [&>svg]:block ${
                 config.format === 'A4_POSTER' ? 'max-w-[310px]' : 'max-w-[280px]'
               }`}
+              dangerouslySetInnerHTML={{ __html: previewSvg }}
             />
           ) : null}
         </div>
@@ -477,32 +613,34 @@ export function TableTentDesigner({
         <div className="w-full grid grid-cols-2 gap-2">
           <button
             type="button"
-            disabled={!svgMarkup || exportingPng}
+            disabled={!previewSvg || Boolean(exportingAction)}
             onClick={handleDownloadPng}
             className="py-2.5 px-3 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow disabled:opacity-50"
           >
             <FileImage className="w-3.5 h-3.5" />
-            <span>{exportingPng ? 'Exporting...' : `Save PNG`}</span>
+            <span>{exportingAction === 'png' ? 'Exporting...' : 'Save PNG'}</span>
           </button>
 
           <button
             type="button"
-            disabled={!svgMarkup}
+            disabled={!previewSvg || Boolean(exportingAction)}
             onClick={handleDownloadSvg}
             className="py-2.5 px-3 rounded-xl bg-cream-200 hover:bg-cream-300 text-espresso-900 text-xs font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Save SVG</span>
+            <span>{exportingAction === 'svg' ? 'Preparing...' : 'Save SVG'}</span>
           </button>
 
           <button
             type="button"
-            disabled={!svgMarkup}
+            disabled={!previewSvg || Boolean(exportingAction)}
             onClick={handlePrintSingle}
             className="py-2.5 px-3 rounded-xl bg-white hover:bg-cream-50 text-espresso-900 border border-cream-300 text-xs font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50"
           >
             <Printer className="w-3.5 h-3.5" />
-            <span>Print {dim.shortLabel}</span>
+            <span>
+              {exportingAction === 'print' ? 'Preparing...' : `Print ${dim.shortLabel}`}
+            </span>
           </button>
 
           <a

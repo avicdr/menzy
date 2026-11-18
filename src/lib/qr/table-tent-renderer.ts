@@ -1,4 +1,8 @@
-import { pickContrastForeground } from '@/lib/theme/theme-presets';
+import {
+  buildFontCssStack,
+  normalizeThemeFont,
+  pickContrastForeground,
+} from '@/lib/theme/theme-presets';
 
 export type TableTentFormat = 'TABLE_STAND' | 'A4_POSTER';
 export type TableTentTemplateId =
@@ -11,6 +15,8 @@ export interface TableTentConfig {
   format: TableTentFormat;
   template: TableTentTemplateId;
   accentColorOverride: string | null;
+  headingFont: string | null;
+  bodyFont: string | null;
   headline: string;
   subtitle: string;
   showLogo: boolean;
@@ -30,6 +36,9 @@ export interface TableTentBrandContext {
   coverDataUrl?: string | null;
   wifiSsid?: string | null;
   wifiPassword?: string | null;
+  embeddedFontCss?: string | null;
+  useInlineCssVars?: boolean;
+  svgIdPrefix?: string;
   brandTheme?: {
     backgroundColor?: string | null;
     surfaceColor?: string | null;
@@ -57,6 +66,8 @@ export function getDefaultTableTentConfig(options?: {
     format: 'TABLE_STAND',
     template: 'BRAND',
     accentColorOverride: null,
+    headingFont: null,
+    bodyFont: null,
     headline: 'Scan to View Menu & Order',
     subtitle: 'Explore dish photos, dietary tags & send your order straight to our kitchen.',
     showLogo: options?.showLogo !== false,
@@ -64,6 +75,40 @@ export function getDefaultTableTentConfig(options?: {
     showSection: true,
     showSteps: true,
     showWifi: Boolean(options?.hasWifi),
+  };
+}
+
+const SERIF_FONT_SET = new Set(['Lora', 'Playfair Display', 'DM Serif Display']);
+
+const FONT_VAR_PROP_MAP: Record<string, string> = {
+  'Plus Jakarta Sans': '--font-next-plus-jakarta-sans',
+  Inter: '--font-next-inter',
+  'DM Sans': '--font-next-dm-sans',
+  Lora: '--font-next-lora',
+  'DM Serif Display': '--font-next-dm-serif-display',
+  'Playfair Display': '--font-next-playfair-display',
+  Manrope: '--font-next-manrope',
+  Outfit: '--font-next-outfit',
+};
+
+const embeddedFontFaceCache = new Map<string, string>();
+
+function buildExportFontStack(fontName: string): string {
+  return SERIF_FONT_SET.has(fontName)
+    ? `'${fontName}', Georgia, 'Times New Roman', serif`
+    : `'${fontName}', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+}
+
+export function resolveTentFonts(
+  config: Pick<TableTentConfig, 'headingFont' | 'bodyFont'>,
+  brandTheme?: TableTentBrandContext['brandTheme']
+): { headingFont: string; bodyFont: string } {
+  return {
+    headingFont: normalizeThemeFont(
+      config.headingFont || brandTheme?.headingFont,
+      'Playfair Display'
+    ),
+    bodyFont: normalizeThemeFont(config.bodyFont || brandTheme?.bodyFont, 'Inter'),
   };
 }
 
@@ -248,12 +293,20 @@ export function buildTableTentSvg(
     config.accentColorOverride
   );
 
-  const headingFont = ctx.brandTheme?.headingFont
-    ? `'${ctx.brandTheme.headingFont}', Georgia, 'Times New Roman', serif`
-    : `Georgia, 'Times New Roman', serif`;
-  const bodyFont = ctx.brandTheme?.bodyFont
-    ? `'${ctx.brandTheme.bodyFont}', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`
-    : `-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+  const resolvedFonts = resolveTentFonts(config, ctx.brandTheme);
+  const headingFont = ctx.useInlineCssVars
+    ? buildFontCssStack(resolvedFonts.headingFont, 'Playfair Display')
+    : buildExportFontStack(resolvedFonts.headingFont);
+  const bodyFont = ctx.useInlineCssVars
+    ? buildFontCssStack(resolvedFonts.bodyFont, 'Inter')
+    : buildExportFontStack(resolvedFonts.bodyFont);
+
+  const rawPrefix = (ctx.svgIdPrefix || ctx.tableName || 'tent')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'tent';
+  const cardClipId = `${rawPrefix}-cardClip`;
+  const logoClipId = `${rawPrefix}-logoClip`;
 
   const pad = Math.round(32 * scale);
   const innerPad = Math.round(44 * scale);
@@ -278,7 +331,7 @@ export function buildTableTentSvg(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${dim.mmWidth}mm" height="${dim.mmHeight}mm" viewBox="0 0 ${W} ${H}">`
   );
 
-  // Defs for clipping banner & rounded logo
+  // Defs for embedded custom fonts + clipping banner & rounded logo
   const logoSize = Math.round(52 * scale);
   const logoY = hasBanner
     ? headerBandHeight - Math.round(logoSize / 2)
@@ -286,13 +339,18 @@ export function buildTableTentSvg(
     ? Math.round(24 * scale)
     : y;
 
+  const fontStyleBlock = ctx.embeddedFontCss
+    ? `<style type="text/css"><![CDATA[${ctx.embeddedFontCss}]]></style>`
+    : '';
+
   parts.push(`<defs>
-    <clipPath id="cardClip"><rect x="0" y="0" width="${W}" height="${H}" rx="${Math.round(24 * scale)}" /></clipPath>
-    <clipPath id="logoClip"><rect x="${W / 2 - logoSize / 2}" y="${logoY}" width="${logoSize}" height="${logoSize}" rx="${Math.round(14 * scale)}" /></clipPath>
+    ${fontStyleBlock}
+    <clipPath id="${cardClipId}"><rect x="0" y="0" width="${W}" height="${H}" rx="${Math.round(24 * scale)}" /></clipPath>
+    <clipPath id="${logoClipId}"><rect x="${W / 2 - logoSize / 2}" y="${logoY}" width="${logoSize}" height="${logoSize}" rx="${Math.round(14 * scale)}" /></clipPath>
   </defs>`);
 
   // Card Base
-  parts.push(`<g clip-path="url(#cardClip)">`);
+  parts.push(`<g clip-path="url(#${cardClipId})">`);
   parts.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="${escapeXml(palette.cardBg)}" />`);
 
   // Subtle decorative border frame
@@ -333,7 +391,7 @@ export function buildTableTentSvg(
     );
     if (ctx.logoDataUrl) {
       parts.push(
-        `<image href="${escapeXml(ctx.logoDataUrl)}" x="${lx}" y="${logoY}" width="${logoSize}" height="${logoSize}" preserveAspectRatio="xMidYMid slice" clip-path="url(#logoClip)" />`
+        `<image href="${escapeXml(ctx.logoDataUrl)}" x="${lx}" y="${logoY}" width="${logoSize}" height="${logoSize}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${logoClipId})" />`
       );
     } else {
       const initial = (ctx.restaurantName || 'M').trim().charAt(0).toUpperCase() || 'M';
@@ -555,6 +613,96 @@ export async function fetchImageAsDataUrl(url?: string | null): Promise<string |
   }
 }
 
+function findFontUrlInStyleSheets(
+  primaryFamily: string,
+  canonicalName: string
+): string | null {
+  if (typeof document === 'undefined' || !document.styleSheets) return null;
+  const targets = new Set(
+    [primaryFamily, canonicalName]
+      .map((s) => s.replace(/^['"]|['"]$/g, '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  for (let i = 0; i < document.styleSheets.length; i++) {
+    const sheet = document.styleSheets[i];
+    let rules: CSSRuleList | undefined;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      continue;
+    }
+    if (!rules) continue;
+    for (let j = 0; j < rules.length; j++) {
+      const rule = rules[j];
+      if (rule.type === CSSRule.FONT_FACE_RULE) {
+        const ffRule = rule as CSSFontFaceRule;
+        const family = ffRule.style
+          .getPropertyValue('font-family')
+          .replace(/^['"]|['"]$/g, '')
+          .trim()
+          .toLowerCase();
+        if (targets.has(family)) {
+          const src = ffRule.style.getPropertyValue('src');
+          const match = src.match(/url\(\s*['"]?([^'")]+)['"]?\s*\)/i);
+          if (match?.[1]) {
+            try {
+              return new URL(match[1], sheet.href || window.location.href).href;
+            } catch {
+              return match[1];
+            }
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve self-hosted Next.js localFont woff2 files into base64 @font-face CSS rules
+ * so standalone SVG downloads, PNG rasterization, and print windows render custom fonts faithfully.
+ */
+export async function buildEmbeddedFontCssForTent(fontNames: string[]): Promise<string> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return '';
+
+  const uniqueNames = Array.from(
+    new Set(
+      fontNames
+        .map((name) => normalizeThemeFont(name, ''))
+        .filter((name): name is string => Boolean(name))
+    )
+  );
+
+  const rules = await Promise.all(
+    uniqueNames.map(async (canonicalName) => {
+      const cached = embeddedFontFaceCache.get(canonicalName);
+      if (cached !== undefined) return cached;
+
+      const cssVarProp = FONT_VAR_PROP_MAP[canonicalName];
+      const computedVar = cssVarProp
+        ? getComputedStyle(document.documentElement).getPropertyValue(cssVarProp).trim()
+        : '';
+      const primaryFamily = computedVar
+        ? computedVar.split(',')[0].trim().replace(/^['"]|['"]$/g, '')
+        : '';
+
+      const fontUrl = findFontUrlInStyleSheets(primaryFamily, canonicalName);
+      if (!fontUrl) return '';
+
+      const dataUri = await fetchImageAsDataUrl(fontUrl);
+      if (!dataUri) return '';
+
+      const safeName = canonicalName.replace(/'/g, "\\'");
+      const cssRule = `@font-face{font-family:'${safeName}';src:url('${dataUri}') format('woff2');font-weight:400 700;font-style:normal;font-display:swap;}`;
+      embeddedFontFaceCache.set(canonicalName, cssRule);
+      return cssRule;
+    })
+  );
+
+  return rules.filter(Boolean).join('');
+}
+
 export function triggerSvgDownload(svgMarkup: string, filename: string) {
   const blob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -701,7 +849,10 @@ export function openPrintSheetForTents(
   ${pagesHtml}
   <script>
     window.onload = function() {
-      setTimeout(function() { window.print(); }, 250);
+      var ready = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+      ready.then(function() {
+        setTimeout(function() { window.print(); }, 250);
+      });
     };
   </script>
 </body>

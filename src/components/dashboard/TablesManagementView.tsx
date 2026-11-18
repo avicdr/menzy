@@ -25,10 +25,12 @@ import { Modal } from '@/components/ui/Modal';
 import { TableTentDesigner } from '@/components/dashboard/TableTentDesigner';
 import { formatCurrencyMinor } from '@/lib/payments/plans';
 import {
+  buildEmbeddedFontCssForTent,
   buildTableTentSvg,
   fetchImageAsDataUrl,
   getDefaultTableTentConfig,
   openPrintSheetForTents,
+  resolveTentFonts,
   type TableTentConfig,
 } from '@/lib/qr/table-tent-renderer';
 import {
@@ -1273,9 +1275,15 @@ export function TablesManagementView({
             <button
               type="button"
               disabled={!exportData?.tables?.length}
-              onClick={() => {
+              onClick={async () => {
                 if (!exportData?.tables?.length) return;
-                const svgs = exportData.tables.map((t: any) =>
+                const activeBrandTheme = theme || restaurant?.theme || null;
+                const resolvedFonts = resolveTentFonts(tentConfig, activeBrandTheme);
+                const embeddedFontCss = await buildEmbeddedFontCssForTent([
+                  resolvedFonts.headingFont,
+                  resolvedFonts.bodyFont,
+                ]);
+                const svgs = exportData.tables.map((t: any, idx: number) =>
                   buildTableTentSvg(tentConfig, {
                     restaurantName: exportData.restaurantName || restaurant.displayName,
                     tableName: t.name,
@@ -1286,7 +1294,10 @@ export function TablesManagementView({
                     coverDataUrl: bulkBrandAssets.coverDataUrl,
                     wifiSsid: effectiveWifiSsid,
                     wifiPassword: effectiveWifiPass,
-                    brandTheme: theme || restaurant?.theme || null,
+                    brandTheme: activeBrandTheme,
+                    embeddedFontCss: idx === 0 ? embeddedFontCss : undefined,
+                    useInlineCssVars: false,
+                    svgIdPrefix: `print-${t.id}`,
                   })
                 );
                 openPrintSheetForTents(
@@ -1324,17 +1335,19 @@ export function TablesManagementView({
                 wifiSsid: effectiveWifiSsid,
                 wifiPassword: effectiveWifiPass,
                 brandTheme: theme || restaurant?.theme || null,
+                useInlineCssVars: true,
+                svgIdPrefix: `bulk-${t.id}`,
               });
-              const dataUri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(cardSvg)}`;
               return (
                 <div
                   key={t.id}
                   className="p-3 bg-cream-50/80 border border-cream-200 rounded-2xl flex flex-col items-center gap-2 shadow-xs"
                 >
-                  <img
-                    src={dataUri}
-                    alt={`${exportData.restaurantName} — ${t.name}`}
-                    className="w-full max-w-[240px] rounded-xl shadow-sm border border-black/10 block"
+                  <div
+                    role="img"
+                    aria-label={`${exportData.restaurantName} — ${t.name}`}
+                    className="w-full max-w-[240px] rounded-xl shadow-sm border border-black/10 overflow-hidden bg-white [&>svg]:w-full [&>svg]:h-auto [&>svg]:block"
+                    dangerouslySetInnerHTML={{ __html: cardSvg }}
                   />
                 </div>
               );
