@@ -1089,7 +1089,7 @@ export function DashboardThemeTab({
               </div>
             </div>
 
-            <div className="px-3 pt-3 flex gap-1.5 overflow-hidden">
+            <div className="px-3 pt-3 pb-2.5 shrink-0 flex gap-1.5 overflow-hidden">
               {['All', 'Popular', 'Chef Picks'].map((cat, idx) => (
                 <span
                   key={cat}
@@ -1117,7 +1117,7 @@ export function DashboardThemeTab({
               ))}
             </div>
 
-            <div className="p-3 overflow-y-auto space-y-2.5 flex-1">
+            <div className="px-3 pt-1 pb-3 overflow-y-auto space-y-2.5 flex-1">
               {themeState.layoutMode === 'GRID' ? (
                 <div
                   className={
