@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import {
   QrCode,
   Plus,
@@ -18,9 +19,11 @@ import {
   ExternalLink,
   Sparkles,
   Eye,
+  ArrowRight,
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { TableTentDesigner } from '@/components/dashboard/TableTentDesigner';
+import { formatCurrencyMinor } from '@/lib/payments/plans';
 import {
   buildTableTentSvg,
   fetchImageAsDataUrl,
@@ -38,6 +41,35 @@ import {
   removeSessionCache,
   writeSessionCache,
 } from '@/lib/cache/dashboard-session-cache';
+
+interface TableRow {
+  id: string;
+  name: string;
+  section?: string | null;
+  capacity?: number | null;
+  qrVersion: number;
+  isActive: boolean;
+  activeOrderCount?: number;
+  activeOrdersTotalMinor?: number;
+  latestOrderStatus?: string | null;
+  hasActiveOrders?: boolean;
+  scanUrl?: string;
+  createdAt?: string;
+}
+
+const TABLES_POLL_INTERVAL_MS = 15_000;
+
+const ORDER_STATUS_LABELS: Record<string, string> = {
+  PLACED: 'New Order',
+  ACCEPTED: 'Accepted',
+  PREPARING: 'Preparing',
+  READY: 'Ready to Serve',
+  SERVED: 'Served · Open Check',
+};
+
+function hasTableActiveOrders(table: TableRow): boolean {
+  return Boolean(table.hasActiveOrders ?? (table.activeOrderCount ?? 0) > 0);
+}
 
 interface TablesManagementViewProps {
   restaurant: any;
@@ -59,10 +91,11 @@ export function TablesManagementView({
   onSubscriptionExpired,
 }: TablesManagementViewProps) {
   const initialTablesEntry = restaurant?.id
-    ? readSessionCache<any[]>(cacheKeys.tables(restaurant.id), SESSION_CACHE_TTLS.TABLES_MAX_MS)
+    ? readSessionCache<TableRow[]>(cacheKeys.tables(restaurant.id), SESSION_CACHE_TTLS.TABLES_MAX_MS)
     : null;
 
-  const [tables, setTables] = useState<any[]>(() => initialTablesEntry?.data ?? []);
+  const [tables, setTables] = useState<TableRow[]>(() => initialTablesEntry?.data ?? []);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'available'>('all');
   const [loading, setLoading] = useState<boolean>(() => !initialTablesEntry);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +103,7 @@ export function TablesManagementView({
   const loadedRestaurantIdRef = useRef<string | null>(
     initialTablesEntry && restaurant?.id ? restaurant.id : null
   );
+  const subscriptionPausedRef = useRef(false);
 
   // Individual Table Modal
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -160,14 +194,14 @@ export function TablesManagementView({
     };
   }, [isExportOpen, effectiveLogoUrl, effectiveCoverUrl]);
 
-  const loadTables = async (options?: { force?: boolean; silent?: boolean }) => {
+  const loadTables = async (options?: { force?: boolean; silent?: boolean; background?: boolean }) => {
     const targetRestaurantId = restaurant?.id;
     if (!targetRestaurantId) return;
 
     const force = options?.force ?? false;
     const cached = force
       ? null
-      : readSessionCache<any[]>(
+      : readSessionCache<TableRow[]>(
           cacheKeys.tables(targetRestaurantId),
           SESSION_CACHE_TTLS.TABLES_MAX_MS
         );
@@ -184,7 +218,7 @@ export function TablesManagementView({
     const silent = options?.silent ?? Boolean(cached);
     try {
       if (silent) {
-        setIsRefreshing(true);
+        if (!options?.background) setIsRefreshing(true);
       } else {
         setLoading(true);
       }
@@ -202,12 +236,13 @@ export function TablesManagementView({
         }
         if (!res.ok) throw new Error('Failed to load tables');
         const data = await res.json();
-        const nextTables = data.tables || [];
+        const nextTables: TableRow[] = data.tables || [];
         writeSessionCache(cacheKeys.tables(targetRestaurantId), nextTables);
         return { expired: false as const, tables: nextTables };
       });
 
       if (result.expired) {
+        subscriptionPausedRef.current = true;
         onSubscriptionExpired?.(result.payload);
         return;
       }
@@ -222,39 +257,54 @@ export function TablesManagementView({
       }
     } finally {
       setLoading(false);
-      setIsRefreshing(false);
+      if (!options?.background) setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
     if (!restaurant?.id) return;
 
+    subscriptionPausedRef.current = false;
+
     if (loadedRestaurantIdRef.current && loadedRestaurantIdRef.current !== restaurant.id) {
+      setStatusFilter('all');
       setPreviewTable(null);
       setPreviewQrDataUrl(null);
       setIsExportOpen(false);
       setExportData(null);
     }
 
-    const cached = readSessionCache<any[]>(
+    const cached = readSessionCache<TableRow[]>(
       cacheKeys.tables(restaurant.id),
       SESSION_CACHE_TTLS.TABLES_MAX_MS
     );
 
     if (cached) {
-      setTables(cached.data || []);
+      const cachedTables = cached.data || [];
+      setTables(cachedTables);
       setLoading(false);
       loadedRestaurantIdRef.current = restaurant.id;
-      if (isCacheFresh(cached, SESSION_CACHE_TTLS.TABLES_FRESH_MS)) {
-        return;
+      const hasOrderSummaryFields =
+        cachedTables.length === 0 ||
+        cachedTables.every((t) => typeof t.hasActiveOrders === 'boolean');
+      if (!hasOrderSummaryFields || !isCacheFresh(cached, SESSION_CACHE_TTLS.TABLES_FRESH_MS)) {
+        loadTables({ force: true, silent: true, background: true });
       }
-      loadTables({ silent: true });
     } else {
       if (loadedRestaurantIdRef.current !== restaurant.id) {
         setTables([]);
       }
       loadTables({ force: true, silent: false });
     }
+
+    const interval = window.setInterval(() => {
+      if (subscriptionPausedRef.current || document.visibilityState === 'hidden') return;
+      loadTables({ force: true, silent: true, background: true });
+    }, TABLES_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(interval);
+    };
   }, [restaurant?.id]);
 
   // Lock body scroll and listen for Escape key when any modal is open
@@ -539,8 +589,19 @@ export function TablesManagementView({
     }
   };
 
-  const activeTablesCount = tables.filter((t) => t.isActive).length;
+  const currency = restaurant?.currency || 'INR';
+  const enabledTablesCount = tables.filter((t) => t.isActive).length;
+  const tablesWithActiveOrdersCount = tables.filter(hasTableActiveOrders).length;
+  const availableTablesCount = tables.filter((t) => t.isActive && !hasTableActiveOrders(t)).length;
   const activeOrdersTotal = tables.reduce((sum, t) => sum + (t.activeOrderCount || 0), 0);
+  const openBillTotalMinor = tables.reduce((sum, t) => sum + (t.activeOrdersTotalMinor || 0), 0);
+
+  const filteredTables = tables.filter((table) => {
+    const isOccupied = hasTableActiveOrders(table);
+    if (statusFilter === 'active') return isOccupied;
+    if (statusFilter === 'available') return table.isActive && !isOccupied;
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -610,16 +671,110 @@ export function TablesManagementView({
 
         <div className="p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
           <span className="text-[10px] font-semibold text-taupe-500 uppercase tracking-wider">Active Tables</span>
-          <div className="text-3xl font-bold font-mono text-emerald-700 mt-1">{activeTablesCount}</div>
-          <div className="text-xs text-taupe-400 mt-1">{tables.length - activeTablesCount} currently paused</div>
+          <div className="text-3xl font-bold font-mono text-emerald-700 mt-1">{enabledTablesCount}</div>
+          <div className="text-xs text-taupe-400 mt-1">{tables.length - enabledTablesCount} currently paused</div>
         </div>
 
-        <div className="p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
-          <span className="text-[10px] font-semibold text-taupe-500 uppercase tracking-wider">Tables with Active Orders</span>
-          <div className="text-3xl font-bold font-mono text-terracotta mt-1">{activeOrdersTotal}</div>
-          <div className="text-xs text-taupe-400 mt-1">Live customer dining sessions</div>
+        <div
+          className={`p-5 rounded-2xl border shadow-soft transition-colors ${
+            tablesWithActiveOrdersCount > 0
+              ? 'bg-gradient-to-br from-terracotta-50 via-amber-50/50 to-white border-terracotta-300'
+              : 'bg-white border-cream-200'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-semibold text-taupe-500 uppercase tracking-wider">
+              Tables with Active Orders
+            </span>
+            {tablesWithActiveOrdersCount > 0 && (
+              <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden="true">
+                <span className="animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full bg-terracotta-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-terracotta" />
+              </span>
+            )}
+          </div>
+          <div className="text-3xl font-bold font-mono text-terracotta mt-1">
+            {tablesWithActiveOrdersCount}
+          </div>
+          <div className="text-xs text-taupe-500 mt-1">
+            {tablesWithActiveOrdersCount > 0
+              ? `${activeOrdersTotal} open ${activeOrdersTotal === 1 ? 'order' : 'orders'}${
+                  openBillTotalMinor > 0 ? ` • ${formatCurrencyMinor(openBillTotalMinor, currency)} open` : ''
+                }`
+              : 'No active dining sessions right now'}
+          </div>
         </div>
       </div>
+
+      {/* Summary Strip & Filter Pills */}
+      {!loading && tables.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 bg-white rounded-2xl border border-cream-200 shadow-xs">
+          <div className="flex items-center gap-2 flex-wrap" role="tablist" aria-label="Filter tables by order status">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === 'all'}
+              onClick={() => setStatusFilter('all')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+                statusFilter === 'all'
+                  ? 'bg-espresso-900 text-white shadow-xs'
+                  : 'bg-cream-100 text-espresso-800 hover:bg-cream-200'
+              }`}
+            >
+              All Tables ({tables.length})
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === 'active'}
+              onClick={() => setStatusFilter('active')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors inline-flex items-center gap-1.5 ${
+                statusFilter === 'active'
+                  ? 'bg-terracotta text-white shadow-xs'
+                  : tablesWithActiveOrdersCount > 0
+                    ? 'bg-terracotta-50 text-terracotta-700 border border-terracotta-200 hover:bg-terracotta-100'
+                    : 'bg-cream-100 text-taupe-600 hover:bg-cream-200'
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  statusFilter === 'active'
+                    ? 'bg-white'
+                    : tablesWithActiveOrdersCount > 0
+                      ? 'bg-terracotta animate-pulse motion-reduce:animate-none'
+                      : 'bg-taupe-400'
+                }`}
+              />
+              <span>Active Orders ({tablesWithActiveOrdersCount})</span>
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === 'available'}
+              onClick={() => setStatusFilter('available')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors inline-flex items-center gap-1.5 ${
+                statusFilter === 'available'
+                  ? 'bg-emerald-700 text-white shadow-xs'
+                  : 'bg-emerald-50/70 text-emerald-800 border border-emerald-200/80 hover:bg-emerald-100/70'
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  statusFilter === 'available' ? 'bg-white' : 'bg-emerald-500'
+                }`}
+              />
+              <span>Available ({availableTablesCount})</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-taupe-500">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span>Live status · refreshes every 15s</span>
+          </div>
+        </div>
+      )}
 
       {/* Tables Grid */}
       {loading ? (
@@ -653,109 +808,185 @@ export function TablesManagementView({
             </button>
           </div>
         </div>
+      ) : filteredTables.length === 0 ? (
+        <div className="p-10 text-center bg-white rounded-2xl border border-cream-200 space-y-2.5">
+          <p className="text-sm font-semibold text-espresso-900">
+            {statusFilter === 'active'
+              ? 'No tables have active orders right now.'
+              : 'No available tables right now.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('all')}
+            className="px-3.5 py-1.5 rounded-xl bg-cream-100 hover:bg-cream-200 text-espresso-800 text-xs font-semibold transition-colors"
+          >
+            Show All Tables ({tables.length})
+          </button>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-          {tables.map((table) => (
-            <div
-              key={table.id}
-              className={`p-5 rounded-2xl border transition-all shadow-soft flex flex-col justify-between ${
-                table.isActive ? 'bg-white border-cream-200' : 'bg-cream-100/50 border-cream-300 opacity-75'
-              }`}
-            >
-              <div className="space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h3 className="font-bold text-lg text-espresso-900 leading-tight">{table.name}</h3>
-                    <div className="text-xs text-taupe-500 mt-0.5">
-                      {table.section || 'Main Dining'} • Capacity: {table.capacity || 4} guests
+          {filteredTables.map((table) => {
+            const isOccupied = hasTableActiveOrders(table);
+            const activeCount = table.activeOrderCount ?? 0;
+            const statusLabel = table.latestOrderStatus
+              ? ORDER_STATUS_LABELS[table.latestOrderStatus] || table.latestOrderStatus
+              : null;
+
+            return (
+              <div
+                key={table.id}
+                className={`p-5 rounded-2xl transition-all flex flex-col justify-between ${
+                  isOccupied
+                    ? 'bg-gradient-to-br from-terracotta-50 via-amber-50/50 to-white border-2 border-terracotta-400 shadow-lifted ring-1 ring-terracotta-200/70'
+                    : table.isActive
+                      ? 'bg-white border border-cream-200 shadow-soft'
+                      : 'bg-cream-100/50 border border-cream-300 opacity-75 shadow-soft'
+                }`}
+              >
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        {isOccupied && (
+                          <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden="true">
+                            <span className="animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full bg-terracotta-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-terracotta" />
+                          </span>
+                        )}
+                        <h3 className="font-bold text-lg text-espresso-900 leading-tight truncate">
+                          {table.name}
+                        </h3>
+                      </div>
+                      <div className="text-xs text-taupe-500 mt-0.5">
+                        {table.section || 'Main Dining'} • Capacity: {table.capacity || 4} guests
+                      </div>
                     </div>
+
+                    {isOccupied ? (
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-terracotta text-white shadow-2xs shrink-0 inline-flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-200 animate-pulse motion-reduce:animate-none" />
+                        <span>Live Order</span>
+                      </span>
+                    ) : (
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                          table.isActive
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-cream-200 text-taupe-500'
+                        }`}
+                      >
+                        {table.isActive ? 'Available' : 'Disabled'}
+                      </span>
+                    )}
                   </div>
 
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      table.isActive
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        : 'bg-cream-200 text-taupe-500'
-                    }`}
-                  >
-                    {table.isActive ? 'Active' : 'Disabled'}
-                  </span>
-                </div>
+                  {/* Prominent Active Order Panel */}
+                  {isOccupied && (
+                    <div className="p-3 rounded-xl bg-white/90 border border-terracotta-200 shadow-2xs space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-100 border border-amber-300/80 text-amber-950 text-[11px] font-bold">
+                          <span className="w-1.5 h-1.5 rounded-full bg-terracotta animate-pulse motion-reduce:animate-none" />
+                          {activeCount === 1 ? '1 Active Order' : `${activeCount} Active Orders`}
+                        </span>
 
-                {/* Active Orders Indicator */}
-                {table.activeOrderCount > 0 && (
-                  <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold flex items-center justify-between">
-                    <span>Active Orders</span>
-                    <span className="font-mono bg-amber-200 px-2 py-0.5 rounded-full text-[11px]">
-                      {table.activeOrderCount} in kitchen
-                    </span>
+                        {typeof table.activeOrdersTotalMinor === 'number' && (
+                          <span className="font-mono font-bold text-sm text-espresso-900">
+                            {formatCurrencyMinor(table.activeOrdersTotalMinor, currency)}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 pt-0.5">
+                        {statusLabel ? (
+                          <span className="text-[11px] font-semibold text-terracotta-700">
+                            {statusLabel}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-medium text-taupe-500">
+                            Open dining session
+                          </span>
+                        )}
+
+                        <Link
+                          href={`/dashboard/${restaurant.id}?tab=orders&tableId=${table.id}`}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-terracotta-700 hover:text-terracotta-600 hover:underline shrink-0"
+                        >
+                          <span>View Live Orders</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </Link>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-1.5 text-[11px] text-emerald-800 bg-emerald-50 w-fit px-2.5 py-1 rounded-md border border-emerald-200 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Permanent QR Code • Never Expires</span>
                   </div>
-                )}
 
-                <div className="flex items-center gap-1.5 text-[11px] text-emerald-800 bg-emerald-50 w-fit px-2.5 py-1 rounded-md border border-emerald-200 font-medium">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span>Permanent QR Code • Never Expires</span>
+                  <div className="text-[11px] text-taupe-400 font-mono">
+                    QR Token Version: v{table.qrVersion}
+                  </div>
                 </div>
 
-                <div className="text-[11px] text-taupe-400 font-mono">
-                  QR Token Version: v{table.qrVersion}
+                {/* Action Toolbar */}
+                <div
+                  className={`pt-4 mt-3 border-t flex items-center justify-between gap-2 ${
+                    isOccupied ? 'border-terracotta-200/70' : 'border-cream-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleOpenPreview(table)}
+                      className="p-2 rounded-xl bg-cream-100 hover:bg-cream-200 text-espresso-800 text-xs font-semibold flex items-center gap-1 transition-colors"
+                      title="View QR Code & Table Tent"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-terracotta" />
+                      <span className="text-[11px]">View QR</span>
+                    </button>
+
+                    <a
+                      href={`/api/qr/generate?slug=${restaurant.slug}&tableId=${table.id}&format=svg`}
+                      download
+                      className="p-2 rounded-xl bg-cream-100 hover:bg-cream-200 text-espresso-800 text-xs font-semibold flex items-center gap-1 transition-colors"
+                      title="Download SVG QR"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span className="text-[11px]">SVG</span>
+                    </a>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleRotateQr(table)}
+                      className="p-2 rounded-lg text-taupe-500 hover:text-amber-700 hover:bg-cream-100 transition-colors"
+                      title="Rotate QR Code Token (Invalidates old printed codes)"
+                    >
+                      <RotateCw className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      onClick={() => handleToggleActive(table)}
+                      className={`px-2 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                        table.isActive
+                          ? 'text-taupe-500 hover:text-red-700 hover:bg-red-50'
+                          : 'text-emerald-700 hover:bg-emerald-50'
+                      }`}
+                    >
+                      {table.isActive ? 'Disable' : 'Enable'}
+                    </button>
+
+                    <button
+                      onClick={() => handleArchiveTable(table)}
+                      className="p-2 rounded-lg text-taupe-400 hover:text-red-600 hover:bg-cream-100 transition-colors"
+                      title="Archive table"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              {/* Action Toolbar */}
-              <div className="pt-4 mt-3 border-t border-cream-200 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => handleOpenPreview(table)}
-                    className="p-2 rounded-xl bg-cream-100 hover:bg-cream-200 text-espresso-800 text-xs font-semibold flex items-center gap-1 transition-colors"
-                    title="View QR Code & Table Tent"
-                  >
-                    <Eye className="w-3.5 h-3.5 text-terracotta" />
-                    <span className="text-[11px]">View QR</span>
-                  </button>
-
-                  <a
-                    href={`/api/qr/generate?slug=${restaurant.slug}&tableId=${table.id}&format=svg`}
-                    download
-                    className="p-2 rounded-xl bg-cream-100 hover:bg-cream-200 text-espresso-800 text-xs font-semibold flex items-center gap-1 transition-colors"
-                    title="Download SVG QR"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span className="text-[11px]">SVG</span>
-                  </a>
-                </div>
-
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => handleRotateQr(table)}
-                    className="p-2 rounded-lg text-taupe-500 hover:text-amber-700 hover:bg-cream-100 transition-colors"
-                    title="Rotate QR Code Token (Invalidates old printed codes)"
-                  >
-                    <RotateCw className="w-3.5 h-3.5" />
-                  </button>
-
-                  <button
-                    onClick={() => handleToggleActive(table)}
-                    className={`px-2 py-1 rounded-lg text-xs font-semibold transition-colors ${
-                      table.isActive
-                        ? 'text-taupe-500 hover:text-red-700 hover:bg-red-50'
-                        : 'text-emerald-700 hover:bg-emerald-50'
-                    }`}
-                  >
-                    {table.isActive ? 'Disable' : 'Enable'}
-                  </button>
-
-                  <button
-                    onClick={() => handleArchiveTable(table)}
-                    className="p-2 rounded-lg text-taupe-400 hover:text-red-600 hover:bg-cream-100 transition-colors"
-                    title="Archive table"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
