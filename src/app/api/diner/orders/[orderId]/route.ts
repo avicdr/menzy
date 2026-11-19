@@ -108,6 +108,8 @@ export async function GET(
         servedAt: order.servedAt,
         completedAt: order.completedAt,
         tableName: order.table.name,
+        customerName: order.customerNameSnapshot || null,
+        customerMobile: order.customerMobileSnapshot || null,
         restaurantName: order.restaurant.displayName,
         items: order.items.map((it) => ({
           id: it.id,

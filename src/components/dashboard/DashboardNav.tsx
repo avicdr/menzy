@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 import { clearAllDashboardSessionCaches } from '@/lib/cache/dashboard-session-cache';
+import { useManagementLanguage } from '@/lib/i18n/management-i18n';
+import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher';
 
 interface DashboardNavProps {
   currentRestaurant: any;
@@ -40,18 +42,18 @@ interface DashboardNavProps {
 }
 
 const NAV_ITEMS = [
-  { label: 'Overview', icon: LayoutDashboard, tab: 'overview' },
-  { label: 'Menu Studio', icon: Utensils, tab: 'menu' },
-  { label: 'Illustration Lab', icon: Sparkles, tab: 'illustrations' },
-  { label: 'Theme Studio', icon: Palette, tab: 'theme' },
-  { label: 'AI Waiter', icon: Bot, tab: 'ai' },
-  { label: 'Tables & QR Codes', icon: QrCode, tab: 'tables' },
-  { label: 'Live Orders & POS', icon: ChefHat, tab: 'orders' },
-  { label: 'Customers & Credit', icon: BookUser, tab: 'customers' },
-  { label: 'Staff & Access', icon: Users, tab: 'staff' },
-  { label: 'Analytics', icon: BarChart3, tab: 'analytics' },
-  { label: 'Settings', icon: Settings, tab: 'settings' },
-  { label: 'Billing & Usage', icon: CreditCard, tab: 'billing' },
+  { label: 'Overview', key: 'nav.overview', icon: LayoutDashboard, tab: 'overview' },
+  { label: 'Menu Studio', key: 'nav.menu', icon: Utensils, tab: 'menu' },
+  { label: 'Illustration Lab', key: 'nav.illustrations', icon: Sparkles, tab: 'illustrations' },
+  { label: 'Theme Studio', key: 'nav.theme', icon: Palette, tab: 'theme' },
+  { label: 'AI Waiter', key: 'nav.ai', icon: Bot, tab: 'ai' },
+  { label: 'Tables & QR Codes', key: 'nav.tables', icon: QrCode, tab: 'tables' },
+  { label: 'Live Orders & POS', key: 'nav.orders', icon: ChefHat, tab: 'orders' },
+  { label: 'Customers & Credit', key: 'nav.customers', icon: BookUser, tab: 'customers' },
+  { label: 'Staff & Access', key: 'nav.staff', icon: Users, tab: 'staff' },
+  { label: 'Analytics', key: 'nav.analytics', icon: BarChart3, tab: 'analytics' },
+  { label: 'Settings', key: 'nav.settings', icon: Settings, tab: 'settings' },
+  { label: 'Billing & Usage', key: 'nav.billing', icon: CreditCard, tab: 'billing' },
 ] as const;
 
 interface SidebarContentProps {
@@ -85,6 +87,8 @@ function SidebarContent({
   onCloseMobileMenu,
   onLogout,
 }: SidebarContentProps) {
+  const { t } = useManagementLanguage();
+
   return (
     <div className="flex flex-col flex-1 min-h-0 h-full bg-cream-50">
       <div className="shrink-0">
@@ -97,26 +101,29 @@ function SidebarContent({
                 Menzy
               </span>
               <span className="block text-[10px] font-sans text-taupe-500 tracking-wider uppercase">
-                Owner Console
+                {t('nav.ownerConsole', 'Owner Console')}
               </span>
             </div>
           </div>
 
-          {/* Close button for mobile drawer */}
-          <button
-            type="button"
-            onClick={onCloseMobileMenu}
-            className="lg:hidden p-1.5 rounded-lg text-taupe-500 hover:bg-cream-200 transition-colors"
-            aria-label="Close menu"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <LanguageSwitcher size="sm" theme="light" />
+            {/* Close button for mobile drawer */}
+            <button
+              type="button"
+              onClick={onCloseMobileMenu}
+              className="lg:hidden p-1.5 rounded-lg text-taupe-500 hover:bg-cream-200 transition-colors"
+              aria-label={t('common.close', 'Close menu')}
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Restaurant Switcher */}
         <div className="px-4 py-2.5 border-b border-cream-200">
           <label className="block text-[10px] font-semibold text-taupe-500 uppercase tracking-wider mb-1">
-            Active Restaurant
+            {t('nav.activeRestaurant', 'Active Restaurant')}
           </label>
           <div className="relative">
             <select
@@ -137,15 +144,20 @@ function SidebarContent({
           <div className="mt-2 flex items-center justify-between text-xs gap-1.5">
             {subscriptionExpired ? (
               <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-800 border border-red-200 font-semibold text-[11px] truncate">
-                {planName.toLowerCase() === 'trial' ? 'Trial Ended' : 'Plan Inactive'}
+                {planName.toLowerCase() === 'trial'
+                  ? t('nav.trialEnded', 'Trial Ended')
+                  : t('nav.planInactive', 'Plan Inactive')}
               </span>
             ) : isTrial ? (
               <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-200 font-semibold text-[11px] truncate">
-                Trial Plan{daysRemaining ? ` • ${daysRemaining}d` : ''}
+                {t('nav.trialPlan', 'Trial Plan')}
+                {daysRemaining
+                  ? ` • ${t('nav.daysRemaining', `${daysRemaining}d`, { days: daysRemaining })}`
+                  : ''}
               </span>
             ) : (
               <span className="px-2 py-0.5 rounded-full bg-cream-200 text-espresso-800 font-medium text-[11px] truncate">
-                {planName} Plan
+                {t('nav.planBadge', `${planName} Plan`, { plan: planName })}
               </span>
             )}
             <a
@@ -154,7 +166,7 @@ function SidebarContent({
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-[11px] font-medium text-terracotta hover:underline shrink-0"
             >
-              Live Menu <ExternalLink className="w-3 h-3" />
+              <span>{t('nav.viewMenu', 'Live Menu')}</span> <ExternalLink className="w-3 h-3" />
             </a>
           </div>
         </div>
@@ -186,13 +198,13 @@ function SidebarContent({
             >
               <span className="flex items-center gap-3 min-w-0">
                 <item.icon className="w-4 h-4 shrink-0" />
-                <span className="truncate">{item.label}</span>
+                <span className="truncate">{t(item.key, item.label)}</span>
               </span>
               {isLocked ? (
                 <Lock className="w-3.5 h-3.5 shrink-0 opacity-70" />
               ) : item.tab === 'billing' && subscriptionExpired ? (
                 <span className="px-1.5 py-0.5 rounded-full bg-terracotta text-white text-[9px] font-bold uppercase shrink-0">
-                  Renew
+                  {t('nav.renew', 'Renew')}
                 </span>
               ) : null}
             </button>
@@ -203,7 +215,7 @@ function SidebarContent({
       {/* Setup Queries Support */}
       <div className="shrink-0 px-4 py-2.5 border-t border-cream-200 bg-cream-50">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-taupe-500">
-          Setup Queries Support
+          {t('nav.setupSupport', 'Setup Queries Support')}
         </p>
         <a
           href={supportEmail ? `mailto:${supportEmail}` : SUPPORT_EMAIL_HREF}
@@ -219,13 +231,13 @@ function SidebarContent({
         <div className="flex items-center justify-between">
           <div className="min-w-0 pr-2">
             <p className="text-xs font-semibold text-espresso-900 truncate">{userEmail}</p>
-            <p className="text-[10px] text-taupe-500">Verified Owner</p>
+            <p className="text-[10px] text-taupe-500">{t('nav.verifiedOwner', 'Verified Owner')}</p>
           </div>
           <button
             type="button"
             onClick={onLogout}
-            title="Log Out"
-            aria-label="Log Out"
+            title={t('common.logout', 'Log Out')}
+            aria-label={t('common.logout', 'Log Out')}
             className="p-2 rounded-xl text-taupe-500 hover:text-terracotta hover:bg-cream-200 transition-colors shrink-0"
           >
             <LogOut className="w-4 h-4" />
@@ -248,6 +260,7 @@ export function DashboardNav({
   supportEmail = SUPPORT_EMAIL_DISPLAY,
 }: DashboardNavProps) {
   const router = useRouter();
+  const { t } = useManagementLanguage();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -302,7 +315,7 @@ export function DashboardNav({
             type="button"
             onClick={() => setMobileMenuOpen(true)}
             className="p-2 rounded-xl bg-white border border-cream-300 text-espresso-900 hover:bg-cream-100 active:scale-95 transition-all"
-            aria-label="Open navigation menu"
+            aria-label={t('common.actions', 'Open navigation menu')}
             aria-expanded={mobileMenuOpen}
           >
             <Menu className="w-5 h-5" />
@@ -310,22 +323,25 @@ export function DashboardNav({
           <div className="flex items-center gap-2">
             <MenzyLogo size={28} className="rounded-lg" />
             <div className="min-w-0">
-              <span className="font-serif text-sm font-bold text-espresso-900 truncate block max-w-[150px] sm:max-w-xs">
+              <span className="font-serif text-sm font-bold text-espresso-900 truncate block max-w-[120px] sm:max-w-xs">
                 {currentRestaurant.displayName}
               </span>
             </div>
           </div>
         </div>
 
-        <a
-          href={`/m/${currentRestaurant.slug}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cream-200 border border-cream-300 text-xs font-semibold text-espresso-800 hover:bg-cream-300 transition-all shrink-0"
-        >
-          <span>Live Menu</span>
-          <ExternalLink className="w-3 h-3 text-terracotta" />
-        </a>
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher size="sm" theme="light" />
+          <a
+            href={`/m/${currentRestaurant.slug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cream-200 border border-cream-300 text-xs font-semibold text-espresso-800 hover:bg-cream-300 transition-all shrink-0"
+          >
+            <span>{t('nav.viewMenu', 'Live Menu')}</span>
+            <ExternalLink className="w-3 h-3 text-terracotta" />
+          </a>
+        </div>
       </div>
 
       {/* Mobile Slide-Over Drawer Backdrop */}

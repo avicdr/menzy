@@ -34,6 +34,9 @@ import { formatCurrencyMinor } from '@/lib/payments/plans';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 import { Portal } from '@/components/ui/Portal';
 import { generateStaffTypographyVars } from '@/lib/theme/theme-presets';
+import { useManagementLanguage } from '@/lib/i18n/management-i18n';
+import { LanguagePreferenceModal } from '@/components/i18n/LanguagePreferenceModal';
+import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher';
 import {
   SESSION_CACHE_TTLS,
   cacheKeys,
@@ -84,6 +87,7 @@ function playOrderChime() {
 
 export default function StaffOrderPortalPage() {
   const router = useRouter();
+  const { t } = useManagementLanguage();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -571,7 +575,7 @@ export default function StaffOrderPortalPage() {
         <div className="flex flex-col items-center gap-3">
           <div className="w-12 h-12 border-4 border-terracotta border-t-transparent rounded-full animate-spin" />
           <p className="text-sm font-serif font-semibold tracking-wide text-cream-100">
-            Connecting to Live Kitchen Display...
+            {t('kitchen.connecting', 'Connecting to Live Kitchen Display...')}
           </p>
         </div>
       </div>
@@ -597,7 +601,7 @@ export default function StaffOrderPortalPage() {
               {subscriptionPaused.code === 'TRIAL_EXPIRED' ? '14-Day Free Trial Ended' : 'Subscription Paused'}
             </span>
             <h1 className="font-serif text-2xl font-bold text-cream-50 pt-1">
-              Kitchen & Service Terminal Paused
+              {t('kitchen.terminalPaused', 'Kitchen & Service Terminal Paused')}
             </h1>
             <p className="text-xs text-taupe-300 leading-relaxed pt-1">
               {subscriptionPaused.error ||
@@ -620,7 +624,7 @@ export default function StaffOrderPortalPage() {
               className="px-4 py-2.5 rounded-xl bg-espresso-800 hover:bg-espresso-700 text-cream-100 text-xs font-semibold transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-              <span>Check Status</span>
+              <span>{t('kitchen.checkStatus', 'Check Status')}</span>
             </button>
           </div>
 
@@ -641,7 +645,7 @@ export default function StaffOrderPortalPage() {
               className="inline-flex items-center gap-1 text-[11px] text-taupe-400 hover:text-rose-400 transition-colors pt-1"
             >
               <LogOut className="w-3 h-3" />
-              <span>Switch or Log Out Terminal</span>
+              <span>{t('kitchen.switchTerminal', 'Switch or Log Out Terminal')}</span>
             </button>
           </div>
         </div>
@@ -671,10 +675,10 @@ export default function StaffOrderPortalPage() {
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="font-serif text-lg sm:text-xl font-bold text-cream-50 tracking-tight leading-tight">
-                {restaurantData?.restaurantName || 'Order Terminal'}
+                {restaurantData?.restaurantName || t('kitchen.orderTerminal', 'Order Terminal')}
               </h1>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5 shadow-sm">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> LIVE KDS
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> {t('kitchen.liveKdsBadge', 'LIVE KDS')}
               </span>
             </div>
             <div className="text-[11px] text-taupe-400 flex items-center gap-2 mt-0.5">
@@ -684,13 +688,15 @@ export default function StaffOrderPortalPage() {
                 {restaurantData?.actor?.role || 'TERMINAL'}
               </span>
               <span className="text-taupe-600">•</span>
-              <span className="font-mono text-taupe-400 text-[10px]">{orders.length} Active Tickets</span>
+              <span className="font-mono text-taupe-400 text-[10px]">
+                {t('kitchen.activeTicketsBadge', '{count} Active Tickets', { count: orders.length })}
+              </span>
               {serviceCalls.length > 0 && (
                 <>
                   <span className="text-taupe-600">•</span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse flex items-center gap-1">
                     <Bell className="w-3 h-3 text-amber-400" />
-                    {serviceCalls.length} Table Calls
+                    {t('kitchen.tableCallsBadge', '{count} Table Calls', { count: serviceCalls.length })}
                   </span>
                 </>
               )}
@@ -700,6 +706,9 @@ export default function StaffOrderPortalPage() {
 
         {/* Action Controls Strip */}
         <div className="flex items-center gap-2 sm:gap-2.5 self-end sm:self-auto">
+          {/* Language Switcher */}
+          <LanguageSwitcher theme="dark" variant="toggle" size="sm" />
+
           {/* Sound Chime Toggle */}
           <button
             onClick={toggleSound}
@@ -707,10 +716,10 @@ export default function StaffOrderPortalPage() {
                 ? 'bg-amber-950/80 border-amber-600/70 text-amber-300 ring-1 ring-amber-500/30'
                 : 'bg-espresso-900 border-espresso-800 text-taupe-400 hover:text-white hover:bg-espresso-800'
               }`}
-            title={soundEnabled ? 'Order audio chime enabled (Click to mute)' : 'Order audio chime disabled (Click to enable)'}
+            title={soundEnabled ? t('kitchen.soundEnabledTitle', 'Order audio chime enabled (Click to mute)') : t('kitchen.soundDisabledTitle', 'Order audio chime disabled (Click to enable)')}
           >
             {soundEnabled ? <Bell className="w-3.5 h-3.5 text-amber-400 animate-bounce" /> : <BellOff className="w-3.5 h-3.5" />}
-            <span className="text-[11px] font-mono">{soundEnabled ? 'CHIME ON' : 'MUTED'}</span>
+            <span className="text-[11px] font-mono">{soundEnabled ? t('kitchen.soundChimeOn', 'CHIME ON') : t('kitchen.soundMuted', 'MUTED')}</span>
           </button>
 
           {/* Refresh Action */}
@@ -718,7 +727,7 @@ export default function StaffOrderPortalPage() {
             onClick={() => fetchOrders(true)}
             disabled={refreshing}
             className="p-2 rounded-xl text-taupe-300 hover:text-white hover:bg-espresso-800 border border-espresso-800 transition-colors shrink-0"
-            title="Refresh Live Orders"
+            title={t('kitchen.refreshOrdersTitle', 'Refresh Live Orders')}
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin text-terracotta' : ''}`} />
           </button>
@@ -729,14 +738,14 @@ export default function StaffOrderPortalPage() {
             className="px-3 py-1.5 rounded-xl bg-espresso-800 hover:bg-espresso-700 border border-espresso-700 text-cream-100 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
           >
             <History className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">Order History</span>
+            <span className="hidden sm:inline">{t('kitchen.orderHistoryTitle', 'Order History')}</span>
           </Link>
 
           {/* Logout */}
           <button
             onClick={handleLogout}
             className="p-2 rounded-xl text-taupe-400 hover:text-rose-400 hover:bg-espresso-800 border border-espresso-800 transition-colors shrink-0"
-            title="Log Out Terminal"
+            title={t('kitchen.logoutTitle', 'Log Out Terminal')}
           >
             <LogOut className="w-4 h-4" />
           </button>
@@ -751,7 +760,7 @@ export default function StaffOrderPortalPage() {
             <span>{error}</span>
           </div>
           <button onClick={() => fetchOrders(true)} className="underline hover:text-white font-medium">
-            Retry Connection
+            {t('kitchen.retryConnection', 'Retry Connection')}
           </button>
         </div>
       )}
@@ -785,11 +794,11 @@ export default function StaffOrderPortalPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-mono font-bold uppercase tracking-wider text-amber-300">
-                    Floor Waiter Needed ({serviceCalls.length} Pending)
+                    {t('kitchen.waiterNeeded', 'Floor Waiter Needed ({count} Pending)', { count: serviceCalls.length })}
                   </span>
                 </div>
                 <p className="text-[11px] text-taupe-300">
-                  Diners at the tables below have requested service.
+                  {t('kitchen.waiterNeededDesc', 'Diners at the tables below have requested service.')}
                 </p>
               </div>
             </div>
@@ -797,14 +806,18 @@ export default function StaffOrderPortalPage() {
             <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar py-1">
               {serviceCalls.map((call) => {
                 const elapsed = getElapsedInfo(call.requestedAt);
+                const elapsedFormatted =
+                  elapsed.mins < 1
+                    ? t('kitchen.justNow', 'Just now')
+                    : t('kitchen.minsAgo', '{mins}m ago', { mins: elapsed.mins });
                 const icon =
                   call.callType === 'WATER'
-                    ? '💧 Water & Glasses'
+                    ? t('kitchen.waterService', '💧 Water & Glasses')
                     : call.callType === 'CUTLERY'
-                      ? '🍽️ Cutlery & Napkins'
+                      ? t('kitchen.cutleryService', '🍽️ Cutlery & Napkins')
                       : call.callType === 'BILL'
-                        ? '🧾 Bring Bill'
-                        : '🙋 Needs Waiter';
+                        ? t('kitchen.billService', '🧾 Bring Bill')
+                        : t('kitchen.needsWaiter', '🙋 Needs Waiter');
                 return (
                   <div
                     key={call.id}
@@ -820,7 +833,7 @@ export default function StaffOrderPortalPage() {
                         <span className="text-cream-100 font-semibold">{icon}</span>
                       </div>
                       <div className="text-[10px] text-taupe-400 flex items-center gap-1.5 mt-0.5">
-                        <span className="font-mono text-amber-400 font-medium">{elapsed.text} ago</span>
+                        <span className="font-mono text-amber-400 font-medium">{elapsedFormatted}</span>
                         {call.notes && (
                           <>
                             <span className="text-taupe-600">•</span>
@@ -837,7 +850,9 @@ export default function StaffOrderPortalPage() {
                       disabled={resolvingCallId === call.id}
                       className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-espresso-950 font-bold text-xs transition-all shadow active:scale-95 disabled:opacity-50 shrink-0"
                     >
-                      {resolvingCallId === call.id ? 'Attending...' : 'Mark Attended ✓'}
+                      {resolvingCallId === call.id
+                        ? t('kitchen.attending', 'Attending...')
+                        : t('kitchen.markAttended', 'Mark Attended ✓')}
                     </button>
                   </div>
                 );
@@ -850,12 +865,12 @@ export default function StaffOrderPortalPage() {
       {/* Responsive View Tabs (Mobile/Tablet stage selector) */}
       <div className="px-4 py-2 bg-[#100B08] border-b border-espresso-800/80 flex items-center gap-1.5 overflow-x-auto no-scrollbar lg:hidden">
         {[
-          { id: 'ALL', label: 'All Tickets', count: orders.length },
-          { id: 'PLACED', label: 'New', count: placedOrders.length, color: 'text-rose-400' },
-          { id: 'ACCEPTED', label: 'Accepted', count: acceptedOrders.length, color: 'text-amber-400' },
-          { id: 'PREPARING', label: 'Kitchen Prep', count: preparingOrders.length, color: 'text-orange-400' },
-          { id: 'READY', label: 'Ready to Serve', count: readyOrders.length, color: 'text-blue-400' },
-          { id: 'SERVED', label: 'Served', count: servedOrders.length, color: 'text-emerald-400' },
+          { id: 'ALL', label: t('kitchen.allTickets', 'All Tickets'), count: orders.length },
+          { id: 'PLACED', label: t('kitchen.new', 'New'), count: placedOrders.length, color: 'text-rose-400' },
+          { id: 'ACCEPTED', label: t('kitchen.filterAccepted', 'Accepted'), count: acceptedOrders.length, color: 'text-amber-400' },
+          { id: 'PREPARING', label: t('kitchen.filterPrep', 'Kitchen Prep'), count: preparingOrders.length, color: 'text-orange-400' },
+          { id: 'READY', label: t('kitchen.filterReady', 'Ready to Serve'), count: readyOrders.length, color: 'text-blue-400' },
+          { id: 'SERVED', label: t('kitchen.filterServed', 'Served'), count: servedOrders.length, color: 'text-emerald-400' },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -886,7 +901,7 @@ export default function StaffOrderPortalPage() {
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
                   <h3 className="font-serif font-bold text-sm tracking-tight text-cream-50">
-                    Incoming Tickets
+                    {t('kitchen.incomingTickets', 'Incoming Tickets')}
                   </h3>
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-rose-950 text-rose-300 border border-rose-800/80">
@@ -897,6 +912,10 @@ export default function StaffOrderPortalPage() {
               <div className="flex-1 overflow-y-auto p-2.5 space-y-3">
                 {placedOrders.map((order) => {
                   const elapsed = getElapsedInfo(order.placedAt);
+                  const elapsedFormatted =
+                    elapsed.mins < 1
+                      ? t('kitchen.justNow', 'Just now')
+                      : t('kitchen.minsAgo', '{mins}m ago', { mins: elapsed.mins });
                   const isSyncing = Boolean(updatingOrders[order.id]);
                   return (
                     <div
@@ -907,15 +926,28 @@ export default function StaffOrderPortalPage() {
                       {/* Top Order Identifier Strip */}
                       <div className="flex items-start justify-between gap-1">
                         <div>
-                          <div className="font-mono font-bold text-lg text-cream-50 tracking-wider">
-                            #{order.orderNumber}
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-lg text-cream-50 tracking-wider">
+                              #{order.orderNumber}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-amber-400/15 border border-amber-400/40 text-amber-300 font-bold text-xs inline-flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-amber-400 shrink-0" />
+                              <span>{order.table?.name || t('kitchen.table', 'Table')}</span>
+                              {order.table?.section && (
+                                <span className="text-[10px] text-taupe-400 font-normal">
+                                  ({order.table.section})
+                                </span>
+                              )}
+                            </span>
                           </div>
-                          <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5 mt-0.5">
-                            <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                            <span>{order.table?.name || 'Table'}</span>
-                            {order.table?.section && (
-                              <span className="text-[10px] text-taupe-400 font-normal">
-                                ({order.table.section})
+                          <div className="text-xs font-semibold text-cream-100 flex items-center gap-1.5 mt-1">
+                            <span className="text-taupe-400 text-[11px]">👤</span>
+                            <span className="text-cream-50 font-bold">
+                              {order.customerName || t('kitchen.dineInGuest', 'Dine-in Guest')}
+                            </span>
+                            {order.customerMobile && (
+                              <span className="text-[10px] text-taupe-400 font-mono">
+                                ({order.customerMobile})
                               </span>
                             )}
                           </div>
@@ -925,7 +957,7 @@ export default function StaffOrderPortalPage() {
                           {isSyncing && (
                             <span className="text-[10px] font-mono font-semibold text-amber-200 bg-amber-950/80 border border-amber-700/60 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
                               <RefreshCw className="w-2.5 h-2.5 animate-spin motion-reduce:animate-none" />
-                              Syncing
+                              {t('kitchen.syncing', 'Syncing...')}
                             </span>
                           )}
                           <span
@@ -937,7 +969,7 @@ export default function StaffOrderPortalPage() {
                               }`}
                           >
                             <Timer className="w-3 h-3" />
-                            {elapsed.text}
+                            {elapsedFormatted}
                           </span>
                         </div>
                       </div>
@@ -960,7 +992,7 @@ export default function StaffOrderPortalPage() {
 
                             {it.variant && (
                               <div className="text-[11px] text-taupe-400 pl-5 mt-0.5 font-medium">
-                                Option: {it.variant}
+                                {t('kitchen.option', 'Option: {variant}', { variant: it.variant })}
                               </div>
                             )}
 
@@ -983,7 +1015,9 @@ export default function StaffOrderPortalPage() {
                       {order.specialInstructions && (
                         <div className="p-2.5 bg-amber-950/40 border border-amber-600/40 rounded-xl text-xs text-amber-200 flex items-start gap-1.5">
                           <FileText className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                          <span className="font-medium italic">Note: {order.specialInstructions}</span>
+                          <span className="font-medium italic">
+                            {t('kitchen.note', 'Note: {note}', { note: order.specialInstructions })}
+                          </span>
                         </div>
                       )}
 
@@ -999,14 +1033,14 @@ export default function StaffOrderPortalPage() {
                             onClick={() => handleUpdateStatus(order.id, 'REJECTED', 'Kitchen unable to fulfill')}
                             className="px-2.5 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-semibold transition-colors disabled:opacity-50"
                           >
-                            Reject
+                            {t('kitchen.reject', 'Reject')}
                           </button>
                           <button
                             disabled={isSyncing}
                             onClick={() => handleUpdateStatus(order.id, 'ACCEPTED')}
                             className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 flex items-center gap-1 disabled:opacity-50"
                           >
-                            <Check className="w-3.5 h-3.5" /> Accept
+                            <Check className="w-3.5 h-3.5" /> {t('kitchen.accept', 'Accept')}
                           </button>
                         </div>
                       </div>
@@ -1017,7 +1051,7 @@ export default function StaffOrderPortalPage() {
                 {placedOrders.length === 0 && (
                   <div className="py-16 text-center text-xs text-taupe-500 flex flex-col items-center gap-2">
                     <CheckCircle2 className="w-6 h-6 text-espresso-700" />
-                    <span>No incoming tickets at this moment</span>
+                    <span>{t('kitchen.noIncoming', 'No incoming tickets at this moment')}</span>
                   </div>
                 )}
               </div>
@@ -1031,7 +1065,7 @@ export default function StaffOrderPortalPage() {
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
                   <h3 className="font-serif font-bold text-sm tracking-tight text-cream-50">
-                    Queued / Acknowledged
+                    {t('kitchen.queuedAcknowledged', 'Queued / Acknowledged')}
                   </h3>
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-950 text-amber-300 border border-amber-800/80">
@@ -1051,18 +1085,37 @@ export default function StaffOrderPortalPage() {
                     >
                       <div className="flex items-start justify-between gap-1">
                         <div>
-                          <div className="font-mono font-bold text-base text-cream-50">
-                            #{order.orderNumber}
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-base text-cream-50">
+                              #{order.orderNumber}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-amber-400/15 border border-amber-400/40 text-amber-300 font-bold text-xs inline-flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-amber-400 shrink-0" />
+                              <span>{order.table?.name || t('kitchen.table', 'Table')}</span>
+                              {order.table?.section && (
+                                <span className="text-[10px] text-taupe-400 font-normal">
+                                  ({order.table.section})
+                                </span>
+                              )}
+                            </span>
                           </div>
-                          <div className="text-xs font-bold text-amber-300 mt-0.5">
-                            📍 {order.table?.name}
+                          <div className="text-xs text-cream-100 mt-1 flex items-center gap-1.5">
+                            <span className="text-taupe-400 text-[11px]">👤</span>
+                            <span className="font-semibold text-cream-100">
+                              {order.customerName || t('kitchen.dineInGuest', 'Dine-in Guest')}
+                            </span>
+                            {order.customerMobile && (
+                              <span className="text-[10px] text-taupe-400 font-mono">
+                                ({order.customerMobile})
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5">
                           {isSyncing && (
                             <span className="text-[10px] font-mono font-semibold text-amber-200 bg-amber-950/80 border border-amber-700/60 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
                               <RefreshCw className="w-2.5 h-2.5 animate-spin motion-reduce:animate-none" />
-                              Syncing
+                              {t('kitchen.syncing', 'Syncing...')}
                             </span>
                           )}
                           <span className="text-[10px] font-mono text-taupe-400 bg-black/40 px-2 py-0.5 rounded">
@@ -1095,7 +1148,7 @@ export default function StaffOrderPortalPage() {
                           ) : (
                             <Flame className="w-3.5 h-3.5" />
                           )}
-                          {isSyncing ? 'Syncing...' : 'Start Cooking'}
+                          {isSyncing ? t('kitchen.syncing', 'Syncing...') : t('kitchen.startCooking', 'Start Cooking')}
                         </button>
                       </div>
                     </div>
@@ -1104,7 +1157,7 @@ export default function StaffOrderPortalPage() {
 
                 {acceptedOrders.length === 0 && (
                   <div className="py-16 text-center text-xs text-taupe-500">
-                    No queued tickets
+                    {t('kitchen.noQueued', 'No queued tickets')}
                   </div>
                 )}
               </div>
@@ -1118,7 +1171,7 @@ export default function StaffOrderPortalPage() {
                 <div className="flex items-center gap-2">
                   <Flame className="w-3.5 h-3.5 text-orange-400 animate-pulse" />
                   <h3 className="font-serif font-bold text-sm tracking-tight text-cream-50">
-                    In Preparation
+                    {t('kitchen.inPreparation', 'In Preparation')}
                   </h3>
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-orange-950 text-orange-300 border border-orange-800/80">
@@ -1138,22 +1191,41 @@ export default function StaffOrderPortalPage() {
                     >
                       <div className="flex items-start justify-between gap-1">
                         <div>
-                          <div className="font-mono font-bold text-base text-cream-50">
-                            #{order.orderNumber}
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-base text-cream-50">
+                              #{order.orderNumber}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-amber-400/15 border border-amber-400/40 text-amber-300 font-bold text-xs inline-flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-amber-400 shrink-0" />
+                              <span>{order.table?.name || t('kitchen.table', 'Table')}</span>
+                              {order.table?.section && (
+                                <span className="text-[10px] text-taupe-400 font-normal">
+                                  ({order.table.section})
+                                </span>
+                              )}
+                            </span>
                           </div>
-                          <div className="text-xs font-bold text-amber-300 mt-0.5">
-                            📍 {order.table?.name}
+                          <div className="text-xs text-cream-100 mt-1 flex items-center gap-1.5">
+                            <span className="text-taupe-400 text-[11px]">👤</span>
+                            <span className="font-semibold text-cream-100">
+                              {order.customerName || t('kitchen.dineInGuest', 'Dine-in Guest')}
+                            </span>
+                            {order.customerMobile && (
+                              <span className="text-[10px] text-taupe-400 font-mono">
+                                ({order.customerMobile})
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5">
                           {isSyncing && (
                             <span className="text-[10px] font-mono font-semibold text-orange-200 bg-orange-950/90 border border-orange-700/60 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
                               <RefreshCw className="w-2.5 h-2.5 animate-spin motion-reduce:animate-none" />
-                              Syncing
+                              {t('kitchen.syncing', 'Syncing...')}
                             </span>
                           )}
                           <span className="text-[10px] font-mono font-bold text-orange-300 bg-orange-950/80 border border-orange-800/50 px-2 py-0.5 rounded">
-                            Cooking ({elapsed.text})
+                            {t('kitchen.cookingElapsed', 'Cooking ({elapsed})', { elapsed: elapsed.text })}
                           </span>
                         </div>
                       </div>
@@ -1182,7 +1254,7 @@ export default function StaffOrderPortalPage() {
                           ) : (
                             <Bell className="w-3.5 h-3.5" />
                           )}
-                          {isSyncing ? 'Syncing...' : 'Order Ready 🔔'}
+                          {isSyncing ? t('kitchen.syncing', 'Syncing...') : t('kitchen.orderReadyBell', 'Order Ready 🔔')}
                         </button>
                       </div>
                     </div>
@@ -1191,7 +1263,7 @@ export default function StaffOrderPortalPage() {
 
                 {preparingOrders.length === 0 && (
                   <div className="py-16 text-center text-xs text-taupe-500">
-                    Kitchen station free
+                    {t('kitchen.stationFreeDesc', 'Kitchen station free')}
                   </div>
                 )}
               </div>
@@ -1205,7 +1277,7 @@ export default function StaffOrderPortalPage() {
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-400 animate-ping" />
                   <h3 className="font-serif font-bold text-sm tracking-tight text-cream-50">
-                    Pass / Ready for Table
+                    {t('kitchen.passReady', 'Pass / Ready for Table')}
                   </h3>
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-blue-950 text-blue-300 border border-blue-800/80">
@@ -1224,22 +1296,41 @@ export default function StaffOrderPortalPage() {
                     >
                       <div className="flex items-start justify-between gap-1">
                         <div>
-                          <div className="font-mono font-bold text-base text-cream-50">
-                            #{order.orderNumber}
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-base text-cream-50">
+                              #{order.orderNumber}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-amber-400/15 border border-amber-400/40 text-amber-300 font-bold text-xs inline-flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-amber-400 shrink-0" />
+                              <span>{order.table?.name || t('kitchen.table', 'Table')}</span>
+                              {order.table?.section && (
+                                <span className="text-[10px] text-taupe-400 font-normal">
+                                  ({order.table.section})
+                                </span>
+                              )}
+                            </span>
                           </div>
-                          <div className="text-xs font-bold text-amber-300 mt-0.5">
-                            📍 {order.table?.name}
+                          <div className="text-xs text-cream-100 mt-1 flex items-center gap-1.5">
+                            <span className="text-taupe-400 text-[11px]">👤</span>
+                            <span className="font-semibold text-cream-100">
+                              {order.customerName || t('kitchen.dineInGuest', 'Dine-in Guest')}
+                            </span>
+                            {order.customerMobile && (
+                              <span className="text-[10px] text-taupe-400 font-mono">
+                                ({order.customerMobile})
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5">
                           {isSyncing && (
                             <span className="text-[10px] font-mono font-semibold text-blue-200 bg-blue-950/90 border border-blue-700/60 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
                               <RefreshCw className="w-2.5 h-2.5 animate-spin motion-reduce:animate-none" />
-                              Syncing
+                              {t('kitchen.syncing', 'Syncing...')}
                             </span>
                           )}
                           <span className="text-[10px] font-mono font-bold text-blue-300 bg-blue-950 px-2 py-0.5 rounded border border-blue-800/60">
-                            Plated
+                            {t('kitchen.plated', 'Plated')}
                           </span>
                         </div>
                       </div>
@@ -1268,7 +1359,7 @@ export default function StaffOrderPortalPage() {
                           ) : (
                             <Check className="w-3.5 h-3.5" />
                           )}
-                          {isSyncing ? 'Syncing...' : 'Serve to Table ✓'}
+                          {isSyncing ? t('kitchen.syncing', 'Syncing...') : t('kitchen.serveToTable', 'Serve to Table ✓')}
                         </button>
                       </div>
                     </div>
@@ -1277,7 +1368,7 @@ export default function StaffOrderPortalPage() {
 
                 {readyOrders.length === 0 && (
                   <div className="py-16 text-center text-xs text-taupe-500">
-                    No dishes on the pass
+                    {t('kitchen.noDishesPass', 'No dishes on the pass')}
                   </div>
                 )}
               </div>
@@ -1291,7 +1382,7 @@ export default function StaffOrderPortalPage() {
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
                   <h3 className="font-serif font-bold text-sm tracking-tight text-cream-50">
-                    Served Table
+                    {t('kitchen.servedTable', 'Served Table')}
                   </h3>
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-800/80">
@@ -1310,20 +1401,41 @@ export default function StaffOrderPortalPage() {
                     >
                       <div className="flex items-start justify-between gap-1">
                         <div>
-                          <div className="font-mono font-bold text-base text-cream-50">
-                            #{order.orderNumber}
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-base text-cream-50">
+                              #{order.orderNumber}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-amber-400/15 border border-amber-400/40 text-amber-300 font-bold text-xs inline-flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-amber-400 shrink-0" />
+                              <span>{order.table?.name || t('kitchen.table', 'Table')}</span>
+                              {order.table?.section && (
+                                <span className="text-[10px] text-taupe-400 font-normal">
+                                  ({order.table.section})
+                                </span>
+                              )}
+                            </span>
                           </div>
-                          <div className="text-xs text-taupe-400 mt-0.5">📍 {order.table?.name}</div>
+                          <div className="text-xs text-cream-100 mt-1 flex items-center gap-1.5">
+                            <span className="text-taupe-400 text-[11px]">👤</span>
+                            <span className="font-semibold text-cream-100">
+                              {order.customerName || t('kitchen.dineInGuest', 'Dine-in Guest')}
+                            </span>
+                            {order.customerMobile && (
+                              <span className="text-[10px] text-taupe-400 font-mono">
+                                ({order.customerMobile})
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-center gap-1.5">
                           {isSyncing && (
                             <span className="text-[10px] font-mono font-semibold text-emerald-200 bg-emerald-950/80 border border-emerald-700/60 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
                               <RefreshCw className="w-2.5 h-2.5 animate-spin motion-reduce:animate-none" />
-                              Syncing
+                              {t('kitchen.syncing', 'Syncing...')}
                             </span>
                           )}
                           <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
-                            Dining
+                            {t('kitchen.dining', 'Dining')}
                           </span>
                         </div>
                       </div>
@@ -1340,7 +1452,7 @@ export default function StaffOrderPortalPage() {
                           {isSyncing && (
                             <RefreshCw className="w-3 h-3 animate-spin motion-reduce:animate-none" />
                           )}
-                          {isSyncing ? 'Closing...' : 'Complete Ticket'}
+                          {isSyncing ? t('kitchen.closing', 'Closing...') : t('kitchen.completeTicket', 'Complete Ticket')}
                         </button>
                       </div>
                     </div>
@@ -1349,7 +1461,7 @@ export default function StaffOrderPortalPage() {
 
                 {servedOrders.length === 0 && (
                   <div className="py-16 text-center text-xs text-taupe-500">
-                    No active tables served
+                    {t('kitchen.noActiveServed', 'No active tables served')}
                   </div>
                 )}
               </div>
@@ -1358,6 +1470,9 @@ export default function StaffOrderPortalPage() {
 
         </div>
       </main>
+
+      {/* First-login language selection modal */}
+      <LanguagePreferenceModal />
     </div>
   );
 }

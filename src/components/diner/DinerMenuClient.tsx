@@ -210,22 +210,32 @@ export function DinerMenuClient({
 
   useEffect(() => {
     if (!data?.restaurant?.id || pausedState?.paused) return;
+
     try {
       const savedRaw = window.localStorage.getItem('menzy_diner_profile');
       if (savedRaw) {
-        const parsed = JSON.parse(savedRaw);
-        if (parsed?.name && parsed?.mobile) {
-          setDinerProfile({ name: String(parsed.name), mobile: String(parsed.mobile) });
-          return;
+        try {
+          const parsed = JSON.parse(savedRaw);
+          if (parsed?.name && parsed?.mobile) {
+            setDinerProfile({ name: String(parsed.name), mobile: String(parsed.mobile) });
+            return;
+          }
+        } catch {
+          window.localStorage.removeItem('menzy_diner_profile');
         }
       }
-      const dismissedKey = `menzy_guest_prompt_dismissed_${data.restaurant.id}`;
-      if (!window.sessionStorage.getItem(dismissedKey)) {
-        setIsGuestPromptOpen(true);
-      }
     } catch {
-      // Ignore storage access errors
+      // Continue to the prompt when storage is unavailable.
     }
+
+    try {
+      const dismissedKey = `menzy_guest_prompt_dismissed_${data.restaurant.id}`;
+      if (window.sessionStorage.getItem(dismissedKey)) return;
+    } catch {
+      // Continue to the prompt when session storage is unavailable.
+    }
+
+    setIsGuestPromptOpen(true);
   }, [data?.restaurant?.id, pausedState?.paused]);
 
   const handleGuestPromptSubmit = async (e: React.FormEvent) => {
@@ -258,7 +268,10 @@ export function DinerMenuClient({
         setGuestPromptError(payload.error || 'Could not save your details. Please try again.');
         return;
       }
-      saveDinerProfile({ name: cleanName, mobile: guestPromptMobile.trim() });
+      saveDinerProfile({
+        name: payload.customer?.name || cleanName,
+        mobile: payload.customer?.mobile || guestPromptMobile.trim(),
+      });
       setIsGuestPromptOpen(false);
     } catch {
       setGuestPromptError('Connection issue while saving details. Please try again.');

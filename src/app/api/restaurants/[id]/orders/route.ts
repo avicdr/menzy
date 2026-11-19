@@ -144,7 +144,7 @@ export async function GET(
                   orders: {
                     where: {
                       status: {
-                        in: ['PLACED', 'ACCEPTED', 'PREPARING', 'READY'],
+                        in: ['PLACED', 'ACCEPTED', 'PREPARING', 'READY', 'SERVED'],
                       },
                     },
                   },
@@ -278,4 +278,3 @@ export async function GET(
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
-

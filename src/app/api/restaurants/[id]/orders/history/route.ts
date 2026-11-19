@@ -152,6 +152,11 @@ export async function GET(
       completedAt: o.completedAt,
       tableName: o.table.name,
       tableSection: o.table.section,
+      table: {
+        id: o.table.id,
+        name: o.table.name,
+        section: o.table.section,
+      },
       itemCount: o.items.reduce((acc, it) => acc + it.quantity, 0),
       itemsSummary: o.items.map((it) => `${it.quantity}x ${it.dishNameSnapshot}`).join(', '),
       handledBy: o.statusHistory[0]?.staff?.displayName || '—',

@@ -8,6 +8,8 @@ import { generateStaffTypographyVars } from '@/lib/theme/theme-presets';
 import { MenzyLogo } from '@/components/brand/MenzyLogo';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
 import { clearAllDashboardSessionCaches } from '@/lib/cache/dashboard-session-cache';
+import { useManagementLanguage } from '@/lib/i18n/management-i18n';
+import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher';
 
 export default function StaffLoginPage() {
   return (
@@ -26,6 +28,7 @@ export default function StaffLoginPage() {
 function StaffLoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t } = useManagementLanguage();
   const restaurantSlug = searchParams.get('r') || searchParams.get('restaurant');
 
   const [venueName, setVenueName] = useState<string | null>(null);
@@ -131,18 +134,21 @@ function StaffLoginContent() {
 
       <div className="w-full max-w-md p-6 sm:p-8 bg-[#140E0A] border border-espresso-800 rounded-3xl shadow-2xl space-y-6 relative z-10 admin-login-box">
         {/* Back Link & Tag */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <Link
             href="/"
-            className="inline-flex items-center gap-2 text-xs text-taupe-400 hover:text-cream-100 transition-colors font-medium"
+            className="inline-flex items-center gap-2 text-xs text-taupe-400 hover:text-cream-100 transition-colors font-medium shrink-0"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <MenzyLogo size={20} className="ring-1 ring-white/15" />
-            <span>Back to Menzy</span>
+            <span className="hidden sm:inline">{t('login.backToMenzy', 'Back to Menzy')}</span>
           </Link>
-          <span className="text-[11px] font-mono tracking-wider uppercase text-amber-300 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/25">
-            Staff & Kitchen KDS
-          </span>
+          <div className="flex items-center gap-2">
+            <LanguageSwitcher theme="dark" variant="toggle" size="sm" />
+            <span className="text-[11px] font-mono tracking-wider uppercase text-amber-300 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/25 shrink-0">
+              {t('login.staffBadge', 'Staff & Kitchen KDS')}
+            </span>
+          </div>
         </div>
 
         {/* Brand & Heading */}
@@ -152,10 +158,12 @@ function StaffLoginContent() {
           </div>
           <div>
             <h1 className="font-serif text-2xl sm:text-3xl font-bold tracking-tight text-cream-50">
-              {venueName ? `${venueName} Terminal` : 'Staff Order Terminal'}
+              {venueName
+                ? t('login.venueTerminal', '{venue} Terminal', { venue: venueName })
+                : t('login.staffTitle', 'Staff Order Terminal')}
             </h1>
             <p className="text-xs text-taupe-400 mt-1 max-w-xs mx-auto leading-relaxed">
-              Kitchen Display System (KDS), floor waiter dispatch & live table fulfillment
+              {t('login.subtitle', 'Kitchen Display System (KDS), floor waiter dispatch & live table fulfillment')}
             </p>
           </div>
         </div>
@@ -205,7 +213,7 @@ function StaffLoginContent() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-taupe-300 uppercase tracking-wider mb-1.5">
-              Staff Login ID
+              {t('login.staffLoginId', 'Staff Login ID')}
             </label>
             <input
               type="text"
@@ -213,7 +221,7 @@ function StaffLoginContent() {
               autoComplete="username"
               value={loginId}
               onChange={(e) => setLoginId(e.target.value)}
-              placeholder="e.g. kitchen-01 or staff-lead"
+              placeholder={t('login.placeholderId', 'e.g. kitchen-01 or staff-lead')}
               style={{ colorScheme: 'dark', backgroundColor: '#1B130E', color: '#FAF7F2' }}
               className="w-full px-4 py-3 rounded-xl bg-[#1B130E] border border-espresso-700 text-sm font-medium text-cream-50 placeholder:text-taupe-500 focus:outline-none focus:border-terracotta focus:ring-1 focus:ring-terracotta transition-all dark-input"
             />
@@ -221,7 +229,7 @@ function StaffLoginContent() {
 
           <div>
             <label className="block text-xs font-semibold text-taupe-300 uppercase tracking-wider mb-1.5">
-              Password
+              {t('login.password', 'Password')}
             </label>
             <input
               type="password"
@@ -243,12 +251,12 @@ function StaffLoginContent() {
             {loading ? (
               <>
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Connecting to Terminal...</span>
+                <span>{t('login.connecting', 'Connecting to Terminal...')}</span>
               </>
             ) : (
               <>
                 <KeyRound className="w-4 h-4" />
-                <span>Launch Order Terminal</span>
+                <span>{t('login.launchTerminal', 'Launch Order Terminal')}</span>
               </>
             )}
           </button>
@@ -257,7 +265,7 @@ function StaffLoginContent() {
         {/* Quick Demo Shortcuts */}
         <div className="pt-3 border-t border-espresso-800/80 space-y-2">
           <span className="block text-[10px] font-semibold uppercase tracking-wider text-taupe-500 text-center">
-            Quick Fill Demo Accounts
+            {t('login.quickFillDemo', 'Quick Fill Demo Accounts')}
           </span>
           <div className="flex flex-wrap items-center justify-center gap-1.5">
             <button
@@ -286,7 +294,7 @@ function StaffLoginContent() {
 
         <div className="text-center pt-1">
           <p className="text-[11px] text-taupe-500">
-            Staff access accounts are configured securely by the restaurant owner in the Staff & Access portal.
+            {t('login.demoNote', 'Staff access accounts are configured securely by the restaurant owner in the Staff & Access portal.')}
           </p>
         </div>
       </div>

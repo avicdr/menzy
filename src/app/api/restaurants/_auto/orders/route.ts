@@ -231,6 +231,12 @@ export async function GET(req?: Request) {
           servedAt: true,
           completedAt: true,
           updatedAt: true,
+          customerId: true,
+          customerNameSnapshot: true,
+          customerMobileSnapshot: true,
+          customer: {
+            select: { id: true, name: true, mobile: true },
+          },
           table: { select: { id: true, name: true, section: true } },
           items: {
             select: {
@@ -276,6 +282,9 @@ export async function GET(req?: Request) {
       totalMinor: o.totalMinor,
       paymentMethod: o.paymentMethod,
       paymentStatus: o.paymentStatus,
+      customerId: o.customerId,
+      customerName: o.customer?.name || o.customerNameSnapshot || null,
+      customerMobile: o.customer?.mobile || o.customerMobileSnapshot || null,
       specialInstructions: o.specialInstructions,
       placedAt: o.placedAt,
       acceptedAt: o.acceptedAt,

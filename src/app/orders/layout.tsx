@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { generateSEOMetadata } from '@/lib/seo';
+import { ManagementLanguageProvider } from '@/lib/i18n/management-i18n';
 
 export const metadata: Metadata = generateSEOMetadata({
   title: 'Kitchen & Staff Terminal — Menzy',
@@ -10,6 +11,6 @@ export const metadata: Metadata = generateSEOMetadata({
 });
 
 export default function OrdersLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <ManagementLanguageProvider defaultLang="en">{children}</ManagementLanguageProvider>;
 }
 

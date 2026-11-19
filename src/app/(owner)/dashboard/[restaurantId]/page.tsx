@@ -4,6 +4,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { DashboardNav } from '@/components/dashboard/DashboardNav';
+import { ManagementLanguageProvider, useManagementLanguage } from '@/lib/i18n/management-i18n';
+import { LanguagePreferenceModal } from '@/components/i18n/LanguagePreferenceModal';
 import {
   Upload,
   CheckCircle2,
@@ -125,15 +127,17 @@ interface OverviewTableSummary {
 
 export default function RestaurantDashboardPage() {
   return (
-    <React.Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center bg-cream-100">
-          <div className="w-10 h-10 border-4 border-terracotta border-t-transparent rounded-full animate-spin" />
-        </div>
-      }
-    >
-      <RestaurantDashboardContent />
-    </React.Suspense>
+    <ManagementLanguageProvider defaultLang="en">
+      <React.Suspense
+        fallback={
+          <div className="min-h-screen flex items-center justify-center bg-cream-100">
+            <div className="w-10 h-10 border-4 border-terracotta border-t-transparent rounded-full animate-spin" />
+          </div>
+        }
+      >
+        <RestaurantDashboardContent />
+      </React.Suspense>
+    </ManagementLanguageProvider>
   );
 }
 
@@ -141,6 +145,7 @@ function RestaurantDashboardContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { t } = useManagementLanguage();
 
   const restaurantId = params?.restaurantId as string;
   const currentTab = searchParams.get('tab') || 'overview';
@@ -1634,6 +1639,7 @@ function RestaurantDashboardContent() {
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-cream-100/40 w-full">
+      <LanguagePreferenceModal />
       <DashboardNav
         currentRestaurant={restaurant}
         allRestaurants={allRestaurants}
@@ -1703,7 +1709,7 @@ function RestaurantDashboardContent() {
               className="w-full sm:w-auto justify-center inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-cream-300 text-xs sm:text-sm font-semibold text-espresso-800 hover:bg-cream-50 shadow-sm transition-all"
             >
               <ExternalLink className="w-4 h-4 text-terracotta" />
-              View Live Diner Menu
+              <span>{t('overview.viewLiveMenu', 'View Live Diner Menu')}</span>
             </a>
           </div>
         </div>
@@ -1851,20 +1857,127 @@ function RestaurantDashboardContent() {
 
             {currentTab === 'overview' && (
               <div className="space-y-8 animate-fade-in">
+                {/* Operational Metrics (Today Revenue, Today Orders, Active Tables, Average Order) */}
+                {(() => {
+                  const activeTablesCount = overviewTables.filter(
+                    (tbl) => Boolean(tbl.hasActiveOrders) || (tbl.activeOrderCount ?? 0) > 0
+                  ).length;
+                  const totalActiveOrders = overviewTables.reduce(
+                    (acc, tbl) => acc + (tbl.activeOrderCount ?? 0),
+                    0
+                  );
+                  const openBillSumMinor = overviewTables.reduce(
+                    (acc, tbl) => acc + (tbl.activeOrdersTotalMinor || 0),
+                    0
+                  );
+                  const avgActiveOrderMinor =
+                    totalActiveOrders > 0
+                      ? Math.round(openBillSumMinor / totalActiveOrders)
+                      : 0;
+
+                  return (
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                      {/* Today Revenue */}
+                      <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
+                        <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">
+                          {t('overview.todayRevenue', 'Today Revenue')}
+                        </span>
+                        <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
+                          {formatCurrencyMinor(
+                            openBillSumMinor,
+                            restaurant.currency || 'INR'
+                          )}
+                        </div>
+                        <div className="text-[11px] sm:text-xs text-sage-700 mt-1 flex items-center gap-1">
+                          {openBillSumMinor > 0 ? (
+                            <>
+                              <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+                              <span>{t('overview.openBill', 'Open Bill')}</span>
+                            </>
+                          ) : (
+                            <span className="text-taupe-500">
+                              {t('overview.salesVolume', 'Sales Volume')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Today Orders */}
+                      <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
+                        <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">
+                          {t('overview.todayOrders', 'Today Orders')}
+                        </span>
+                        <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
+                          {totalActiveOrders}
+                        </div>
+                        <div className="text-[11px] sm:text-xs text-sage-700 mt-1 flex items-center gap-1">
+                          {totalActiveOrders > 0 ? (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                              <span>{t('overview.activeOrders', 'Active Orders')}</span>
+                            </>
+                          ) : (
+                            <span className="text-taupe-500">
+                              {t('overview.noActiveOrders', 'No active orders')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Active Tables */}
+                      <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
+                        <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">
+                          {t('overview.activeTables', 'Active Tables')}
+                        </span>
+                        <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
+                          {activeTablesCount}{' '}
+                          <span className="text-sm sm:text-base font-normal text-taupe-500">
+                            / {overviewTables.length}
+                          </span>
+                        </div>
+                        <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
+                          {overviewTables.length - activeTablesCount}{' '}
+                          {t('overview.availableTables', 'Available')}
+                        </div>
+                      </div>
+
+                      {/* Average Order */}
+                      <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
+                        <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">
+                          {t('overview.averageOrder', 'Average Order')}
+                        </span>
+                        <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
+                          {avgActiveOrderMinor > 0
+                            ? formatCurrencyMinor(
+                                avgActiveOrderMinor,
+                                restaurant.currency || 'INR'
+                              )
+                            : '—'}
+                        </div>
+                        <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
+                          {t('overview.averageOrderValue', 'Average Order Value')}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Catalog & Engagement Metrics */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                   <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
                     <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">
-                      Total Menu Items
+                      {t('overview.totalMenuItems', 'Total Menu Items')}
                     </span>
                     <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
                       {secondaryLoading.items && menuItems.length === 0 ? '—' : menuItems.length}
                     </div>
                     <div className="text-[11px] sm:text-xs text-sage-700 mt-1 flex items-center gap-1">
                       {secondaryLoading.items && menuItems.length === 0 ? (
-                        <span className="text-taupe-500">Loading menu...</span>
+                        <span className="text-taupe-500">{t('overview.loadingMenu', 'Loading menu...')}</span>
                       ) : (
                         <>
-                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Live &amp; searchable
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />{' '}
+                          <span>{t('overview.liveSearchable', 'Live & searchable')}</span>
                         </>
                       )}
                     </div>
@@ -1872,49 +1985,56 @@ function RestaurantDashboardContent() {
 
                   <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
                     <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">
-                      QR Scans Today
+                      {t('overview.qrScansToday', 'QR Scans Today')}
                     </span>
                     <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
                       {analyticsLoading && !analyticsData ? '—' : analyticsData?.scans?.today ?? 0}
                     </div>
                     {analyticsLoading && !analyticsData ? (
                       <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
-                        Loading scans...
+                        {t('overview.loadingScans', 'Loading scans...')}
                       </div>
                     ) : (analyticsData?.scans?.today ?? 0) > 0 ? (
                       <div className="text-[11px] sm:text-xs text-sage-700 mt-1 flex items-center gap-1">
-                        <TrendingUp className="w-3.5 h-3.5 shrink-0" /> Active engagement
+                        <TrendingUp className="w-3.5 h-3.5 shrink-0" />{' '}
+                        <span>{t('overview.activeEngagement', 'Active engagement')}</span>
                       </div>
                     ) : (
                       <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
-                        No scans yet today
+                        {t('overview.noScansToday', 'No scans yet today')}
                       </div>
                     )}
                   </div>
 
                   <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
                     <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">
-                      AI Questions
+                      {t('overview.aiQuestions', 'AI Questions')}
                     </span>
                     <div className="text-2xl sm:text-3xl font-bold text-espresso-900 mt-2 tabular-nums">
                       {billingUsage ? billingUsage.chatQueriesThisMonth ?? 0 : '—'}
                     </div>
                     <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
                       {billingUsage
-                        ? `of ${billingUsage.maxChatQueries} monthly allowance`
-                        : 'Loading usage...'}
+                        ? t(
+                            'overview.monthlyAllowance',
+                            `of ${billingUsage.maxChatQueries} monthly allowance`,
+                            { max: billingUsage.maxChatQueries }
+                          )
+                        : t('overview.loadingUsage', 'Loading usage...')}
                     </div>
                   </div>
 
                   <div className="p-4 sm:p-5 bg-white rounded-2xl border border-cream-200 shadow-soft">
                     <span className="text-[10px] sm:text-xs font-semibold text-taupe-500 uppercase tracking-wider">
-                      3D Credits Left
+                      {t('overview.creditsLeft', '3D Credits Left')}
                     </span>
                     <div className="text-2xl sm:text-3xl font-bold text-terracotta mt-2 tabular-nums">
                       {billingUsage ? billingUsage.remainingImageCredits ?? 0 : '—'}
                     </div>
                     <div className="text-[11px] sm:text-xs text-taupe-500 mt-1">
-                      {billingUsage?.plan?.name ? `${billingUsage.plan.name} plan` : 'Loading plan...'}
+                      {billingUsage?.plan?.name
+                        ? `${billingUsage.plan.name} ${t('billing.currentPlan', 'plan')}`
+                        : t('overview.loadingPlan', 'Loading plan...')}
                     </div>
                   </div>
                 </div>
@@ -1922,7 +2042,7 @@ function RestaurantDashboardContent() {
                 {/* Live Floor — All Tables */}
                 {(() => {
                   const activeTablesCount = overviewTables.filter(
-                    (t) => Boolean(t.hasActiveOrders) || (t.activeOrderCount ?? 0) > 0
+                    (tbl) => Boolean(tbl.hasActiveOrders) || (tbl.activeOrderCount ?? 0) > 0
                   ).length;
 
                   return (
@@ -1932,7 +2052,7 @@ function RestaurantDashboardContent() {
                           <div className="flex flex-wrap items-center gap-2">
                             <MapPin className="w-4 h-4 text-terracotta shrink-0" />
                             <h3 className="font-serif text-lg font-bold text-espresso-900">
-                              Live Floor — All Tables
+                              {t('overview.liveFloor', 'Live Floor — All Tables')}
                             </h3>
                             {overviewTables.length > 0 && (
                               <span
@@ -1945,12 +2065,12 @@ function RestaurantDashboardContent() {
                                 {activeTablesCount > 0 && (
                                   <span className="h-1.5 w-1.5 rounded-full bg-terracotta animate-pulse motion-reduce:animate-none" />
                                 )}
-                                {activeTablesCount} active / {overviewTables.length} total
+                                {activeTablesCount} {t('common.active', 'active')} / {overviewTables.length} {t('common.total', 'total')}
                               </span>
                             )}
                           </div>
                           <p className="text-xs text-taupe-500 mt-0.5">
-                            Click any table to jump straight to its live orders.
+                            {t('overview.clickTableHint', 'Click any table to jump straight to its live orders.')}
                           </p>
                         </div>
 
@@ -1960,14 +2080,14 @@ function RestaurantDashboardContent() {
                             onClick={() => router.push(`/dashboard/${restaurant.id}?tab=orders`)}
                             className="text-xs font-semibold text-espresso-800 hover:text-terracotta transition-colors"
                           >
-                            Live Orders
+                            {t('overview.viewLiveOrders', 'Live Orders')}
                           </button>
                           <button
                             type="button"
                             onClick={() => router.push(`/dashboard/${restaurant.id}?tab=tables`)}
                             className="text-xs font-semibold text-terracotta hover:underline"
                           >
-                            Manage Tables &rarr;
+                            {t('overview.manageTables', 'Manage Tables →')}
                           </button>
                         </div>
                       </div>
@@ -1987,50 +2107,53 @@ function RestaurantDashboardContent() {
                       ) : overviewTables.length === 0 ? (
                         <div className="rounded-2xl border border-dashed border-cream-300 bg-cream-50/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <p className="text-xs text-taupe-600">
-                            No tables set up yet. Add your dining tables to print QR codes and track live orders at a glance.
+                            {t(
+                              'overview.noTablesSetup',
+                              'No tables set up yet. Add your dining tables to print QR codes and track live orders at a glance.'
+                            )}
                           </p>
                           <button
                             type="button"
                             onClick={() => router.push(`/dashboard/${restaurant.id}?tab=tables`)}
                             className="px-3.5 py-2 rounded-xl bg-espresso-900 hover:bg-espresso-800 text-white text-xs font-semibold shrink-0 transition-colors"
                           >
-                            Set Up Tables
+                            {t('overview.setUpTables', 'Set Up Tables')}
                           </button>
                         </div>
                       ) : (
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
-                          {overviewTables.map((t) => {
-                            const activeCount = t.activeOrderCount ?? 0;
-                            const hasActive = Boolean(t.hasActiveOrders) || activeCount > 0;
+                          {overviewTables.map((tbl) => {
+                            const activeCount = tbl.activeOrderCount ?? 0;
+                            const hasActive = Boolean(tbl.hasActiveOrders) || activeCount > 0;
                             const openBillMinor =
-                              typeof t.activeOrdersTotalMinor === 'number'
-                                ? t.activeOrdersTotalMinor
+                              typeof tbl.activeOrdersTotalMinor === 'number'
+                                ? tbl.activeOrdersTotalMinor
                                 : null;
 
                             return (
                               <button
-                                key={t.id}
+                                key={tbl.id}
                                 type="button"
                                 onClick={() =>
                                   router.push(
-                                    `/dashboard/${restaurant.id}?tab=orders&tableId=${encodeURIComponent(t.id)}`
+                                    `/dashboard/${restaurant.id}?tab=orders&tableId=${encodeURIComponent(tbl.id)}`
                                   )
                                 }
-                                aria-label={`${t.name}, ${
+                                aria-label={`${tbl.name}, ${
                                   hasActive
                                     ? `${activeCount} active order${activeCount === 1 ? '' : 's'}${
                                         openBillMinor && openBillMinor > 0
                                           ? `, ${formatCurrencyMinor(openBillMinor, restaurant.currency || 'INR')}`
                                           : ''
                                       }`
-                                    : t.isActive
+                                    : tbl.isActive
                                     ? 'Available'
                                     : 'Disabled'
                                 }`}
                                 className={`min-h-20 p-3 rounded-xl border text-left transition-all flex flex-col justify-between hover:-translate-y-0.5 active:translate-y-0 ${
                                   hasActive
                                     ? 'bg-gradient-to-br from-amber-50 to-terracotta/15 border-terracotta/80 ring-1 ring-terracotta/30 shadow-sm hover:border-terracotta'
-                                    : !t.isActive
+                                    : !tbl.isActive
                                     ? 'bg-taupe-50 border-taupe-200 opacity-65 hover:opacity-85'
                                     : 'bg-cream-50/70 border-cream-200 hover:border-emerald-300 hover:bg-emerald-50/40'
                                 }`}
@@ -2038,11 +2161,11 @@ function RestaurantDashboardContent() {
                                 <div className="flex items-start justify-between gap-2 w-full">
                                   <div className="min-w-0">
                                     <span className="block font-bold text-xs text-espresso-900 truncate">
-                                      {t.name}
+                                      {tbl.name}
                                     </span>
-                                    {t.section && (
+                                    {tbl.section && (
                                       <span className="block text-[10px] text-taupe-500 truncate mt-0.5">
-                                        {t.section}
+                                        {tbl.section}
                                       </span>
                                     )}
                                   </div>
@@ -2054,7 +2177,7 @@ function RestaurantDashboardContent() {
                                   ) : (
                                     <span
                                       className={`w-2 h-2 rounded-full shrink-0 mt-1 ${
-                                        t.isActive ? 'bg-emerald-500' : 'bg-taupe-400'
+                                        tbl.isActive ? 'bg-emerald-500' : 'bg-taupe-400'
                                       }`}
                                     />
                                   )}
@@ -2064,8 +2187,8 @@ function RestaurantDashboardContent() {
                                   <div className="mt-2 pt-1.5 border-t border-terracotta/20 flex items-center justify-between gap-1 w-full">
                                     <span className="text-[10px] font-bold text-terracotta truncate">
                                       {activeCount > 0
-                                        ? `${activeCount} active`
-                                        : 'Active'}
+                                        ? `${activeCount} ${t('common.active', 'active')}`
+                                        : t('common.active', 'Active')}
                                     </span>
                                     {openBillMinor !== null && openBillMinor > 0 && (
                                       <span className="text-[11px] font-bold text-espresso-900 tabular-nums shrink-0">
@@ -2078,7 +2201,9 @@ function RestaurantDashboardContent() {
                                   </div>
                                 ) : (
                                   <div className="text-[10px] mt-2 font-medium text-taupe-500">
-                                    {t.isActive ? 'Available' : 'Disabled'}
+                                    {tbl.isActive
+                                      ? t('overview.availableTables', 'Available')
+                                      : t('common.inactive', 'Disabled')}
                                   </div>
                                 )}
                               </button>
@@ -2093,10 +2218,13 @@ function RestaurantDashboardContent() {
                 <div className="p-5 sm:p-6 bg-gradient-to-r from-cream-100 to-cream-50 rounded-3xl border border-cream-300 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                   <div>
                     <h3 className="font-serif text-lg font-bold text-espresso-900">
-                      Get Diners Scanning Today
+                      {t('overview.getDinersScanning', 'Get Diners Scanning Today')}
                     </h3>
                     <p className="text-xs sm:text-sm text-taupe-600 mt-0.5">
-                      Download high-resolution QR codes and printable 4x6&quot; table tents for your tables.
+                      {t(
+                        'overview.getDinersScanningDesc',
+                        'Download high-resolution QR codes and printable 4x6" table tents for your tables.'
+                      )}
                     </p>
                   </div>
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full md:w-auto shrink-0">
@@ -2105,14 +2233,16 @@ function RestaurantDashboardContent() {
                       onClick={() => router.push(`/dashboard/${restaurant.id}?tab=qr`)}
                       className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-espresso-900 text-white text-xs sm:text-sm font-semibold hover:bg-espresso-800 transition-colors shadow-sm flex items-center gap-2"
                     >
-                      <QrCode className="w-4 h-4 text-terracotta" /> Download QR Studio
+                      <QrCode className="w-4 h-4 text-terracotta" />{' '}
+                      {t('overview.downloadQrStudio', 'Download QR Studio')}
                     </button>
                     <button
                       type="button"
                       onClick={() => router.push(`/dashboard/${restaurant.id}?tab=menu`)}
                       className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-white border border-cream-300 text-espresso-800 text-xs sm:text-sm font-semibold hover:bg-cream-100 transition-colors shadow-sm flex items-center gap-2"
                     >
-                      <Upload className="w-4 h-4 text-espresso-700" /> Import Menu (Photos / PDF)
+                      <Upload className="w-4 h-4 text-espresso-700" />{' '}
+                      {t('overview.importMenu', 'Import Menu (Photos / PDF)')}
                     </button>
                   </div>
                 </div>
@@ -2120,14 +2250,14 @@ function RestaurantDashboardContent() {
                 <div className="p-6 bg-white rounded-3xl border border-cream-200 shadow-soft">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="font-serif text-lg font-bold text-espresso-900">
-                      Your Menu Highlights
+                      {t('overview.menuHighlights', 'Your Menu Highlights')}
                     </h3>
                     <button
                       type="button"
                       onClick={() => router.push(`/dashboard/${restaurant.id}?tab=menu`)}
                       className="text-xs font-semibold text-terracotta hover:underline"
                     >
-                      Open Menu Studio &rarr;
+                      {t('overview.openMenuStudio', 'Open Menu Studio →')}
                     </button>
                   </div>
 
@@ -2161,12 +2291,16 @@ function RestaurantDashboardContent() {
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div>
                           <h4 className="font-semibold text-sm text-espresso-900">
-                            Upload your menu photos or PDF to get started
+                            {t(
+                              'overview.uploadMenuPrompt',
+                              'Upload your menu photos or PDF to get started'
+                            )}
                           </h4>
                           <p className="text-xs text-taupe-600 mt-1 max-w-xl">
-                            Choose multiple menu photos (JPG, PNG, WebP, HEIC) or a PDF menu — AI
-                            automatically extracts dishes, categories, prices, and Veg/Non-Veg
-                            indicators.
+                            {t(
+                              'overview.uploadMenuDesc',
+                              'Choose multiple menu photos (JPG, PNG, WebP, HEIC) or a PDF menu — AI automatically extracts dishes, categories, prices, and Veg/Non-Veg indicators.'
+                            )}
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
@@ -2177,7 +2311,7 @@ function RestaurantDashboardContent() {
                             className="px-3.5 py-2 rounded-xl bg-espresso-900 text-white text-xs font-semibold hover:bg-espresso-800 disabled:opacity-50 transition-colors inline-flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
                           >
                             <Camera className="w-3.5 h-3.5 text-terracotta" />
-                            <span>Upload Menu Photos</span>
+                            <span>{t('overview.uploadMenuPhotos', 'Upload Menu Photos')}</span>
                           </button>
                           <button
                             type="button"
@@ -2186,7 +2320,7 @@ function RestaurantDashboardContent() {
                             className="px-3.5 py-2 rounded-xl bg-white border border-cream-300 text-espresso-900 text-xs font-semibold hover:bg-cream-100 disabled:opacity-50 transition-colors inline-flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
                           >
                             <FileText className="w-3.5 h-3.5 text-terracotta" />
-                            <span>Upload Menu PDF</span>
+                            <span>{t('overview.uploadMenuPdf', 'Upload Menu PDF')}</span>
                           </button>
                         </div>
                       </div>
@@ -2223,7 +2357,9 @@ function RestaurantDashboardContent() {
                                       : 'bg-red-100 text-red-800'
                                   }`}
                                 >
-                                  {item.isAvailable ? 'In Stock' : 'Sold Out'}
+                                  {item.isAvailable
+                                    ? t('menu.inStock', 'In Stock')
+                                    : t('menu.outOfStock', 'Sold Out')}
                                 </span>
                               </div>
                             </div>
@@ -2241,10 +2377,13 @@ function RestaurantDashboardContent() {
                     </div>
                     <div>
                       <div className="font-semibold text-xs sm:text-sm text-espresso-900">
-                        Setup &amp; Onboarding Support
+                        {t('overview.supportTitle', 'Setup & Onboarding Support')}
                       </div>
                       <p className="text-xs text-taupe-500">
-                        For menu import, QR printing, or setup-related queries, email us anytime.
+                        {t(
+                          'overview.supportDesc',
+                          'For menu import, QR printing, or setup-related queries, email us anytime.'
+                        )}
                       </p>
                     </div>
                   </div>

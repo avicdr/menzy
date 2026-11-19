@@ -1520,14 +1520,25 @@ export function OrdersManagementView({
                         </div>
 
                         {isActive ? (
-                          <div className="mt-2 pt-1.5 border-t border-terracotta/20 flex items-center justify-between gap-1.5 w-full">
-                            <span className="text-[10px] font-bold text-terracotta truncate">
-                              {tableOrders.length} active
-                              {hasCall ? ' · Call' : ''}
-                            </span>
-                            <span className="text-[11px] font-bold text-espresso-900 tabular-nums shrink-0">
-                              {formatPrice(tableOpenBillMinor)}
-                            </span>
+                          <div className="mt-2 pt-1.5 border-t border-terracotta/20 space-y-1 w-full">
+                            {(() => {
+                              const customerName = tableOrders.find((o) => o.customerName)?.customerName;
+                              return customerName ? (
+                                <div className="text-[10px] font-semibold text-espresso-900 truncate flex items-center gap-1">
+                                  <span className="text-taupe-400 text-[10px]">👤</span>
+                                  <span className="truncate">{customerName}</span>
+                                </div>
+                              ) : null;
+                            })()}
+                            <div className="flex items-center justify-between gap-1.5 w-full">
+                              <span className="text-[10px] font-bold text-terracotta truncate">
+                                {tableOrders.length} active
+                                {hasCall ? ' · Call' : ''}
+                              </span>
+                              <span className="text-[11px] font-bold text-espresso-900 tabular-nums shrink-0">
+                                {formatPrice(tableOpenBillMinor)}
+                              </span>
+                            </div>
                           </div>
                         ) : (
                           <div

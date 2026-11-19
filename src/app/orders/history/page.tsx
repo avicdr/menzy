@@ -21,6 +21,8 @@ import {
 import { formatCurrencyMinor } from '@/lib/payments/plans';
 import { generateStaffTypographyVars } from '@/lib/theme/theme-presets';
 import { SUPPORT_EMAIL_DISPLAY, SUPPORT_EMAIL_HREF } from '@/lib/support/contact';
+import { useManagementLanguage } from '@/lib/i18n/management-i18n';
+import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher';
 import {
   SESSION_CACHE_TTLS,
   cacheKeys,
@@ -33,6 +35,7 @@ import {
 
 export default function StaffOrderHistoryPage() {
   const router = useRouter();
+  const { t } = useManagementLanguage();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [subscriptionPaused, setSubscriptionPaused] = useState<{
@@ -179,7 +182,7 @@ export default function StaffOrderHistoryPage() {
       <div className="min-h-screen flex items-center justify-center bg-[#0D0A08] text-cream-100 font-sans">
         <div className="flex flex-col items-center gap-3">
           <div className="w-10 h-10 border-4 border-terracotta border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm font-serif">Loading Historical Logs...</p>
+          <p className="text-sm font-serif">{t('history.loadingLogs', 'Loading Historical Logs...')}</p>
         </div>
       </div>
     );
@@ -198,7 +201,7 @@ export default function StaffOrderHistoryPage() {
           </div>
           <div className="space-y-1.5">
             <h1 className="font-serif text-2xl font-bold text-cream-50">
-              Order History Paused
+              {t('kitchen.terminalPaused', 'Order History Paused')}
             </h1>
             {subscriptionPaused.restaurantName && (
               <p className="text-xs font-mono text-amber-300">{subscriptionPaused.restaurantName}</p>
@@ -222,7 +225,7 @@ export default function StaffOrderHistoryPage() {
               className="px-4 py-2.5 rounded-xl bg-espresso-800 hover:bg-espresso-700 text-cream-100 text-xs font-semibold transition-colors inline-flex items-center justify-center gap-1.5"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              Retry
+              {t('common.refresh', 'Retry')}
             </button>
           </div>
           <div className="pt-3 border-t border-espresso-800/80 text-xs text-taupe-300">
@@ -251,25 +254,32 @@ export default function StaffOrderHistoryPage() {
           <Link
             href="/orders"
             className="p-2 rounded-xl text-taupe-400 hover:text-white hover:bg-espresso-800 transition-colors"
-            title="Back to Live Kitchen Terminal"
+            title={t('history.backToLive', 'Back to Live Kitchen Terminal')}
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div>
-            <h1 className="font-serif text-lg font-bold text-cream-50 leading-tight">Order History</h1>
+            <h1 className="font-serif text-lg font-bold text-cream-50 leading-tight">
+              {t('history.title', 'Order History')}
+            </h1>
             <p className="text-[11px] text-taupe-400">
-              {restaurantData?.restaurantName || 'Restaurant Terminal'} • Historical Logs & Audit Records
+              {t('history.subtitle', '{name} • Historical Logs & Audit Records', {
+                name: restaurantData?.restaurantName || 'Restaurant Terminal',
+              })}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Language Switcher */}
+          <LanguageSwitcher theme="dark" variant="toggle" size="sm" />
+
           <button
             onClick={handleExportCsv}
             className="px-3 py-1.5 rounded-xl bg-espresso-800 hover:bg-espresso-700 border border-espresso-700 text-cream-100 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
           >
             <Download className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">Export CSV</span>
+            <span className="hidden sm:inline">{t('history.exportCsv', 'Export CSV')}</span>
           </button>
 
           <Link
@@ -277,7 +287,7 @@ export default function StaffOrderHistoryPage() {
             className="px-3.5 py-1.5 rounded-xl bg-terracotta hover:bg-terracotta-600 text-white text-xs font-semibold transition-colors shadow-md flex items-center gap-1.5"
           >
             <Utensils className="w-3.5 h-3.5" />
-            <span>Live Terminal</span>
+            <span>{t('history.liveTerminal', 'Live Terminal')}</span>
           </Link>
         </div>
       </header>
@@ -288,7 +298,7 @@ export default function StaffOrderHistoryPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="p-4 bg-[#140E0A] rounded-2xl border border-espresso-800 shadow">
             <span className="text-[10px] font-semibold text-taupe-400 uppercase tracking-wider">
-              Total Filtered Orders
+              {t('history.totalOrders', 'Total Filtered Orders')}
             </span>
             <div className="text-2xl font-bold font-mono text-cream-50 mt-1">
               {pagination?.totalCount || 0}
@@ -296,7 +306,7 @@ export default function StaffOrderHistoryPage() {
           </div>
           <div className="p-4 bg-[#140E0A] rounded-2xl border border-espresso-800 shadow">
             <span className="text-[10px] font-semibold text-taupe-400 uppercase tracking-wider">
-              Recorded Order Value
+              {t('history.totalValue', 'Recorded Order Value')}
             </span>
             <div className="text-2xl font-bold font-mono text-terracotta mt-1">
               {formatCurrencyMinor(metrics?.totalOrderValueMinor || 0, metrics?.currency || 'INR')}
@@ -304,7 +314,7 @@ export default function StaffOrderHistoryPage() {
           </div>
           <div className="p-4 bg-[#140E0A] rounded-2xl border border-espresso-800 shadow">
             <span className="text-[10px] font-semibold text-taupe-400 uppercase tracking-wider">
-              Average Order Value (AOV)
+              {t('history.aov', 'Average Order Value (AOV)')}
             </span>
             <div className="text-2xl font-bold font-mono text-emerald-400 mt-1">
               {formatCurrencyMinor(metrics?.averageOrderValueMinor || 0, metrics?.currency || 'INR')}
@@ -319,7 +329,7 @@ export default function StaffOrderHistoryPage() {
             <Search className="w-4 h-4 text-taupe-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search by order number or dish name..."
+              placeholder={t('history.searchPlaceholder', 'Search by order number or dish name...')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               style={{ colorScheme: 'dark', backgroundColor: '#1A120D', color: '#FAF7F2' }}
@@ -330,10 +340,10 @@ export default function StaffOrderHistoryPage() {
           {/* Quick Date Range Pills */}
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
             {[
-              { id: 'today', label: 'Today' },
-              { id: 'yesterday', label: 'Yesterday' },
-              { id: '7d', label: 'Last 7 Days' },
-              { id: '30d', label: 'Last 30 Days' },
+              { id: 'today', label: t('history.today', 'Today') },
+              { id: 'yesterday', label: t('history.yesterday', 'Yesterday') },
+              { id: '7d', label: t('history.last7Days', 'Last 7 Days') },
+              { id: '30d', label: t('history.last30Days', 'Last 30 Days') },
             ].map((r) => (
               <button
                 key={r.id}
@@ -361,15 +371,15 @@ export default function StaffOrderHistoryPage() {
               style={{ colorScheme: 'dark', backgroundColor: '#1A120D', color: '#FAF7F2' }}
               className="px-3 py-1.5 rounded-xl bg-[#1A120D] border border-espresso-700 text-xs text-cream-50 focus:outline-none focus:border-terracotta dark-input ml-1"
             >
-              <option value="" className="bg-[#1A120D] text-white">All Statuses</option>
-              <option value="COMPLETED" className="bg-[#1A120D] text-white">Completed</option>
-              <option value="SERVED" className="bg-[#1A120D] text-white">Served</option>
-              <option value="READY" className="bg-[#1A120D] text-white">Ready</option>
-              <option value="PREPARING" className="bg-[#1A120D] text-white">Preparing</option>
-              <option value="ACCEPTED" className="bg-[#1A120D] text-white">Accepted</option>
-              <option value="PLACED" className="bg-[#1A120D] text-white">Placed</option>
-              <option value="REJECTED" className="bg-[#1A120D] text-white">Rejected</option>
-              <option value="CANCELLED" className="bg-[#1A120D] text-white">Cancelled</option>
+              <option value="" className="bg-[#1A120D] text-white">{t('history.allStatuses', 'All Statuses')}</option>
+              <option value="COMPLETED" className="bg-[#1A120D] text-white">{t('kitchen.stageCompleted', 'Completed')}</option>
+              <option value="SERVED" className="bg-[#1A120D] text-white">{t('kitchen.stageServed', 'Served')}</option>
+              <option value="READY" className="bg-[#1A120D] text-white">{t('kitchen.stageReady', 'Ready')}</option>
+              <option value="PREPARING" className="bg-[#1A120D] text-white">{t('kitchen.stagePreparing', 'Preparing')}</option>
+              <option value="ACCEPTED" className="bg-[#1A120D] text-white">{t('kitchen.stageAccepted', 'Accepted')}</option>
+              <option value="PLACED" className="bg-[#1A120D] text-white">{t('kitchen.stagePlaced', 'Placed')}</option>
+              <option value="REJECTED" className="bg-[#1A120D] text-white">{t('kitchen.stageRejected', 'Rejected')}</option>
+              <option value="CANCELLED" className="bg-[#1A120D] text-white">{t('kitchen.stageCancelled', 'Cancelled')}</option>
             </select>
           </div>
         </div>
@@ -380,20 +390,35 @@ export default function StaffOrderHistoryPage() {
             <table className="w-full min-w-[720px] text-left text-xs">
               <thead className="bg-[#19120E] text-taupe-400 uppercase text-[10px] tracking-wider border-b border-espresso-800">
                 <tr>
-                  <th className="py-3 px-4 font-semibold">Order #</th>
-                  <th className="py-3 px-4 font-semibold">Table</th>
-                  <th className="py-3 px-4 font-semibold">Date & Time</th>
-                  <th className="py-3 px-4 font-semibold">Dishes Summary</th>
-                  <th className="py-3 px-4 font-semibold">Total Amount</th>
-                  <th className="py-3 px-4 font-semibold">Status</th>
-                  <th className="py-3 px-4 font-semibold text-right">Handled By</th>
+                  <th className="py-3 px-4 font-semibold">{t('history.thOrder', 'Order #')}</th>
+                  <th className="py-3 px-4 font-semibold">{t('history.thTable', 'Table')}</th>
+                  <th className="py-3 px-4 font-semibold">{t('history.thCustomer', 'Customer')}</th>
+                  <th className="py-3 px-4 font-semibold">{t('history.thDateTime', 'Date & Time')}</th>
+                  <th className="py-3 px-4 font-semibold">{t('history.thDishes', 'Dishes Summary')}</th>
+                  <th className="py-3 px-4 font-semibold">{t('history.thTotal', 'Total Amount')}</th>
+                  <th className="py-3 px-4 font-semibold">{t('history.thStatus', 'Status')}</th>
+                  <th className="py-3 px-4 font-semibold text-right">{t('history.thHandledBy', 'Handled By')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-espresso-800/60">
                 {orders.map((o) => (
                   <tr key={o.id} className="hover:bg-espresso-800/30 transition-colors">
                     <td className="py-3.5 px-4 font-mono font-bold text-cream-50">#{o.orderNumber}</td>
-                    <td className="py-3.5 px-4 font-bold text-amber-300">📍 {o.tableName}</td>
+                    <td className="py-3.5 px-4 font-bold text-amber-300">
+                      📍 {o.tableName || o.table?.name || '—'}
+                      {o.tableSection ? ` (${o.tableSection})` : ''}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <div className="font-semibold text-cream-100 flex items-center gap-1.5">
+                        <span className="text-taupe-400 text-xs">👤</span>
+                        <span>{o.customerName || t('kitchen.dineInGuest', 'Dine-in Guest')}</span>
+                      </div>
+                      {o.customerMobile && (
+                        <div className="text-[10px] font-mono text-taupe-400 pl-4">
+                          {o.customerMobile}
+                        </div>
+                      )}
+                    </td>
                     <td className="py-3.5 px-4 font-mono text-taupe-400 text-[11px]">
                       {new Date(o.placedAt).toLocaleString()}
                     </td>
@@ -423,8 +448,8 @@ export default function StaffOrderHistoryPage() {
                 ))}
                 {orders.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-taupe-400">
-                      No historical orders found matching this filter criteria.
+                    <td colSpan={8} className="py-12 text-center text-taupe-400">
+                      {t('history.noOrders', 'No historical orders found matching this filter criteria.')}
                     </td>
                   </tr>
                 )}
@@ -436,7 +461,11 @@ export default function StaffOrderHistoryPage() {
           {pagination && pagination.totalPages > 1 && (
             <div className="pt-4 border-t border-espresso-800 flex items-center justify-between text-xs text-taupe-400">
               <div>
-                Page {pagination.page} of {pagination.totalPages} ({pagination.totalCount} total)
+                {t('history.pageInfo', 'Page {page} of {totalPages} ({totalCount} total)', {
+                  page: pagination.page,
+                  totalPages: pagination.totalPages,
+                  totalCount: pagination.totalCount,
+                })}
               </div>
               <div className="flex items-center gap-1.5">
                 <button
@@ -461,4 +490,3 @@ export default function StaffOrderHistoryPage() {
     </div>
   );
 }
-

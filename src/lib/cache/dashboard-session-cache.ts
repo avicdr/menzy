@@ -28,6 +28,7 @@ export const ACTIVE_TABLE_ORDER_STATUSES = new Set([
   'ACCEPTED',
   'PREPARING',
   'READY',
+  'SERVED',
 ]);
 
 export interface CachedSessionEnvelope<T> {
@@ -424,4 +425,3 @@ export function syncCachedTablesActiveOrderCounts(
 
   return changed;
 }
-

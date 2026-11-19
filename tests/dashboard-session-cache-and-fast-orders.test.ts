@@ -399,7 +399,7 @@ describe('Dashboard Session Cache & Consolidated Order/Table/Staff APIs', () => 
       const changed = syncCachedTablesActiveOrderCounts('rest-sync', [
         { status: 'PLACED', tableId: 't1' },
         { status: 'READY', table: { id: 't1' } },
-        { status: 'SERVED', tableId: 't2' }, // Served does not increment active kitchen badge
+        { status: 'SERVED', tableId: 't2' }, // Served remains active until the bill is completed
         { status: 'COMPLETED', tableId: 't2' },
       ]);
       expect(changed).toBe(true);
@@ -408,7 +408,7 @@ describe('Dashboard Session Cache & Consolidated Order/Table/Staff APIs', () => 
       expect(updated?.updatedAt).toBe(seededAt);
       expect(updated?.data).toEqual([
         { id: 't1', name: 'Table 1', activeOrderCount: 2 },
-        { id: 't2', name: 'Table 2', activeOrderCount: 0 },
+        { id: 't2', name: 'Table 2', activeOrderCount: 1 },
       ]);
 
       // Calling again with identical counts is a no-op
@@ -416,6 +416,7 @@ describe('Dashboard Session Cache & Consolidated Order/Table/Staff APIs', () => 
         syncCachedTablesActiveOrderCounts('rest-sync', [
           { status: 'PLACED', tableId: 't1' },
           { status: 'READY', table: { id: 't1' } },
+          { status: 'SERVED', tableId: 't2' },
         ])
       ).toBe(false);
     });
@@ -483,7 +484,7 @@ describe('Dashboard Session Cache & Consolidated Order/Table/Staff APIs', () => 
       const t1 = data.tables.find((t: any) => t.id === tenantA.table1.id);
       const t2 = data.tables.find((t: any) => t.id === tenantA.table2.id);
       expect(t1.activeOrderCount).toBe(2); // PLACED + PREPARING
-      expect(t2.activeOrderCount).toBe(0); // SERVED not counted in active badge
+      expect(t2.activeOrderCount).toBe(1); // SERVED remains highlighted until completion
       expect(t1.scanUrl).toContain(tenantA.restaurant.slug);
 
       // Tables & Staff endpoints set private no-store headers and hide passwordHash
