@@ -49,6 +49,25 @@ export async function loadDinerMenuPayload(rawSlug: string): Promise<DinerMenuLo
     }
   }
 
+  // Alias cute-and-cup to cute-and-cup-demo (and vice versa) if requested
+  if (slug === 'cute-and-cup') {
+    const directMatch = await prisma.restaurant.findUnique({
+      where: { slug: 'cute-and-cup' },
+      select: { id: true },
+    });
+    if (!directMatch) {
+      slug = 'cute-and-cup-demo';
+    }
+  } else if (slug === 'cute-and-cup-demo') {
+    const directMatch = await prisma.restaurant.findUnique({
+      where: { slug: 'cute-and-cup-demo' },
+      select: { id: true },
+    });
+    if (!directMatch) {
+      slug = 'cute-and-cup';
+    }
+  }
+
   const cache = getCache();
   const cacheKey = `menu:slug:${slug}`;
   const cached = await cache.get(cacheKey).catch(() => null);
